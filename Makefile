@@ -25,7 +25,7 @@ KISSFFT_OBJS := $(patsubst $(THIRD_PARTY)/%.c,$(BUILD_DIR)/%.o,$(KISSFFT_SRCS))
 TEST_OBJ := $(BUILD_DIR)/main.o
 
 # Targets
-TARGETS := main
+TARGETS := main.out
 
 all: $(TARGETS)
 
