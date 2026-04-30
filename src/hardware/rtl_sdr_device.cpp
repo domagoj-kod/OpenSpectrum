@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 #include "rtl_sdr_device.h"
 #include <stdexcept>
 

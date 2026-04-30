@@ -1,4 +1,6 @@
+// SPDX-License-Identifier: MIT
 #pragma once
+
 #include <cstdint>
 #include <vector>
 #include <complex>
