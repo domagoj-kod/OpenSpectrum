@@ -209,20 +209,16 @@ namespace openspectrum
         {
             float db = m_spectrum_data[i];
             // Invert Y-axis: higher dB = higher on screen
-            float height = (db - m_min_db) * db_to_height;
-            height = std::clamp(height, 0.0f, static_cast<float>(m_height));
+            float bar_height = (db - m_min_db) * db_to_height;
+            bar_height = std::clamp(bar_height, 0.0f, static_cast<float>(m_height));
 
             // Get color for this dB value
             auto color = m_palette.get_color(db, m_min_db, m_max_db);
 
             // Fill from bottom to spectrum line
             size_t x = static_cast<size_t>(i * bin_width);
-            size_t next_x = static_cast<size_t>((i + 1) * bin_width);
-            if (next_x > m_width)
-                next_x = m_width;
-
             size_t bottom_y = m_height - 1;
-            size_t top_y = static_cast<size_t>(m_height - height);
+            size_t top_y = static_cast<size_t>(m_height - bar_height);
 
             if (top_y >= m_height)
                 top_y = m_height - 1;

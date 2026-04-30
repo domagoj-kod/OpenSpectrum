@@ -10,7 +10,7 @@
 class RtlSdrDevice
 {
 public:
-    RtlSdrDevice(uint32_t index = 0);
+    explicit RtlSdrDevice(uint32_t index = 0);
     ~RtlSdrDevice();
 
     bool open();
@@ -26,13 +26,13 @@ public:
     std::vector<std::complex<float>> read_samples(size_t count);
 
     // Async callback
-    void start_streaming(size_t buffer_count = 8);
-    void stop_streaming();
+    static void start_streaming(size_t buffer_count = 8);
+    static void stop_streaming();
     using SampleCallback = std::function<void(std::vector<std::complex<float>>)>;
     void set_callback(SampleCallback cb);
 
 private:
-    static void static_callback(uint8_t *buf, uint32_t len, void *ctx);
+    static void static_callback(const uint8_t *buf, uint32_t len, void *ctx);
     void process_callback(const uint8_t *buf, uint32_t len);
 
     rtlsdr_dev_t *m_dev = nullptr;

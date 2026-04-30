@@ -89,7 +89,7 @@ void RtlSdrDevice::set_callback(SampleCallback cb)
 void RtlSdrDevice::start_streaming(size_t /*buffer_count*/) {}
 void RtlSdrDevice::stop_streaming() {}
 
-void RtlSdrDevice::static_callback(uint8_t *buf, uint32_t len, void *ctx)
+void RtlSdrDevice::static_callback(const uint8_t *buf, uint32_t len, void *ctx)
 {
     static_cast<RtlSdrDevice *>(ctx)->process_callback(buf, len);
 }

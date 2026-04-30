@@ -57,7 +57,7 @@ namespace openspectrum
     {
     public:
         explicit FileSink(const std::string &filename, size_t max_size = 10485760); // 10MB default
-        ~FileSink();
+        ~FileSink() override;
 
         void write(const LogEntry &entry) override;
         void flush() override;

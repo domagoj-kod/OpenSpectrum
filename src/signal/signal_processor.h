@@ -31,7 +31,7 @@ namespace openspectrum
         void apply_window(std::vector<std::complex<float>> &samples);
 
         // Remove DC offset (mean subtraction)
-        void remove_dc(std::vector<std::complex<float>> &samples);
+        static void remove_dc(std::vector<std::complex<float>> &samples);
 
         // Set window function
         void set_window(WindowFunction window) noexcept { m_window = window; }

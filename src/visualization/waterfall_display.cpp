@@ -44,27 +44,12 @@ namespace openspectrum
     void WaterfallDisplay::add_spectrum_line(const std::vector<float> &db_values)
     {
         if (db_values.empty() || db_values.size() > m_width)
-        {
             return; // Invalid input
-        }
 
         // Resample if needed to match width
         std::vector<float> line(m_width, m_min_db);
         if (db_values.size() == m_width)
-        {
             line = db_values;
-        }
-        else if (db_values.size() < m_width)
-        {
-            // Nearest-neighbor interpolation
-            float scale = static_cast<float>(db_values.size() - 1) / (m_width - 1);
-            for (size_t i = 0; i < m_width; ++i)
-            {
-                size_t src_idx = static_cast<size_t>(i * scale);
-                src_idx = std::min(src_idx, db_values.size() - 1);
-                line[i] = db_values[src_idx];
-            }
-        }
         else
         {
             // Downsample by averaging
@@ -148,8 +133,6 @@ namespace openspectrum
             return;
         }
 
-        const float db_to_color = 1.0f / db_range;
-
         // Render history lines from bottom to top (oldest at bottom, newest at top)
         size_t y_offset = 0;
         const size_t line_height = std::max(1UL, m_height / m_history_capacity);
@@ -165,13 +148,10 @@ namespace openspectrum
             for (size_t y = 0; y < actual_line_height; ++y)
             {
                 size_t pixel_row = y_offset + y;
-                size_t src_row_idx = 0; // Use same line data for all pixels in this row
 
                 for (size_t x = 0; x < m_width && x < line.size(); ++x)
                 {
                     float db = line[x];
-                    float normalized_db = std::clamp((db - m_global_min) * db_to_color, 0.0f, 1.0f);
-
                     auto color = m_palette.get_color(db, m_global_min, m_global_max);
 
                     size_t idx = (pixel_row * m_width + x) * 4;
