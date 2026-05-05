@@ -4,6 +4,7 @@
 #include "gui/sdl_renderer.h"
 #include "hardware/rtl_sdr_device.h"
 #include "signal/signal_processor.h"
+#include "utils/arg_parser.h"
 #include "utils/logger.h"
 #include "visualization/spectrum_display.h"
 #include "visualization/waterfall_display.h"
@@ -27,7 +28,21 @@ static void signal_handler(int signum) {
   }
 }
 
-int main() {
+int main(int argc, char *argv[]) {
+  // Parse command-line arguments
+  AppConfig config = parse_arguments(argc, argv);
+
+  if (config.show_help) {
+    print_usage(argv[0]);
+    return 0;
+  }
+
+  // Validate FFT size is a power of two
+  if (!is_power_of_two(config.fft_size)) {
+    LOG_ERROR("FFT size must be a power of two (e.g., 1024, 2048, 4096, 8192)");
+    return 1;
+  }
+
   // Initialize logging
   Logger::get_instance().add_sink(std::make_unique<ConsoleSink>());
   // Logger::get_instance().add_sink(std::make_unique<FileSink>("spectrum.log"));
@@ -39,11 +54,17 @@ int main() {
   std::signal(SIGINT, signal_handler);
   std::signal(SIGTERM, signal_handler);
 
+  // Log configuration
+  LOGS_INFO << "Configuration: freq=" << static_cast<int>(config.center_freq_hz)
+            << "Hz, rate=" << static_cast<int>(config.sample_rate_hz)
+            << "Hz, gain=" << config.gain_db
+            << "dB, fft_size=" << config.fft_size;
+
   // Configuration
-  constexpr size_t FFT_SIZE = 4096;
-  constexpr size_t DISPLAY_WIDTH = 800;
-  constexpr size_t DISPLAY_HEIGHT = 480;
-  constexpr size_t WATERFALL_LINES = DISPLAY_HEIGHT / 2;
+  const size_t FFT_SIZE = config.fft_size;
+  const size_t DISPLAY_WIDTH = config.display_width;
+  const size_t DISPLAY_HEIGHT = config.display_height;
+  const size_t WATERFALL_LINES = DISPLAY_HEIGHT / 2;
 
   try {
     // 1. Initialize SDL2 renderer FIRST (before hardware)
@@ -62,13 +83,16 @@ int main() {
       return 1;
     }
 
-    dev.set_sample_rate(2048000); // 2.048 MS/s
-    dev.set_frequency(92600000);  // 92.6 MHz
-    dev.set_gain(10.0f);          // ~10 dB
+    dev.set_sample_rate(static_cast<uint32_t>(config.sample_rate_hz));
+    dev.set_frequency(static_cast<uint32_t>(config.center_freq_hz));
+    dev.set_gain(config.gain_db);
 
     // CRITICAL: flush USB buffer before first read
     dev.reset_buffer();
-    LOG_INFO("RTL-SDR initialized: freq=100MHz, rate=2.048MS/s, gain=29dB");
+    LOGS_INFO << "RTL-SDR initialized: freq="
+              << static_cast<int>(config.center_freq_hz)
+              << "Hz, rate=" << static_cast<int>(config.sample_rate_hz)
+              << "Hz, gain=" << config.gain_db << "dB";
 
     // 3. Initialize signal processor
     SignalProcessor signal_processor(FFT_SIZE);
@@ -128,8 +152,7 @@ int main() {
 
       // === 6. Update displays ===
       spectrum_display.update_spectrum(
-          db_spectrum, freq_bins,
-          dev.is_open() ? static_cast<float>(100000000) : 0.0f, 2048000.0f);
+          db_spectrum, freq_bins, config.center_freq_hz, config.sample_rate_hz);
 
       waterfall_display.add_spectrum_line(db_spectrum);
 
