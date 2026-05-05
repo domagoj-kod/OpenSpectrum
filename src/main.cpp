@@ -77,6 +77,8 @@ int main() {
     // 4. Initialize FFT analyzer
     FftAnalyzer fft_analyzer(FFT_SIZE);
     fft_analyzer.enable_dc_center(true);
+    fft_analyzer.set_window_coherent_gain(
+        SignalProcessor::get_coherent_gain(WindowFunction::BLACKMAN_HARRIS));
 
     // 5. Initialize displays (split vertically: spectrum on top, waterfall
     // below)

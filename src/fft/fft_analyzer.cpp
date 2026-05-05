@@ -40,6 +40,7 @@ FftAnalyzer::~FftAnalyzer() {
 FftAnalyzer::FftAnalyzer(FftAnalyzer &&other) noexcept
     : m_fft_size(other.m_fft_size), m_center_dc(other.m_center_dc),
       m_inverse(other.m_inverse), m_cfg(other.m_cfg),
+      m_window_coherent_gain(other.m_window_coherent_gain),
       m_input_buffer(std::move(other.m_input_buffer)),
       m_output_buffer(std::move(other.m_output_buffer)),
       m_power_spectrum(std::move(other.m_power_spectrum)),
@@ -62,6 +63,7 @@ FftAnalyzer &FftAnalyzer::operator=(FftAnalyzer &&other) noexcept {
     m_center_dc = other.m_center_dc;
     m_inverse = other.m_inverse;
     m_cfg = other.m_cfg;
+    m_window_coherent_gain = other.m_window_coherent_gain;
     m_input_buffer = std::move(other.m_input_buffer);
     m_output_buffer = std::move(other.m_output_buffer);
     m_power_spectrum = std::move(other.m_power_spectrum);
@@ -121,7 +123,11 @@ void FftAnalyzer::execute(const std::vector<std::complex<float>> &input,
 
     // dB conversion with floor to avoid log(0)
     // Security: prevent NaN from log(0) with epsilon
-    m_db_spectrum[i] = 20.0f * std::log10(m_magnitude_spectrum[i] + 1e-12f);
+    float scale = (i != 0 && i != m_fft_size / 2) ? 2.0f : 1.0f;
+    m_db_spectrum[i] =
+        20.0f * std::log10(m_magnitude_spectrum[i] * scale /
+                               (m_fft_size * m_window_coherent_gain) +
+                           1e-12f);
   }
 
   // Copy to output if provided

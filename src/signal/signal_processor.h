@@ -41,6 +41,26 @@ public:
 
   size_t fft_size() const noexcept { return m_fft_size; }
 
+  // Coherent gain lookup
+  static float get_coherent_gain(WindowFunction window) noexcept {
+    switch (window) {
+    case WindowFunction::RECTANGLE:
+      return 1.0f;
+    case WindowFunction::HANN:
+      return 0.5f;
+    case WindowFunction::HAMMING:
+      return 0.54f;
+    case WindowFunction::BLACKMAN:
+      return 0.42659f;
+    case WindowFunction::BLACKMAN_HARRIS:
+      return 0.35875f;
+    case WindowFunction::FLAT_TOP:
+      return 1.0f;
+    default:
+      return 1.0f;
+    }
+  }
+
 private:
   size_t m_fft_size;
   WindowFunction m_window = WindowFunction::HANN;

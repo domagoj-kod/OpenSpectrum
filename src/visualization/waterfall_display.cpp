@@ -21,8 +21,6 @@ WaterfallDisplay::WaterfallDisplay(size_t width, size_t height,
 void WaterfallDisplay::set_db_range(float min_db, float max_db) {
   m_min_db = std::min(min_db, max_db);
   m_max_db = std::max(min_db, max_db);
-  m_global_min = m_min_db;
-  m_global_max = m_max_db;
 }
 
 void WaterfallDisplay::reset() {
@@ -73,8 +71,10 @@ void WaterfallDisplay::add_spectrum_line(const std::vector<float> &db_values) {
 }
 
 void WaterfallDisplay::update_global_range() {
-  float new_min = m_min_db;
-  float new_max = m_max_db;
+  if (m_history.empty()) return;
+
+  float new_min = m_history.front()[0];
+  float new_max = m_history.front()[0];
 
   for (const auto &line : m_history) {
     if (!line.empty()) {

@@ -60,10 +60,14 @@ public:
   // Apply (-1)^n shift to input before FFT, or shift output after FFT
   void enable_dc_center(bool enabled) noexcept { m_center_dc = enabled; }
 
+  // Window gain setter
+  void set_window_coherent_gain(float gain) { m_window_coherent_gain = gain; }
+
 private:
   size_t m_fft_size;
   bool m_center_dc = false;
   bool m_inverse;
+  float m_window_coherent_gain = 1.0f; // Default to rectangular window
 
   // KissFFT configuration (opaque pointer - managed via RAII)
   kiss_fft_cfg m_cfg = nullptr;
