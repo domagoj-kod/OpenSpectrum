@@ -67,10 +67,9 @@ private:
   size_t m_fft_size;
   bool m_center_dc = false;
   bool m_inverse;
-  float m_window_coherent_gain = 1.0f; // Default to rectangular window
-
   // KissFFT configuration (opaque pointer - managed via RAII)
   kiss_fft_cfg m_cfg = nullptr;
+  float m_window_coherent_gain = 1.0f; // Default to rectangular window
 
   // Internal buffers for efficiency (avoid repeated allocations)
   std::vector<kiss_fft_cpx> m_input_buffer;

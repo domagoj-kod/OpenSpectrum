@@ -63,7 +63,6 @@ FftAnalyzer &FftAnalyzer::operator=(FftAnalyzer &&other) noexcept {
     m_center_dc = other.m_center_dc;
     m_inverse = other.m_inverse;
     m_cfg = other.m_cfg;
-    m_window_coherent_gain = other.m_window_coherent_gain;
     m_input_buffer = std::move(other.m_input_buffer);
     m_output_buffer = std::move(other.m_output_buffer);
     m_power_spectrum = std::move(other.m_power_spectrum);
@@ -71,6 +70,7 @@ FftAnalyzer &FftAnalyzer::operator=(FftAnalyzer &&other) noexcept {
     m_db_spectrum = std::move(other.m_db_spectrum);
     m_phase_spectrum = std::move(other.m_phase_spectrum);
     m_freq_bins = std::move(other.m_freq_bins);
+    m_window_coherent_gain = other.m_window_coherent_gain;
 
     other.m_cfg = nullptr;
     other.m_fft_size = 0;
@@ -126,7 +126,8 @@ void FftAnalyzer::execute(const std::vector<std::complex<float>> &input,
     float scale = (i != 0 && i != m_fft_size / 2) ? 2.0f : 1.0f;
     m_db_spectrum[i] =
         20.0f * std::log10(m_magnitude_spectrum[i] * scale /
-                               (m_fft_size * m_window_coherent_gain) +
+                               (static_cast<float>(m_fft_size) *
+                                m_window_coherent_gain) +
                            1e-12f);
   }
 

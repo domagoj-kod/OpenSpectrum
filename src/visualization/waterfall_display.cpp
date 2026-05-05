@@ -42,17 +42,17 @@ void WaterfallDisplay::add_spectrum_line(const std::vector<float> &db_values) {
     line = db_values;
   else {
     // Downsample by averaging
-    float scale = static_cast<float>(db_values.size()) / m_width;
+    float scale = static_cast<float>(db_values.size()) / static_cast<float>(m_width);
     for (size_t i = 0; i < m_width; ++i) {
-      size_t start = static_cast<size_t>(i * scale);
-      size_t end = static_cast<size_t>((i + 1) * scale);
+      size_t start = static_cast<size_t>(static_cast<float>(i) * scale);
+      size_t end = static_cast<size_t>(static_cast<float>(i + 1) * scale);
       end = std::min(end, db_values.size());
 
       float sum = 0.0f;
       for (size_t j = start; j < end; ++j) {
         sum += db_values[j];
       }
-      line[i] = sum / (end - start);
+      line[i] = sum / static_cast<float>(end - start);
     }
   }
 

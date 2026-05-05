@@ -140,7 +140,7 @@ void SpectrumDisplay::clear() {
 }
 
 void SpectrumDisplay::update_spectrum(const std::vector<float> &db_values,
-                                      const std::vector<float> &freq_bins,
+                                      const std::vector<float> /*freq_bins*/,
                                       float center_freq_hz,
                                       float sample_rate_hz) {
   m_center_freq_hz = center_freq_hz;
@@ -167,7 +167,7 @@ void SpectrumDisplay::render() {
 
   // Draw spectrum line or filled area
   const size_t num_bins = m_spectrum_data.size();
-  const float bin_width = static_cast<float>(m_width) / num_bins;
+  const float bin_width = static_cast<float>(m_width) / static_cast<float>(num_bins);
 
   // Draw filled spectrum (from bottom to spectrum line)
   const float db_range = m_max_db - m_min_db;
@@ -183,9 +183,9 @@ void SpectrumDisplay::render() {
     auto color = m_palette.get_color(db, m_min_db, m_max_db);
 
     // Fill from bottom to spectrum line
-    size_t x = static_cast<size_t>(i * bin_width);
+    size_t x = static_cast<size_t>(static_cast<float>(i) * bin_width);
     size_t bottom_y = m_height - 1;
-    size_t top_y = static_cast<size_t>(m_height - bar_height);
+    size_t top_y = static_cast<size_t>(static_cast<float>(m_height) - bar_height);
 
     if (top_y >= m_height)
       top_y = m_height - 1;

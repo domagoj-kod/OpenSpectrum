@@ -39,19 +39,21 @@ void SignalProcessor::precompute_window(size_t size) {
 
 void SignalProcessor::compute_hann() {
   const float pi = std::numbers::pi_v<float>;
+  const float size_minus_1 = static_cast<float>(m_fft_size - 1);
   for (size_t i = 0; i < m_fft_size; ++i) {
     m_window_coeffs[i] =
         0.5f *
-        (1.0f - std::cos(2.0f * pi * static_cast<float>(i) / (m_fft_size - 1)));
+        (1.0f - std::cos(2.0f * pi * static_cast<float>(i) / size_minus_1));
   }
 }
 
 void SignalProcessor::compute_hamming() {
   const float pi = std::numbers::pi_v<float>;
+  const float size_minus_1 = static_cast<float>(m_fft_size - 1);
   for (size_t i = 0; i < m_fft_size; ++i) {
     m_window_coeffs[i] =
         0.54f -
-        0.46f * std::cos(2.0f * pi * static_cast<float>(i) / (m_fft_size - 1));
+        0.46f * std::cos(2.0f * pi * static_cast<float>(i) / size_minus_1);
   }
 }
 
@@ -60,9 +62,10 @@ void SignalProcessor::compute_blackman() {
   const float a0 = 0.42659f;
   const float a1 = 0.49656f;
   const float a2 = 0.076849f;
+  const float size_minus_1 = static_cast<float>(m_fft_size - 1);
 
   for (size_t i = 0; i < m_fft_size; ++i) {
-    float n = static_cast<float>(i) / (m_fft_size - 1);
+    float n = static_cast<float>(i) / size_minus_1;
     m_window_coeffs[i] =
         a0 - a1 * std::cos(2.0f * pi * n) + a2 * std::cos(4.0f * pi * n);
   }
@@ -74,9 +77,10 @@ void SignalProcessor::compute_blackman_harris() {
   const float a1 = 0.48829f;
   const float a2 = 0.14128f;
   const float a3 = 0.01168f;
+  const float size_minus_1 = static_cast<float>(m_fft_size - 1);
 
   for (size_t i = 0; i < m_fft_size; ++i) {
-    float n = static_cast<float>(i) / (m_fft_size - 1);
+    float n = static_cast<float>(i) / size_minus_1;
     m_window_coeffs[i] = a0 - a1 * std::cos(2.0f * pi * n) +
                          a2 * std::cos(4.0f * pi * n) -
                          a3 * std::cos(6.0f * pi * n);
@@ -90,9 +94,10 @@ void SignalProcessor::compute_flat_top() {
   const float a2 = 1.29f;
   const float a3 = 0.388f;
   const float a4 = 0.032f;
+  const float size_minus_1 = static_cast<float>(m_fft_size - 1);
 
   for (size_t i = 0; i < m_fft_size; ++i) {
-    float n = static_cast<float>(i) / (m_fft_size - 1);
+    float n = static_cast<float>(i) / size_minus_1;
     m_window_coeffs[i] =
         a0 - a1 * std::cos(2.0f * pi * n) + a2 * std::cos(4.0f * pi * n) -
         a3 * std::cos(6.0f * pi * n) + a4 * std::cos(8.0f * pi * n);
