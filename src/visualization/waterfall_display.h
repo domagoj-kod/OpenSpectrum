@@ -5,7 +5,6 @@
 #include <cstdint>
 #include <deque>
 #include <memory>
-#include <vector>
 
 namespace openspectrum {
 
@@ -21,7 +20,9 @@ public:
   void add_spectrum_line(const std::vector<float> &db_values);
 
   // Get rendered pixel buffer (RGB32 format)
-  const std::vector<uint8_t> &get_pixels() const { return m_pixels; }
+  // Phase 3: Returns PixelBuffer for direct access; has .data() and .size()
+  // methods
+  const PixelBuffer &get_pixels() const { return m_pixels; }
 
   // Get dimensions
   size_t width() const noexcept { return m_width; }
@@ -45,7 +46,7 @@ private:
   size_t m_width;
   size_t m_height;
   size_t m_history_lines;
-  std::vector<uint8_t> m_pixels; // RGBA format
+  PixelBuffer m_pixels; // Phase 3: RGBA format
 
   // Circular buffer for history
   std::deque<std::vector<float>> m_history;

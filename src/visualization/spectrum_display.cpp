@@ -9,7 +9,11 @@ namespace openspectrum {
 
 // --- SpectrumPalette Implementation ---
 
-SpectrumPalette::SpectrumPalette() { generate_jet_palette(); }
+SpectrumPalette::SpectrumPalette() {
+  generate_jet_palette();
+  // Initialize with default dB range
+  set_db_range(-120.0f, 0.0f);
+}
 
 void SpectrumPalette::set_color_map(ColorMap map) {
   m_color_map = map;
@@ -106,26 +110,74 @@ void SpectrumPalette::generate_blue_red_palette() {
   }
 }
 
+void SpectrumPalette::set_db_range(float min_db, float max_db) {
+  m_db_min = min_db;
+  m_db_max = max_db;
+
+  // Phase 2: Integer quantization - precompute scale for direct int mapping
+  // index = (int)((db - min) * scale + 0.5f) where scale =
+  // (PALETTE_SIZE-1)/range
+  float range = max_db - min_db;
+  if (range > 0.0f) {
+    m_scale_to_index =
+        (static_cast<float>(PALETTE_SIZE - 1)) / (range + 1e-10f);
+  } else {
+    m_scale_to_index = 1.0f;
+  }
+}
+
+RgbColor SpectrumPalette::get_color(float db_value) const {
+  // Phase 2: Integer quantization - direct int mapping with rounding
+  // index = (int)((db - min) * scale + 0.5f)
+  // Uses fma (fused multiply-add) for: (db - min) * scale + 0.5f
+  float scaled = std::fma(db_value - m_db_min, m_scale_to_index, 0.5f);
+
+  // Convert to int (rounds to nearest due to +0.5f)
+  int index = static_cast<int>(scaled);
+
+  // Clamp to [0, PALETTE_SIZE-1]
+  if (index < 0)
+    index = 0;
+  if (index >= static_cast<int>(PALETTE_SIZE))
+    index = static_cast<int>(PALETTE_SIZE - 1);
+
+  return m_palette[static_cast<size_t>(index)];
+}
+
+// Legacy version with inline range - uses integer quantization but computes
+// scale factor on the fly (slower than precomputed version)
 RgbColor SpectrumPalette::get_color(float db_value, float min_db,
                                     float max_db) const {
-  // Clamp value to range
-  float clamped = std::clamp(db_value, min_db, max_db);
+  // Integer quantization: index = (int)((db - min) * scale + 0.5f)
+  float range = max_db - min_db;
+  if (range <= 0.0f) {
+    return m_palette[0];
+  }
 
-  // Normalize to [0, 1]
-  float t = (clamped - min_db) / (max_db - min_db + 1e-10f);
+  // Clamp db_value to [min_db, max_db]
+  if (db_value < min_db)
+    db_value = min_db;
+  if (db_value > max_db)
+    db_value = max_db;
 
-  // Get palette index (clamped to valid range)
-  size_t index = static_cast<size_t>(t * (PALETTE_SIZE - 1));
-  index = std::min(index, PALETTE_SIZE - 1);
+  // Compute scale and index with rounding
+  float scale = (static_cast<float>(PALETTE_SIZE - 1)) / (range + 1e-10f);
+  int index = static_cast<int>(std::fma(db_value - min_db, scale, 0.5f));
 
-  return m_palette[index];
+  // Clamp to valid range
+  if (index < 0)
+    index = 0;
+  if (index >= static_cast<int>(PALETTE_SIZE))
+    index = static_cast<int>(PALETTE_SIZE - 1);
+
+  return m_palette[static_cast<size_t>(index)];
 }
 
 // --- SpectrumDisplay Implementation ---
 
 SpectrumDisplay::SpectrumDisplay(size_t width, size_t height)
     : m_width(width), m_height(height),
-      m_pixels(width * height * 4, 0) // RGBA: 4 bytes per pixel
+      m_pixels(width * height * 4) // Phase 3: RGBA: 4 bytes per pixel
 {
   clear();
 }
@@ -133,11 +185,11 @@ SpectrumDisplay::SpectrumDisplay(size_t width, size_t height)
 void SpectrumDisplay::set_db_range(float min_db, float max_db) {
   m_min_db = std::min(min_db, max_db);
   m_max_db = std::max(min_db, max_db);
+  // Update palette with new range for optimized get_color()
+  m_palette.set_db_range(m_min_db, m_max_db);
 }
 
-void SpectrumDisplay::clear() {
-  std::fill(m_pixels.begin(), m_pixels.end(), 0);
-}
+void SpectrumDisplay::clear() { m_pixels.clear(); }
 
 void SpectrumDisplay::update_spectrum(const std::vector<float> &db_values,
                                       const std::vector<float> /*freq_bins*/,
@@ -167,11 +219,15 @@ void SpectrumDisplay::render() {
 
   // Draw spectrum line or filled area
   const size_t num_bins = m_spectrum_data.size();
-  const float bin_width = static_cast<float>(m_width) / static_cast<float>(num_bins);
+  const float bin_width =
+      static_cast<float>(m_width) / static_cast<float>(num_bins);
 
   // Draw filled spectrum (from bottom to spectrum line)
   const float db_range = m_max_db - m_min_db;
   const float db_to_height = static_cast<float>(m_height) / db_range;
+
+  // Phase 3: Precompute row stride in bytes (4 bytes per pixel)
+  const size_t row_stride = m_width * 4;
 
   for (size_t i = 0; i < num_bins; ++i) {
     float db = m_spectrum_data[i];
@@ -179,26 +235,29 @@ void SpectrumDisplay::render() {
     float bar_height = (db - m_min_db) * db_to_height;
     bar_height = std::clamp(bar_height, 0.0f, static_cast<float>(m_height));
 
-    // Get color for this dB value
-    auto color = m_palette.get_color(db, m_min_db, m_max_db);
+    // Get color for this dB value (optimized: uses precomputed range)
+    auto color = m_palette.get_color(db);
 
     // Fill from bottom to spectrum line
     size_t x = static_cast<size_t>(static_cast<float>(i) * bin_width);
     size_t bottom_y = m_height - 1;
-    size_t top_y = static_cast<size_t>(static_cast<float>(m_height) - bar_height);
+    size_t top_y =
+        static_cast<size_t>(static_cast<float>(m_height) - bar_height);
 
     if (top_y >= m_height)
       top_y = m_height - 1;
 
-    // Fill vertical column
-    for (size_t y = top_y; y <= bottom_y; ++y) {
-      size_t idx = (y * m_width + x) * 4;
-      if (idx + 4 <= m_pixels.size()) {
-        m_pixels[idx] = color.red;
-        m_pixels[idx + 1] = color.green;
-        m_pixels[idx + 2] = color.blue;
-        m_pixels[idx + 3] = color.alpha;
-      }
+    // Phase 3: Direct pointer access - precompute starting pixel pointer
+    // idx = (y * m_width + x) * 4 = y * (m_width * 4) + x * 4
+    uint8_t *row_start = m_pixels.data() + top_y * row_stride + x * 4;
+    uint8_t *row_end = m_pixels.data() + (bottom_y + 1) * row_stride + x * 4;
+
+    // Fill vertical column using pointer arithmetic
+    for (uint8_t *dst = row_start; dst < row_end; dst += row_stride) {
+      dst[0] = color.red;
+      dst[1] = color.green;
+      dst[2] = color.blue;
+      dst[3] = color.alpha;
     }
   }
 }

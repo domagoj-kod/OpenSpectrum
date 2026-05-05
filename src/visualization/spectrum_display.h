@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -19,6 +20,90 @@ struct RgbColor {
   constexpr RgbColor() : red(0), green(0), blue(0), alpha(255) {}
   constexpr RgbColor(uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255)
       : red(r), green(g), blue(b), alpha(a) {}
+
+  // Fast copy to pixel buffer (4 bytes: RGBA)
+  inline void copy_to(uint8_t *dst) const {
+    dst[0] = red;
+    dst[1] = green;
+    dst[2] = blue;
+    dst[3] = alpha;
+  }
+};
+
+// Phase 3: Optimized pixel buffer for direct pointer access
+// Replaces std::vector<uint8_t> for pixel storage
+class PixelBuffer {
+public:
+  PixelBuffer() : m_data(nullptr), m_size(0) {}
+  explicit PixelBuffer(size_t size) : m_size(size) {
+    m_data = new uint8_t[m_size]();
+  }
+  ~PixelBuffer() { delete[] m_data; }
+
+  // No copying (use std::move instead)
+  PixelBuffer(const PixelBuffer &) = delete;
+  PixelBuffer &operator=(const PixelBuffer &) = delete;
+
+  PixelBuffer(PixelBuffer &&other) noexcept
+      : m_data(other.m_data), m_size(other.m_size) {
+    other.m_data = nullptr;
+    other.m_size = 0;
+  }
+
+  PixelBuffer &operator=(PixelBuffer &&other) noexcept {
+    if (this != &other) {
+      delete[] m_data;
+      m_data = other.m_data;
+      m_size = other.m_size;
+      other.m_data = nullptr;
+      other.m_size = 0;
+    }
+    return *this;
+  }
+
+  // Direct pointer access (no bounds checking)
+  uint8_t *data() noexcept { return m_data; }
+  const uint8_t *data() const noexcept { return m_data; }
+  size_t size() const noexcept { return m_size; }
+
+  // Subscript operator (for compatibility, but prefer direct pointer access)
+  uint8_t &operator[](size_t index) noexcept { return m_data[index]; }
+  const uint8_t &operator[](size_t index) const noexcept {
+    return m_data[index];
+  }
+
+  // Clear buffer (set to black/transparent)
+  void clear() { std::fill(m_data, m_data + m_size, 0); }
+
+  // Get pixel at (x, y) for RGBA format (4 bytes per pixel)
+  uint8_t *pixel_ptr(size_t x, size_t y, size_t width) noexcept {
+    return m_data + (y * width + x) * 4;
+  }
+  const uint8_t *pixel_ptr(size_t x, size_t y, size_t width) const noexcept {
+    return m_data + (y * width + x) * 4;
+  }
+
+  // Fill a vertical column with a color
+  inline void fill_column(size_t x, size_t y_start, size_t y_end, size_t width,
+                          const RgbColor &color) noexcept {
+    uint8_t *dst = pixel_ptr(x, y_start, width);
+    const size_t stride = width * 4; // bytes per row
+
+    for (size_t y = y_start; y <= y_end; ++y) {
+      color.copy_to(dst);
+      dst += stride;
+    }
+  }
+
+  // Fast memset-style clear
+  void memset_clear() {
+    if (m_data)
+      std::fill(m_data, m_data + m_size, 0);
+  }
+
+private:
+  uint8_t *m_data;
+  size_t m_size;
 };
 
 // Color palette for spectrum display (rainbow/jet colormap)
@@ -27,6 +112,14 @@ public:
   static constexpr size_t PALETTE_SIZE = 256;
 
   SpectrumPalette();
+
+  // Set dB range for color mapping (call when range changes for optimization)
+  void set_db_range(float min_db, float max_db);
+
+  // Get color for a dB value (uses precomputed range for efficiency)
+  RgbColor get_color(float db_value) const;
+
+  // Legacy version with inline range parameters (slower, keeps backward compat)
   RgbColor get_color(float db_value, float min_db, float max_db) const;
 
   // Color map presets
@@ -37,6 +130,12 @@ public:
 private:
   ColorMap m_color_map = ColorMap::JET;
   std::array<RgbColor, PALETTE_SIZE> m_palette;
+
+  // Precomputed values for fast color lookup (Phase 2: integer quantization)
+  // Using direct integer mapping: index = (int)((db - min) * scale + 0.5f)
+  float m_scale_to_index = 1.0f; // (PALETTE_SIZE-1) / (max_db - min_db)
+  float m_db_min = -120.0f;      // Cached min for clamp
+  float m_db_max = 0.0f;         // Cached max for clamp
 
   void generate_jet_palette();
   void generate_viridis_palette();
@@ -58,7 +157,11 @@ public:
                        float center_freq_hz, float sample_rate_hz);
 
   // Get rendered pixel buffer (RGB32 format: RGBA interleaved)
-  const std::vector<uint8_t> &get_pixels() const { return m_pixels; }
+  // Phase 3: Returns PixelBuffer for direct access; has .data() and .size()
+  // methods
+  const PixelBuffer &get_pixels() const { return m_pixels; }
+  uint8_t *pixel_data() { return m_pixels.data(); }
+  const uint8_t *pixel_data() const { return m_pixels.data(); }
 
   // Get dimensions
   size_t width() const noexcept { return m_width; }
@@ -78,7 +181,7 @@ public:
 private:
   size_t m_width;
   size_t m_height;
-  std::vector<uint8_t> m_pixels; // RGBA format: 4 bytes per pixel
+  PixelBuffer m_pixels; // Phase 3: Optimized pixel buffer
 
   std::vector<float> m_spectrum_data;
   SpectrumPalette m_palette;
