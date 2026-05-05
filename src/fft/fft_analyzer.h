@@ -1,82 +1,86 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
-#include <kiss_fft.h>
-#include <vector>
-#include <complex>
-#include <memory>
-#include <cstddef>
 #include <array>
+#include <complex>
+#include <cstddef>
+#include <kiss_fft.h>
+#include <memory>
+#include <vector>
 
-namespace openspectrum
-{
+namespace openspectrum {
 
-    // Secure wrapper around kissFFT with RAII and pre-allocated buffers
-    class FftAnalyzer
-    {
-    public:
-        explicit FftAnalyzer(size_t fft_size, bool inverse = false);
-        ~FftAnalyzer();
+// Secure wrapper around kissFFT with RAII and pre-allocated buffers
+class FftAnalyzer {
+public:
+  explicit FftAnalyzer(size_t fft_size, bool inverse = false);
+  ~FftAnalyzer();
 
-        // Disable copying (non-copyable due to raw pointer)
-        FftAnalyzer(const FftAnalyzer &) = delete;
-        FftAnalyzer &operator=(const FftAnalyzer &) = delete;
+  // Disable copying (non-copyable due to raw pointer)
+  FftAnalyzer(const FftAnalyzer &) = delete;
+  FftAnalyzer &operator=(const FftAnalyzer &) = delete;
 
-        // Enable moving
-        FftAnalyzer(FftAnalyzer &&other) noexcept;
-        FftAnalyzer &operator=(FftAnalyzer &&other) noexcept;
+  // Enable moving
+  FftAnalyzer(FftAnalyzer &&other) noexcept;
+  FftAnalyzer &operator=(FftAnalyzer &&other) noexcept;
 
-        // Execute FFT on input samples, store result in output
-        // Input: time-domain complex samples (size = fft_size)
-        // Output: frequency-domain complex bins (size = fft_size)
-        void execute(const std::vector<std::complex<float>> &input,
-                     std::vector<std::complex<float>> &output);
+  // Execute FFT on input samples, store result in output
+  // Input: time-domain complex samples (size = fft_size)
+  // Output: frequency-domain complex bins (size = fft_size)
+  void execute(const std::vector<std::complex<float>> &input,
+               std::vector<std::complex<float>> &output);
 
-        // Execute FFT with pre-allocated internal buffers (zero-copy for output)
-        void execute(const std::vector<std::complex<float>> &input);
+  // Execute FFT with pre-allocated internal buffers (zero-copy for output)
+  void execute(const std::vector<std::complex<float>> &input);
 
-        // Get power spectrum (magnitude squared) from last FFT result
-        const std::vector<float> &get_power_spectrum() const { return m_power_spectrum; }
+  // Get power spectrum (magnitude squared) from last FFT result
+  const std::vector<float> &get_power_spectrum() const {
+    return m_power_spectrum;
+  }
 
-        // Get magnitude spectrum (linear) from last FFT result
-        const std::vector<float> &get_magnitude_spectrum() const { return m_magnitude_spectrum; }
+  // Get magnitude spectrum (linear) from last FFT result
+  const std::vector<float> &get_magnitude_spectrum() const {
+    return m_magnitude_spectrum;
+  }
 
-        // Get magnitude spectrum in dB from last FFT result
-        const std::vector<float> &get_db_spectrum() const { return m_db_spectrum; }
+  // Get magnitude spectrum in dB from last FFT result
+  const std::vector<float> &get_db_spectrum() const { return m_db_spectrum; }
 
-        // Get phase spectrum in radians from last FFT result
-        const std::vector<float> &get_phase_spectrum() const { return m_phase_spectrum; }
+  // Get phase spectrum in radians from last FFT result
+  const std::vector<float> &get_phase_spectrum() const {
+    return m_phase_spectrum;
+  }
 
-        // Get normalized frequency bins (0 to 1, where 1 = sample rate)
-        const std::vector<float> &get_frequency_bins() const { return m_freq_bins; }
+  // Get normalized frequency bins (0 to 1, where 1 = sample rate)
+  const std::vector<float> &get_frequency_bins() const { return m_freq_bins; }
 
-        size_t fft_size() const noexcept { return m_fft_size; }
+  size_t fft_size() const noexcept { return m_fft_size; }
 
-        // Shift FFT output so DC is centered (for real signals)
-        // Apply (-1)^n shift to input before FFT, or shift output after FFT
-        void enable_dc_center(bool enabled) noexcept { m_center_dc = enabled; }
+  // Shift FFT output so DC is centered (for real signals)
+  // Apply (-1)^n shift to input before FFT, or shift output after FFT
+  void enable_dc_center(bool enabled) noexcept { m_center_dc = enabled; }
 
-    private:
-        size_t m_fft_size;
-        bool m_center_dc = false;
-        bool m_inverse;
+private:
+  size_t m_fft_size;
+  bool m_center_dc = false;
+  bool m_inverse;
 
-        // KissFFT configuration (opaque pointer - managed via RAII)
-        kiss_fft_cfg m_cfg = nullptr;
+  // KissFFT configuration (opaque pointer - managed via RAII)
+  kiss_fft_cfg m_cfg = nullptr;
 
-        // Internal buffers for efficiency (avoid repeated allocations)
-        std::vector<kiss_fft_cpx> m_input_buffer;
-        std::vector<kiss_fft_cpx> m_output_buffer;
+  // Internal buffers for efficiency (avoid repeated allocations)
+  std::vector<kiss_fft_cpx> m_input_buffer;
+  std::vector<kiss_fft_cpx> m_output_buffer;
 
-        // Cached results (updated after each execute)
-        std::vector<float> m_power_spectrum;
-        std::vector<float> m_magnitude_spectrum;
-        std::vector<float> m_db_spectrum;
-        std::vector<float> m_phase_spectrum;
-        std::vector<float> m_freq_bins;
+  // Cached results (updated after each execute)
+  std::vector<float> m_power_spectrum;
+  std::vector<float> m_magnitude_spectrum;
+  std::vector<float> m_db_spectrum;
+  std::vector<float> m_phase_spectrum;
+  std::vector<float> m_freq_bins;
 
-        // Pre-compute frequency bins
-        void compute_frequency_bins();
-    };
+  // Pre-compute frequency bins
+  void compute_frequency_bins();
+};
 
 } // namespace openspectrum
