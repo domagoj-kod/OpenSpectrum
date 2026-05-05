@@ -43,7 +43,7 @@ int main() {
   constexpr size_t FFT_SIZE = 4096;
   constexpr size_t DISPLAY_WIDTH = 800;
   constexpr size_t DISPLAY_HEIGHT = 480;
-  constexpr size_t WATERFALL_LINES = 256;
+  constexpr size_t WATERFALL_LINES = DISPLAY_HEIGHT / 2;
 
   try {
     // 1. Initialize SDL2 renderer FIRST (before hardware)

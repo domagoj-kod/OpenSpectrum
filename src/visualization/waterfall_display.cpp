@@ -35,7 +35,7 @@ void WaterfallDisplay::reset() {
 }
 
 void WaterfallDisplay::add_spectrum_line(const std::vector<float> &db_values) {
-  if (db_values.empty() || db_values.size() > m_width)
+  if (db_values.empty())
     return; // Invalid input
 
   // Resample if needed to match width
