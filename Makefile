@@ -18,15 +18,14 @@ CXX := g++
 CFLAGS := -O2 -g -D_FORTIFY_SOURCE=2 -fstack-protector-strong -fPIE
 CXXFLAGS := -std=c++20 -Wall -Wextra -Wpedantic -Wshadow -Wconversion \
             -Wformat=2 -Wformat-security -Wformat-nonliteral \
-            -D_FORTIFY_SOURCE=2 -fstack-protector-strong -fPIE \
-            -Wl,-z,now -Wl,-z,relro -Wl,-z,noexecstack
+            -D_FORTIFY_SOURCE=2 -fstack-protector-strong -fPIE
 
 # SDL2 flags (detect via pkg-config, fallback to manual)
 SDL2_CFLAGS := $(shell pkg-config --cflags sdl2 2>/dev/null || echo "")
 SDL2_LDFLAGS := $(shell pkg-config --libs sdl2 2>/dev/null || echo "-lSDL2")
 
 # Base linker flags
-LDFLAGS := -lrtlsdr -lpthread -lm $(SDL2_LDFLAGS)
+LDFLAGS := -lrtlsdr -lpthread -lm $(SDL2_LDFLAGS) -Wl,-z,now -Wl,-z,relro -Wl,-z,noexecstack
 
 # Additional security flags for Release builds
 # Uncomment for release: -flto (Link-Time Optimization)
@@ -78,7 +77,11 @@ KISSFFT_OBJS := $(patsubst $(THIRD_PARTY)/%.c,$(BUILD_DIR)/%.o,$(KISSFFT_SRCS))
 MAIN_OBJ := $(BUILD_DIR)/main.o
 
 # Targets
-TARGET := openspectrum.out
+TARGET := openspectrum
+
+ifeq ($(OS),Windows_NT)
+    TARGET := openspectrum.exe
+endif
 
 all: $(TARGET)
 
