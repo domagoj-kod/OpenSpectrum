@@ -3,6 +3,7 @@
 #include "fft/fft_analyzer.h"
 #include "gui/sdl_renderer.h"
 #include "hardware/rtl_sdr_device.h"
+#include "openspectrum/runtime_controls.h"
 #include "signal/signal_processor.h"
 #include "utils/arg_parser.h"
 #include "utils/logger.h"
@@ -75,6 +76,14 @@ int main(int argc, char *argv[]) {
     }
     LOG_INFO("SDL2 renderer initialized");
 
+    // 1.5 Initialize runtime controls
+    RuntimeControls runtime_controls;
+    runtime_controls.set_frequency(
+        static_cast<uint32_t>(config.center_freq_hz));
+    runtime_controls.set_gain(config.gain_db);
+    runtime_controls.set_fft_size(config.fft_size);
+    LOG_INFO("Runtime controls initialized");
+
     // 2. Initialize hardware
     LOG_INFO("Initializing RTL-SDR device...");
     RtlSdrDevice dev;
@@ -84,8 +93,8 @@ int main(int argc, char *argv[]) {
     }
 
     dev.set_sample_rate(static_cast<uint32_t>(config.sample_rate_hz));
-    dev.set_frequency(static_cast<uint32_t>(config.center_freq_hz));
-    dev.set_gain(config.gain_db);
+    dev.set_frequency(runtime_controls.get_frequency());
+    dev.set_gain(runtime_controls.get_gain());
 
     // CRITICAL: flush USB buffer before first read
     dev.reset_buffer();
@@ -120,20 +129,67 @@ int main(int argc, char *argv[]) {
 
     // Main processing loop
     LOG_INFO("Starting main loop. Press ESC or Ctrl+C to stop.");
+    LOG_INFO("Controls: +/- Frequency, r/f Gain, 1-4 FFT size, Shift/Ctrl for "
+             "fine/coarse");
 
-    std::vector<std::complex<float>> samples(FFT_SIZE);
-    std::vector<std::complex<float>> fft_output(FFT_SIZE);
+    std::vector<std::complex<float>> samples;
+    std::vector<std::complex<float>> fft_output;
+    size_t current_fft_size = config.fft_size;
+
+    // Initialize buffers with current FFT size
+    samples.resize(current_fft_size);
+    fft_output.resize(current_fft_size);
 
     while (g_running.load(std::memory_order_relaxed)) {
       // === 1. Process SDL2 events (must be first in loop) ===
-      if (!renderer.poll_events()) {
+      if (!renderer.poll_events(&runtime_controls)) {
         g_running = false;
         break;
       }
 
+      // === 1.2. Check for FFT size change and reinitialize if needed ===
+      if (runtime_controls.fft_size_changed()) {
+        size_t new_fft_size = runtime_controls.get_fft_size();
+        runtime_controls.set_reconfiguring(true);
+        runtime_controls.clear_fft_change_flag();
+
+        LOG_INFO("Reinitializing with FFT size: " +
+                 std::to_string(new_fft_size));
+
+        // Reinitialize FFT-dependent components
+        current_fft_size = new_fft_size;
+        samples.resize(current_fft_size);
+        fft_output.resize(current_fft_size);
+
+        // Recreate signal processor with new size
+        signal_processor = SignalProcessor(current_fft_size);
+        signal_processor.set_window(WindowFunction::BLACKMAN_HARRIS);
+
+        // Recreate FFT analyzer with new size (using move semantics)
+        fft_analyzer = FftAnalyzer(current_fft_size);
+        fft_analyzer.enable_dc_center(true);
+        fft_analyzer.set_window_coherent_gain(
+            SignalProcessor::get_coherent_gain(
+                WindowFunction::BLACKMAN_HARRIS));
+
+        // Clear waterfall to avoid size mismatch
+        waterfall_display.reset();
+
+        runtime_controls.set_reconfiguring(false);
+      }
+
+      // === 1.3. Apply runtime control changes to device (batch update) ===
+      runtime_controls.apply_to_device(dev);
+
+      // Update status bar display only when values change
+      if (runtime_controls.status_changed()) {
+        renderer.render_status_bar(runtime_controls.get_status_string());
+        runtime_controls.clear_status_dirty();
+      }
+
       // === 2. Read samples from hardware ===
       try {
-        samples = dev.read_samples(FFT_SIZE);
+        samples = dev.read_samples(current_fft_size);
       } catch (const std::exception &e) {
         LOG_ERROR("Read error: " + std::string(e.what()));
         break;
@@ -152,7 +208,9 @@ int main(int argc, char *argv[]) {
 
       // === 6. Update displays ===
       spectrum_display.update_spectrum(
-          db_spectrum, freq_bins, config.center_freq_hz, config.sample_rate_hz);
+          db_spectrum, freq_bins,
+          static_cast<float>(runtime_controls.get_frequency()),
+          config.sample_rate_hz);
 
       waterfall_display.add_spectrum_line(db_spectrum);
 

@@ -51,7 +51,7 @@ GUI_DIR := $(SRC_DIR)/gui
 # Include paths
 INCLUDES := -I$(THIRD_PARTY) -I$(HARDWARE_DIR) -I$(INCLUDE_DIR) \
             -I$(SIGNAL_DIR) -I$(FFT_DIR) -I$(VIS_DIR) -I$(UTILS_DIR) \
-            -I$(GUI_DIR) $(SDL2_CFLAGS)
+            -I$(GUI_DIR) -I$(INCLUDE_DIR)/openspectrum $(SDL2_CFLAGS)
 
 # Source files
 HARDWARE_SRCS := $(wildcard $(HARDWARE_DIR)/*.cpp)
@@ -79,7 +79,6 @@ MAIN_OBJ := $(BUILD_DIR)/main.o
 
 # Targets
 TARGET := openspectrum.out
-TEST_TARGET := rtl_sdr_test
 
 all: $(TARGET)
 
@@ -116,14 +115,9 @@ $(MAIN_OBJ): $(MAIN_SRC) | $(BUILD_DIR)
 $(TARGET): $(HARDWARE_OBJS) $(SIGNAL_OBJS) $(FFT_OBJS) $(VIS_OBJS) $(UTILS_OBJS) $(GUI_OBJS) $(KISSFFT_OBJS) $(MAIN_OBJ)
 	$(CXX) $^ -o $@ $(LDFLAGS)
 
-# Test target
-$(TEST_TARGET): test/rtl_sdr_test.cpp $(HARDWARE_OBJS) $(KISSFFT_OBJS)
-	$(CXX) $(CXXFLAGS) $(INCLUDES) -c test/rtl_sdr_test.cpp -o $(BUILD_DIR)/rtl_sdr_test.o
-	$(CXX) $(BUILD_DIR)/rtl_sdr_test.o $(HARDWARE_OBJS) $(KISSFFT_OBJS) -o $@ $(LDFLAGS)
-
 # Clean
 clean:
-	rm -rf $(BUILD_DIR) $(TARGET) $(TEST_TARGET)
+	rm -rf $(BUILD_DIR) $(TARGET)
 
 # Phony targets
 .PHONY: all clean

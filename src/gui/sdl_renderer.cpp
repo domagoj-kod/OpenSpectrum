@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 
 #include "sdl_renderer.h"
+#include "runtime_controls.h"
+#include "text_renderer.h"
 #include <iostream>
 #include <stdexcept>
 
@@ -50,9 +52,19 @@ SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title)
     throw std::runtime_error("SDL_CreateTexture failed: " +
                              std::string(SDL_GetError()));
   }
+
+  // Initialize text renderer for status bar
+  m_text_renderer = std::make_unique<TextRenderer>(m_renderer, 16);
+  if (!m_text_renderer->init()) {
+    std::cerr << "Warning: Failed to initialize text renderer" << std::endl;
+  }
+  m_status_texture = nullptr;
+  m_status_dirty = true;
 }
 
 SdlRenderer::~SdlRenderer() {
+  if (m_status_texture)
+    SDL_DestroyTexture(m_status_texture);
   if (m_texture)
     SDL_DestroyTexture(m_texture);
   if (m_renderer)
@@ -92,12 +104,27 @@ bool SdlRenderer::render(const std::vector<uint8_t> &pixels, size_t pitch) {
   // Clear and render
   SDL_RenderClear(m_renderer);
   SDL_RenderCopy(m_renderer, m_texture, nullptr, nullptr);
+  
+  // Render status bar on top
+  if (m_status_texture) {
+    int text_width, text_height;
+    m_text_renderer->get_text_size(m_current_status, &text_width, &text_height);
+    
+    SDL_Rect dest_rect = {
+        static_cast<int>(m_width - text_width - 10),  // 10px margin from right
+        static_cast<int>(m_height - text_height - 10), // 10px margin from bottom
+        text_width,
+        text_height
+    };
+    SDL_RenderCopy(m_renderer, m_status_texture, nullptr, &dest_rect);
+  }
+  
   SDL_RenderPresent(m_renderer);
 
   return true;
 }
 
-bool SdlRenderer::poll_events() {
+bool SdlRenderer::poll_events(RuntimeControls* controls) {
   SDL_Event event;
   while (SDL_PollEvent(&event)) {
     switch (event.type) {
@@ -109,6 +136,19 @@ bool SdlRenderer::poll_events() {
           event.key.keysym.sym == SDLK_q) {
         return false;
       }
+      
+      // Handle runtime controls if provided
+      if (controls) {
+        // Get modifier state
+        const Uint8* keystate = SDL_GetKeyboardState(nullptr);
+        bool shift_held = keystate[SDL_SCANCODE_LSHIFT] || keystate[SDL_SCANCODE_RSHIFT];
+        bool ctrl_held = keystate[SDL_SCANCODE_LCTRL] || keystate[SDL_SCANCODE_RCTRL];
+        
+        // Handle control keys
+        if (controls->handle_keyboard(event.key.keysym.sym, shift_held, ctrl_held)) {
+          m_status_dirty = true;
+        }
+      }
       break;
 
     case SDL_WINDOWEVENT:
@@ -119,6 +159,28 @@ bool SdlRenderer::poll_events() {
     }
   }
   return true;
+}
+
+void SdlRenderer::render_status_bar(const std::string& status_text) {
+  // Only re-render if text changed
+  if (status_text == m_current_status && !m_status_dirty) {
+    return;
+  }
+
+  m_current_status = status_text;
+  m_status_dirty = false;
+
+  // Destroy old texture
+  if (m_status_texture) {
+    SDL_DestroyTexture(m_status_texture);
+    m_status_texture = nullptr;
+  }
+
+  // Render new status text
+  if (!status_text.empty()) {
+    SDL_Color text_color = {255, 255, 255, 255}; // White
+    m_status_texture = m_text_renderer->render_text(status_text, text_color);
+  }
 }
 
 } // namespace openspectrum
