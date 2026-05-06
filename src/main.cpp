@@ -29,7 +29,7 @@ static void signal_handler(int signum) {
   }
 }
 
-int main(int argc, char *argv[]) {
+auto main(int argc, char *argv[]) -> int {
   // Parse command-line arguments
   AppConfig config = parse_arguments(argc, argv);
 
@@ -119,8 +119,8 @@ int main(int argc, char *argv[]) {
     WaterfallDisplay waterfall_display(DISPLAY_WIDTH, DISPLAY_HEIGHT / 2,
                                        WATERFALL_LINES);
 
-    spectrum_display.set_db_range(-120.0f, 0.0f);
-    waterfall_display.set_db_range(-120.0f, 0.0f);
+    spectrum_display.set_db_range(-120.0F, 0.0F);
+    waterfall_display.set_db_range(-120.0F, 0.0F);
 
     // Create combined display buffer (spectrum on top, waterfall on bottom)
     std::vector<uint8_t> combined_pixels(DISPLAY_WIDTH * DISPLAY_HEIGHT * 4, 0);
@@ -196,7 +196,7 @@ int main(int argc, char *argv[]) {
       }
 
       // === 3. Signal processing ===
-      signal_processor.remove_dc(samples);
+      openspectrum::SignalProcessor::remove_dc(samples);
       signal_processor.apply_window(samples);
 
       // === 4. FFT execution ===

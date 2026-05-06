@@ -10,7 +10,7 @@ namespace openspectrum {
 
 namespace {
 
-bool parse_float(const char *str, float &value) {
+auto parse_float(const char *str, float &value) -> bool {
   try {
     value = std::stof(str);
     return true;
@@ -19,7 +19,7 @@ bool parse_float(const char *str, float &value) {
   }
 }
 
-bool parse_size_t(const char *str, size_t &value) {
+auto parse_size_t(const char *str, size_t &value) -> bool {
   try {
     value = static_cast<size_t>(std::stoul(str));
     return true;
@@ -51,7 +51,7 @@ void print_usage(const char *argv0) {
       << std::flush;
 }
 
-AppConfig parse_arguments(int argc, char *argv[]) {
+auto parse_arguments(int argc, char *argv[]) -> AppConfig {
   AppConfig config;
 
   for (int i = 1; i < argc; ++i) {

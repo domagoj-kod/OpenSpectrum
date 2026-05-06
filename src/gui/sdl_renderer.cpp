@@ -20,7 +20,7 @@ SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title)
                               static_cast<int>(height),
                               SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
 
-  if (!m_window) {
+  if (m_window == nullptr) {
     SDL_Quit();
     throw std::runtime_error("SDL_CreateWindow failed: " +
                              std::string(SDL_GetError()));
@@ -30,9 +30,9 @@ SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title)
   m_renderer = SDL_CreateRenderer(
       m_window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
 
-  if (!m_renderer) {
+  if (m_renderer == nullptr) {
     m_renderer = SDL_CreateRenderer(m_window, -1, SDL_RENDERER_SOFTWARE);
-    if (!m_renderer) {
+    if (m_renderer == nullptr) {
       SDL_DestroyWindow(m_window);
       SDL_Quit();
       throw std::runtime_error("SDL_CreateRenderer failed: " +
@@ -45,7 +45,7 @@ SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title)
       m_renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STREAMING,
       static_cast<int>(width), static_cast<int>(height));
 
-  if (!m_texture) {
+  if (m_texture == nullptr) {
     SDL_DestroyRenderer(m_renderer);
     SDL_DestroyWindow(m_window);
     SDL_Quit();
@@ -56,26 +56,30 @@ SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title)
   // Initialize text renderer for status bar
   m_text_renderer = std::make_unique<TextRenderer>(m_renderer, 16);
   if (!m_text_renderer->init()) {
-    std::cerr << "Warning: Failed to initialize text renderer" << std::endl;
+    std::cerr << "Warning: Failed to initialize text renderer" << '\n';
   }
   m_status_texture = nullptr;
   m_status_dirty = true;
 }
 
 SdlRenderer::~SdlRenderer() {
-  if (m_status_texture)
+  if (m_status_texture != nullptr) {
     SDL_DestroyTexture(m_status_texture);
-  if (m_texture)
+}
+  if (m_texture != nullptr) {
     SDL_DestroyTexture(m_texture);
-  if (m_renderer)
+}
+  if (m_renderer != nullptr) {
     SDL_DestroyRenderer(m_renderer);
-  if (m_window)
+}
+  if (m_window != nullptr) {
     SDL_DestroyWindow(m_window);
+}
   SDL_Quit();
 }
 
-bool SdlRenderer::render(const std::vector<uint8_t> &pixels, size_t pitch) {
-  if (!m_texture || pixels.size() < m_width * m_height * 4) {
+auto SdlRenderer::render(const std::vector<uint8_t> &pixels, size_t pitch) -> bool {
+  if ((m_texture == nullptr) || pixels.size() < m_width * m_height * 4) {
     return false;
   }
 
@@ -84,16 +88,16 @@ bool SdlRenderer::render(const std::vector<uint8_t> &pixels, size_t pitch) {
   int texture_pitch = 0;
   if (SDL_LockTexture(m_texture, nullptr, &texture_pixels, &texture_pitch) !=
       0) {
-    std::cerr << "SDL_LockTexture failed: " << SDL_GetError() << std::endl;
+    std::cerr << "SDL_LockTexture failed: " << SDL_GetError() << '\n';
     return false;
   }
 
   // Copy pixels (respecting pitch if provided)
   size_t src_pitch = pitch > 0 ? pitch : m_width * 4;
   for (size_t y = 0; y < m_height; ++y) {
-    const uint8_t *src_row = pixels.data() + y * src_pitch;
+    const uint8_t *src_row = pixels.data() + (y * src_pitch);
     uint8_t *dst_row =
-        static_cast<uint8_t *>(texture_pixels) + y * texture_pitch;
+        static_cast<uint8_t *>(texture_pixels) + (y * texture_pitch);
     std::copy(src_row,
               src_row + std::min(src_pitch, static_cast<size_t>(texture_pitch)),
               dst_row);
@@ -106,8 +110,9 @@ bool SdlRenderer::render(const std::vector<uint8_t> &pixels, size_t pitch) {
   SDL_RenderCopy(m_renderer, m_texture, nullptr, nullptr);
   
   // Render status bar on top
-  if (m_status_texture) {
-    int text_width, text_height;
+  if (m_status_texture != nullptr) {
+    int text_width;
+    int text_height;
     m_text_renderer->get_text_size(m_current_status, &text_width, &text_height);
     
     SDL_Rect dest_rect = {
@@ -124,9 +129,9 @@ bool SdlRenderer::render(const std::vector<uint8_t> &pixels, size_t pitch) {
   return true;
 }
 
-bool SdlRenderer::poll_events(RuntimeControls* controls) {
+auto SdlRenderer::poll_events(RuntimeControls* controls) -> bool {
   SDL_Event event;
-  while (SDL_PollEvent(&event)) {
+  while (SDL_PollEvent(&event) != 0) {
     switch (event.type) {
     case SDL_QUIT:
       return false;
@@ -138,12 +143,14 @@ bool SdlRenderer::poll_events(RuntimeControls* controls) {
       }
       
       // Handle runtime controls if provided
-      if (controls) {
+      if (controls != nullptr) {
         // Get modifier state
         const Uint8* keystate = SDL_GetKeyboardState(nullptr);
-        bool shift_held = keystate[SDL_SCANCODE_LSHIFT] || keystate[SDL_SCANCODE_RSHIFT];
-        bool ctrl_held = keystate[SDL_SCANCODE_LCTRL] || keystate[SDL_SCANCODE_RCTRL];
-        
+        bool shift_held = (keystate[SDL_SCANCODE_LSHIFT] != 0U) ||
+                          (keystate[SDL_SCANCODE_RSHIFT] != 0U);
+        bool ctrl_held = (keystate[SDL_SCANCODE_LCTRL] != 0U) ||
+                         (keystate[SDL_SCANCODE_RCTRL] != 0U);
+
         // Handle control keys
         if (controls->handle_keyboard(event.key.keysym.sym, shift_held, ctrl_held)) {
           m_status_dirty = true;
@@ -171,7 +178,7 @@ void SdlRenderer::render_status_bar(const std::string& status_text) {
   m_status_dirty = false;
 
   // Destroy old texture
-  if (m_status_texture) {
+  if (m_status_texture != nullptr) {
     SDL_DestroyTexture(m_status_texture);
     m_status_texture = nullptr;
   }

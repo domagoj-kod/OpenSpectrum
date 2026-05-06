@@ -214,23 +214,22 @@ TextRenderer::TextRenderer(SDL_Renderer *sdl_renderer, int size)
 
 TextRenderer::~TextRenderer() { clear_cache(); }
 
-bool TextRenderer::init() {
-  if (!renderer)
-    return false;
-  return true;
+auto TextRenderer::init() -> bool {
+  return renderer != nullptr;
 }
 
-SDL_Texture *
+auto
 TextRenderer::create_texture_from_bitmap(const uint8_t * /*bitmap*/,
-                                         SDL_Color color) {
-  if (!renderer)
+                                         SDL_Color color) -> SDL_Texture * {
+  if (renderer == nullptr) {
     return nullptr;
+}
 
   SDL_Texture *texture =
       SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA32,
                         SDL_TEXTUREACCESS_TARGET, glyph_width, glyph_height);
 
-  if (!texture) {
+  if (texture == nullptr) {
     return nullptr;
   }
 
@@ -238,14 +237,14 @@ TextRenderer::create_texture_from_bitmap(const uint8_t * /*bitmap*/,
   SDL_Surface *surface = SDL_CreateRGBSurfaceWithFormat(
       0, glyph_width, glyph_height, 32, SDL_PIXELFORMAT_RGBA32);
 
-  if (!surface) {
+  if (surface == nullptr) {
     SDL_DestroyTexture(texture);
     return nullptr;
   }
 
   // Lock and fill with transparent
   SDL_LockSurface(surface);
-  uint32_t *pixels = static_cast<uint32_t *>(surface->pixels);
+  auto *pixels = static_cast<uint32_t *>(surface->pixels);
   for (int y = 0; y < glyph_height; ++y) {
     for (int x = 0; x < glyph_width; ++x) {
       // Get bitmap bit (scaled from 8x8)
@@ -253,13 +252,13 @@ TextRenderer::create_texture_from_bitmap(const uint8_t * /*bitmap*/,
       int src_y = (y * 8) / glyph_height;
       uint8_t bit = BITMAP_FONT[0][src_y] & (1 << (7 - src_x));
 
-      if (bit) {
+      if (bit != 0U) {
         // FG color
-        pixels[y * surface->pitch / 4 + x] =
+        pixels[(y * surface->pitch / 4) + x] =
             (color.r << 24) | (color.g << 16) | (color.b << 8) | color.a;
       } else {
         // Transparent
-        pixels[y * surface->pitch / 4 + x] = 0x00000000;
+        pixels[(y * surface->pitch / 4) + x] = 0x00000000;
       }
     }
   }
@@ -272,10 +271,11 @@ TextRenderer::create_texture_from_bitmap(const uint8_t * /*bitmap*/,
   return texture;
 }
 
-SDL_Texture *TextRenderer::render_text(const std::string &text,
-                                       SDL_Color color) {
-  if (!renderer || text.empty())
+auto TextRenderer::render_text(const std::string &text,
+                                       SDL_Color color) -> SDL_Texture * {
+  if ((renderer == nullptr) || text.empty()) {
     return nullptr;
+}
 
   // For simplicity, render each string as a single texture
   // Calculate total width
@@ -286,25 +286,26 @@ SDL_Texture *TextRenderer::render_text(const std::string &text,
       SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA32,
                         SDL_TEXTUREACCESS_TARGET, total_width, total_height);
 
-  if (!texture)
+  if (texture == nullptr) {
     return nullptr;
+}
 
   // Create surface
   SDL_Surface *surface = SDL_CreateRGBSurfaceWithFormat(
       0, total_width, total_height, 32, SDL_PIXELFORMAT_RGBA32);
 
-  if (!surface) {
+  if (surface == nullptr) {
     SDL_DestroyTexture(texture);
     return nullptr;
   }
 
   SDL_LockSurface(surface);
-  uint32_t *pixels = static_cast<uint32_t *>(surface->pixels);
+  auto *pixels = static_cast<uint32_t *>(surface->pixels);
 
   // Fill with transparent
   for (int y = 0; y < total_height; ++y) {
     for (int x = 0; x < total_width; ++x) {
-      pixels[y * surface->pitch / 4 + x] = 0x00000000;
+      pixels[(y * surface->pitch / 4) + x] = 0x00000000;
     }
   }
 
@@ -326,11 +327,11 @@ SDL_Texture *TextRenderer::render_text(const std::string &text,
         int src_x = (x * 8) / glyph_width;
         uint8_t bit = bitmap[src_y] & (1 << (7 - src_x));
 
-        if (bit) {
-          int px = static_cast<int>(i) * glyph_width + x;
+        if (bit != 0U) {
+          int px = (static_cast<int>(i) * glyph_width) + x;
           int py = y;
           if (px < total_width && py < total_height) {
-            pixels[py * surface->pitch / 4 + px] =
+            pixels[(py * surface->pitch / 4) + px] =
                 (color.r << 24) | (color.g << 16) | (color.b << 8) | color.a;
           }
         }
@@ -347,10 +348,12 @@ SDL_Texture *TextRenderer::render_text(const std::string &text,
 
 void TextRenderer::get_text_size(const std::string &text, int *w,
                                  int *h) const {
-  if (w)
+  if (w != nullptr) {
     *w = static_cast<int>(text.length()) * glyph_width;
-  if (h)
+}
+  if (h != nullptr) {
     *h = glyph_height;
+}
 }
 
 void TextRenderer::clear_cache() {

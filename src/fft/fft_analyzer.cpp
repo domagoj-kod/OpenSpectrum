@@ -10,9 +10,9 @@ namespace openspectrum {
 
 FftAnalyzer::FftAnalyzer(size_t fft_size, bool inverse)
     : m_fft_size(fft_size), m_inverse(inverse), m_input_buffer(fft_size),
-      m_output_buffer(fft_size), m_power_spectrum(fft_size / 2 + 1),
-      m_magnitude_spectrum(fft_size / 2 + 1), m_db_spectrum(fft_size / 2 + 1),
-      m_phase_spectrum(fft_size / 2 + 1), m_freq_bins(fft_size / 2 + 1) {
+      m_output_buffer(fft_size), m_power_spectrum((fft_size / 2) + 1),
+      m_magnitude_spectrum((fft_size / 2) + 1), m_db_spectrum((fft_size / 2) + 1),
+      m_phase_spectrum((fft_size / 2) + 1), m_freq_bins((fft_size / 2) + 1) {
   // Security: validate FFT size is a power of 2
   if (fft_size == 0 || (fft_size & (fft_size - 1)) != 0) {
     throw std::invalid_argument("FFT size must be a power of 2");
@@ -22,7 +22,7 @@ FftAnalyzer::FftAnalyzer(size_t fft_size, bool inverse)
   // Security: kiss_fft_alloc returns nullptr on failure
   m_cfg = kiss_fft_alloc(static_cast<int>(fft_size), m_inverse ? 1 : 0, nullptr,
                          nullptr);
-  if (!m_cfg) {
+  if (m_cfg == nullptr) {
     throw std::runtime_error("Failed to allocate FFT configuration");
   }
 
@@ -31,7 +31,7 @@ FftAnalyzer::FftAnalyzer(size_t fft_size, bool inverse)
 
 FftAnalyzer::~FftAnalyzer() {
   // Security: always free allocated configuration
-  if (m_cfg) {
+  if (m_cfg != nullptr) {
     kiss_fft_free(m_cfg);
     m_cfg = nullptr;
   }
@@ -52,10 +52,10 @@ FftAnalyzer::FftAnalyzer(FftAnalyzer &&other) noexcept
   other.m_fft_size = 0;
 }
 
-FftAnalyzer &FftAnalyzer::operator=(FftAnalyzer &&other) noexcept {
+auto FftAnalyzer::operator=(FftAnalyzer &&other) noexcept -> FftAnalyzer & {
   if (this != &other) {
     // Clean up existing resources
-    if (m_cfg) {
+    if (m_cfg != nullptr) {
       kiss_fft_free(m_cfg);
     }
 
@@ -79,7 +79,7 @@ FftAnalyzer &FftAnalyzer::operator=(FftAnalyzer &&other) noexcept {
 }
 
 void FftAnalyzer::compute_frequency_bins() {
-  const float scale = 1.0f / static_cast<float>(m_fft_size);
+  const float scale = 1.0F / static_cast<float>(m_fft_size);
   for (size_t i = 0; i < m_freq_bins.size(); ++i) {
     // For real signals, we only care about first half + DC
     m_freq_bins[i] = static_cast<float>(i) * scale;
@@ -95,7 +95,7 @@ void FftAnalyzer::execute(const std::vector<std::complex<float>> &input,
 
   // Fill input buffer (apply DC centering if enabled)
   for (size_t i = 0; i < m_fft_size; ++i) {
-    float sign = m_center_dc ? ((i % 2 == 0) ? 1.0f : -1.0f) : 1.0f;
+    float sign = m_center_dc ? ((i % 2 == 0) ? 1.0F : -1.0F) : 1.0F;
     m_input_buffer[i].r = sign * input[i].real();
     m_input_buffer[i].i = sign * input[i].imag();
   }
@@ -105,7 +105,7 @@ void FftAnalyzer::execute(const std::vector<std::complex<float>> &input,
   kiss_fft(m_cfg, m_input_buffer.data(), m_output_buffer.data());
 
   // Process output and cache results
-  size_t half_size = m_fft_size / 2 + 1;
+  size_t half_size = (m_fft_size / 2) + 1;
 
   for (size_t i = 0; i < half_size; ++i) {
     // Get output bin (may need reordering for centered DC)
@@ -123,12 +123,12 @@ void FftAnalyzer::execute(const std::vector<std::complex<float>> &input,
 
     // dB conversion with floor to avoid log(0)
     // Security: prevent NaN from log(0) with epsilon
-    float scale = (i != 0 && i != m_fft_size / 2) ? 2.0f : 1.0f;
+    float scale = (i != 0 && i != m_fft_size / 2) ? 2.0F : 1.0F;
     m_db_spectrum[i] =
-        20.0f * std::log10(m_magnitude_spectrum[i] * scale /
+        20.0F * std::log10((m_magnitude_spectrum[i] * scale /
                                (static_cast<float>(m_fft_size) *
-                                m_window_coherent_gain) +
-                           1e-12f);
+                                m_window_coherent_gain)) +
+                           1e-12F);
   }
 
   // Copy to output if provided

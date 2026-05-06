@@ -153,7 +153,7 @@ public:
 
   // Update spectrum data (frequency bins in dB)
   void update_spectrum(const std::vector<float> &db_values,
-                       const std::vector<float> /*freq_bins*/,
+                       const std::vector<float> & /*freq_bins*/,
                        float center_freq_hz, float sample_rate_hz);
 
   // Get rendered pixel buffer (RGB32 format: RGBA interleaved)

@@ -34,8 +34,8 @@ public:
     std::string get_status_string() const;
 
     // Get individual formatted values
-    std::string format_frequency(uint32_t hz) const;
-    std::string format_gain(float db) const;
+    static std::string format_frequency(uint32_t hz) ;
+    static std::string format_gain(float db) ;
 
     // Check if FFT needs reinitialization
     bool fft_size_changed() const;
@@ -66,7 +66,7 @@ public:
     void clear_status_dirty() const { m_status_dirty = false; }
 
     // Apply all pending changes to device (batch update)
-    void apply_to_device(RtlSdrDevice& dev);
+    void apply_to_device(RtlSdrDevice& dev) const;
 
 private:
     DeviceConstraints constraints;

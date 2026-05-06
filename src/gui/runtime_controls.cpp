@@ -19,17 +19,17 @@ RuntimeControls::RuntimeControls() {
   // Initialize RTL2832U-specific constraints
   constraints.min_frequency_hz = 500000;     // 500 kHz
   constraints.max_frequency_hz = 1700000000; // 1.7 GHz
-  constraints.min_gain_db = 0.0f;
-  constraints.max_gain_db = 49.6f;
+  constraints.min_gain_db = 0.0F;
+  constraints.max_gain_db = 49.6F;
   constraints.supported_fft_sizes = {512, 1024, 2048, 4096};
 }
 
 RuntimeControls::~RuntimeControls() = default;
 
 // Helper to find FFT size index
-int RuntimeControls::find_fft_index(size_t size) const {
-  auto it = std::find(constraints.supported_fft_sizes.begin(),
-                      constraints.supported_fft_sizes.end(), size);
+auto RuntimeControls::find_fft_index(size_t size) const -> int {
+  auto it = std::ranges::find(constraints.supported_fft_sizes,
+                      size);
   if (it != constraints.supported_fft_sizes.end()) {
     return static_cast<int>(
         std::distance(constraints.supported_fft_sizes.begin(), it));
@@ -38,29 +38,30 @@ int RuntimeControls::find_fft_index(size_t size) const {
 }
 
 // Format frequency with auto-scaling units
-std::string RuntimeControls::format_frequency(uint32_t hz) const {
+auto RuntimeControls::format_frequency(uint32_t hz) -> std::string {
   if (hz >= 1000000000) {
     return std::to_string(hz / 1000000000) + "." +
            std::to_string((hz % 1000000000) / 1000000) + " GHz";
-  } else if (hz >= 1000000) {
+  } if (hz >= 1000000) {
     return std::to_string(hz / 1000000) + "." +
            std::to_string((hz % 1000000) / 1000) + " MHz";
-  } else if (hz >= 1000) {
+  }
+  if (hz >= 1000) {
     return std::to_string(hz / 1000) + "." + std::to_string(hz % 1000) + " kHz";
   }
   return std::to_string(hz) + " Hz";
 }
 
 // Format gain value
-std::string RuntimeControls::format_gain(float db) const {
+auto RuntimeControls::format_gain(float db) -> std::string {
   char buffer[32];
   snprintf(buffer, sizeof(buffer), "%.1f dB", db);
   return std::string(buffer);
 }
 
 // Handle keyboard input
-bool RuntimeControls::handle_keyboard(SDL_Keycode key, bool shift_held,
-                                      bool ctrl_held) {
+auto RuntimeControls::handle_keyboard(SDL_Keycode key, bool shift_held,
+                                      bool ctrl_held) -> bool {
   // Adjust step sizes based on modifiers
   uint32_t current_freq_step = freq_step;
   float current_gain_step = gain_step;
@@ -68,11 +69,11 @@ bool RuntimeControls::handle_keyboard(SDL_Keycode key, bool shift_held,
   if (shift_held) {
     // Fine control
     current_freq_step = 100000; // 0.1 MHz
-    current_gain_step = 0.1f;   // 0.1 dB
+    current_gain_step = 0.1F;   // 0.1 dB
   } else if (ctrl_held) {
     // Coarse control
     current_freq_step = 10000000; // 10 MHz
-    current_gain_step = 10.0f;    // 10 dB
+    current_gain_step = 10.0F;    // 10 dB
   }
 
   bool changed = false;
@@ -143,7 +144,7 @@ bool RuntimeControls::handle_keyboard(SDL_Keycode key, bool shift_held,
 }
 
 // Check if FFT size changed
-bool RuntimeControls::fft_size_changed() const { return fft_changed; }
+auto RuntimeControls::fft_size_changed() const -> bool { return fft_changed; }
 
 void RuntimeControls::clear_fft_change_flag() { fft_changed = false; }
 
@@ -188,7 +189,7 @@ void RuntimeControls::set_constraints(
 }
 
 // Get formatted status string for display (cached)
-std::string RuntimeControls::get_status_string() const {
+auto RuntimeControls::get_status_string() const -> std::string {
   if (!m_status_dirty) {
     return m_cached_status;
   }
@@ -204,7 +205,7 @@ std::string RuntimeControls::get_status_string() const {
 }
 
 // Apply all pending changes to device (batch update)
-void RuntimeControls::apply_to_device(RtlSdrDevice &dev) {
+void RuntimeControls::apply_to_device(RtlSdrDevice &dev) const {
   dev.set_frequency(frequency_hz);
   dev.set_gain(gain_db);
 }

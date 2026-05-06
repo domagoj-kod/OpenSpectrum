@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "signal_processor.h"
+#include <algorithm>
 #include <cmath>
 #include <numbers>
 #include <stdexcept>
@@ -17,7 +18,7 @@ void SignalProcessor::precompute_window(size_t size) {
 
   switch (m_window) {
   case WindowFunction::RECTANGLE:
-    std::fill(m_window_coeffs.begin(), m_window_coeffs.end(), 1.0f);
+    std::ranges::fill(m_window_coeffs, 1.0F);
     break;
   case WindowFunction::HANN:
     compute_hann();
@@ -39,75 +40,75 @@ void SignalProcessor::precompute_window(size_t size) {
 
 void SignalProcessor::compute_hann() {
   const float pi = std::numbers::pi_v<float>;
-  const float size_minus_1 = static_cast<float>(m_fft_size - 1);
+  const auto size_minus_1 = static_cast<float>(m_fft_size - 1);
   for (size_t i = 0; i < m_fft_size; ++i) {
     m_window_coeffs[i] =
-        0.5f *
-        (1.0f - std::cos(2.0f * pi * static_cast<float>(i) / size_minus_1));
+        0.5F *
+        (1.0F - std::cos(2.0F * pi * static_cast<float>(i) / size_minus_1));
   }
 }
 
 void SignalProcessor::compute_hamming() {
   const float pi = std::numbers::pi_v<float>;
-  const float size_minus_1 = static_cast<float>(m_fft_size - 1);
+  const auto size_minus_1 = static_cast<float>(m_fft_size - 1);
   for (size_t i = 0; i < m_fft_size; ++i) {
     m_window_coeffs[i] =
-        0.54f -
-        0.46f * std::cos(2.0f * pi * static_cast<float>(i) / size_minus_1);
+        0.54F -
+        0.46F * std::cos(2.0F * pi * static_cast<float>(i) / size_minus_1);
   }
 }
 
 void SignalProcessor::compute_blackman() {
   const float pi = std::numbers::pi_v<float>;
-  const float a0 = 0.42659f;
-  const float a1 = 0.49656f;
-  const float a2 = 0.076849f;
-  const float size_minus_1 = static_cast<float>(m_fft_size - 1);
+  const float a0 = 0.42659F;
+  const float a1 = 0.49656F;
+  const float a2 = 0.076849F;
+  const auto size_minus_1 = static_cast<float>(m_fft_size - 1);
 
   for (size_t i = 0; i < m_fft_size; ++i) {
     float n = static_cast<float>(i) / size_minus_1;
     m_window_coeffs[i] =
-        a0 - a1 * std::cos(2.0f * pi * n) + a2 * std::cos(4.0f * pi * n);
+        a0 - a1 * std::cos(2.0F * pi * n) + a2 * std::cos(4.0F * pi * n);
   }
 }
 
 void SignalProcessor::compute_blackman_harris() {
   const float pi = std::numbers::pi_v<float>;
-  const float a0 = 0.35875f;
-  const float a1 = 0.48829f;
-  const float a2 = 0.14128f;
-  const float a3 = 0.01168f;
-  const float size_minus_1 = static_cast<float>(m_fft_size - 1);
+  const float a0 = 0.35875F;
+  const float a1 = 0.48829F;
+  const float a2 = 0.14128F;
+  const float a3 = 0.01168F;
+  const auto size_minus_1 = static_cast<float>(m_fft_size - 1);
 
   for (size_t i = 0; i < m_fft_size; ++i) {
     float n = static_cast<float>(i) / size_minus_1;
-    m_window_coeffs[i] = a0 - a1 * std::cos(2.0f * pi * n) +
-                         a2 * std::cos(4.0f * pi * n) -
-                         a3 * std::cos(6.0f * pi * n);
+    m_window_coeffs[i] = a0 - a1 * std::cos(2.0F * pi * n) +
+                         a2 * std::cos(4.0F * pi * n) -
+                         a3 * std::cos(6.0F * pi * n);
   }
 }
 
 void SignalProcessor::compute_flat_top() {
   const float pi = std::numbers::pi_v<float>;
-  const float a0 = 1.0f;
-  const float a1 = 1.93f;
-  const float a2 = 1.29f;
-  const float a3 = 0.388f;
-  const float a4 = 0.032f;
-  const float size_minus_1 = static_cast<float>(m_fft_size - 1);
+  const float a0 = 1.0F;
+  const float a1 = 1.93F;
+  const float a2 = 1.29F;
+  const float a3 = 0.388F;
+  const float a4 = 0.032F;
+  const auto size_minus_1 = static_cast<float>(m_fft_size - 1);
 
   for (size_t i = 0; i < m_fft_size; ++i) {
     float n = static_cast<float>(i) / size_minus_1;
     m_window_coeffs[i] =
-        a0 - a1 * std::cos(2.0f * pi * n) + a2 * std::cos(4.0f * pi * n) -
-        a3 * std::cos(6.0f * pi * n) + a4 * std::cos(8.0f * pi * n);
+        a0 - a1 * std::cos(2.0F * pi * n) + a2 * std::cos(4.0F * pi * n) -
+        a3 * std::cos(6.0F * pi * n) + a4 * std::cos(8.0F * pi * n);
   }
 }
 
-float SignalProcessor::get_window_coeff(size_t index) const {
+auto SignalProcessor::get_window_coeff(size_t index) const -> float {
   // Security: bounds-checked access
   if (index >= m_window_coeffs.size()) {
-    return 1.0f; // Fallback to rectangle window
+    return 1.0F; // Fallback to rectangle window
   }
   return m_window_coeffs[index];
 }
@@ -126,8 +127,8 @@ void SignalProcessor::apply_window(std::vector<std::complex<float>> &samples) {
 }
 
 void SignalProcessor::remove_dc(std::vector<std::complex<float>> &samples) {
-  float mean_real = 0.0f;
-  float mean_imag = 0.0f;
+  float mean_real = 0.0F;
+  float mean_imag = 0.0F;
 
   for (const auto &s : samples) {
     mean_real += s.real();
