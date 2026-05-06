@@ -1,1 +1,332 @@
-# SDR Spectrum Analyzer
+# OpenSpectrum: Modular SDR Spectrum Analyzer
+
+*Divide et impera — Modular architecture for SDR signal processing*
+
+[![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+OpenSpectrum is a **modular Software-Defined Radio (SDR) spectrum analyzer** built with extensibility at its core. Designed with the **divide et impera** (divide and conquer) principle, the project separates concerns into distinct modules — hardware abstraction, signal processing, FFT analysis, visualization, and rendering — enabling seamless integration of future SDR devices, from RTL2832U to proprietary hardware.
+
+Inspired by GNU Radio's pipeline architecture, OpenSpectrum provides a lightweight, real-time spectrum analysis platform that is both performant and maintainable.
+
+<p align="center" width="100%">
+    <img src="./assets/ui-layout.png">
+</p>
+
+## Features
+
+| Feature | Description |
+|--------|-------------|
+| **Multi-Device Support** | RTL2832U (via librtlsdr) with architecture ready for proprietary SDR hardware |
+| **Real-Time FFT Analysis** | Configurable FFT size, window functions, and DC removal |
+| **Dual Visualization** | Spectrum display + waterfall display for temporal signal analysis |
+| **SDL2 GUI** | Hardware-accelerated rendering with responsive design |
+| **Modular Design** | Plug-and-play architecture: swap hardware backends without modifying core logic |
+| **Security-Hardened** | Compiled with `-D_FORTIFY_SOURCE=2`, stack protection, RELRO, and more |
+
+---
+
+## Architecture
+
+The project embraces the **divide and conquer** strategy, decomposing SDR processing into isolated, interchangeable modules.
+
+Each module communicates via well-defined interfaces. By following community standards (librtlsdr, KissFFT), compatibility and ease of adoption is ensured.
+
+### Module Directory Structure
+
+```
+OpenSpectrum/
+├── src/
+│   ├── hardware/          # SDR device abstraction (RTL2832U, future devices)
+│   ├── signal/            # Signal conditioning (DC removal, windowing)
+│   ├── fft/               # Fast Fourier Transform & spectral analysis
+│   ├── visualization/     # Spectrum & waterfall rendering logic
+│   ├── gui/               # SDL2 window and event management
+│   └── utils/             # Logging, configuration, utilities
+├── include/
+├── third_party/
+│   └── kissfft/           # Lightweight FFT library
+└── Makefile               # Security-hardened build system
+```
+
+---
+
+## Installation
+
+### Prerequisites
+
+OpenSpectrum is **platform-agnostic** and supports Linux, macOS, and Windows (via cross-compilation or `WSL2`).
+
+| Dependency | Purpose | Installation Command (Ubuntu/Debian) |
+|-----------|---------|--------------------------------------|
+| `g++` / `clang++` | C++20 Compiler | `sudo apt install build-essential` |
+| `cmake` | Build system (optional) | `sudo apt install cmake` |
+| `librtlsdr-dev` | RTL-SDR hardware support | `sudo apt install librtlsdr-dev` |
+| `libsdl2-dev` | GUI rendering | `sudo apt install libsdl2-dev` |
+| `pkg-config` | Dependency detection | `sudo apt install pkg-config` |
+
+**macOS (Homebrew):**
+```bash
+brew install librtlsdr sdl2 pkg-config
+```
+
+**Windows (MSYS2):**
+```bash
+pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake \
+       mingw-w64-x86_64-rtl-sdr mingw-w64-x86_64-SDL2
+```
+
+> [!NOTE]
+> Windows users may need to adjust `Makefile` paths for SDL2 and librtlsdr
+
+---
+
+### Build from Source
+
+```bash
+# Clone the repository
+git clone https://github.com/domagoj-kod/OpenSpectrum.git
+cd OpenSpectrum
+
+# Build the project
+make
+
+# Build with debug symbols
+make debug
+
+# Build optimized release
+make release
+
+# Clean build artifacts
+make clean
+```
+
+The compiled binary will be created as `openspectrum.out`.
+
+---
+
+## Usage
+
+### Quick Start
+
+```bash
+# Run the spectrum analyzer (RTL-SDR required)
+./openspectrum.out --help
+Usage: ./openspectrum.out [OPTIONS]
+
+OpenSpectrum - SDR Spectrum Analyzer
+
+Options:
+  -f, --freq HZ       Center frequency in Hz (default: 92600000)
+  -r, --rate HZ       Sample rate in Hz (default: 2048000)
+  -g, --gain DB       Gain in dB (default: 10.0)
+  -s, --fft-size N    FFT size (power of 2, default: 4096)
+  -w, --width N       Display width in pixels (default: 800)
+  -H, --height N      Display height in pixels (default: 480)
+  --help              Show this help message
+
+Examples:
+  ./openspectrum.out -f 100000000 -g 20
+  ./openspectrum.out --freq 144500000 --gain 15 --fft-size 8192
+```
+
+Apart from command line arguments the program uses keyboard shortcuts for frequency tuning, gain control and Fast Fourier Transform size changes. Shift modifer allows for fine control fine control (0.1 MHz, 0.1 dB), while Ctrl modifier is used for coarse control (10 MHz, 10 dB).
+
+### Keyboard Controls
+
+| Key | Action |
+|-----|--------|
+| `+/=` | Increase the center frequency |
+| `-/_` | Decrease the center frequency |
+| `r` | Increase gain |
+| `f` | Decrease gain |
+| `1-4` | Set FFT size (512, 1024, 2048, 4096) |
+| `Ctrl` | Coarse control (10 MHz, 10 dB) |
+| `Shift` | Fine control (0.1 MHz, 0.1 dB) |
+| `ESC` | Exit the program |
+| `Ctrl+C` | Graceful shutdown (terminal) |
+
+### Command-Line Configuration (Future)
+
+> *Planned for upcoming releases*
+
+```bash
+# Use a specific RTL-SDR device index
+./openspectrum.out --device 0
+
+# Headless mode (data output only)
+./openspectrum.out --headless --output spectrum.csv
+```
+
+---
+
+## Supported Window Functions
+
+Requires C++ code alteration.
+
+- `RECTANGLE`
+- `HAMMING`
+- `HANN`
+- `BLACKMAN`
+- `BLACKMAN_HARRIS` (default)
+- `NUTTALL`
+- `FLATTOP`
+
+---
+
+## Adding New SDR Devices
+
+The modular design makes it straightforward to add support for new SDR hardware. Follow these steps:
+
+### 1. Create a New Hardware Backend
+
+```cpp
+// src/hardware/new_sdr_device.h
+#pragma once
+#include "hardware/sdr_device_base.h"
+
+class NewSdrDevice : public SdrDeviceBase {
+public:
+    bool open() override;
+    void close() override;
+    void set_frequency(uint32_t freq_hz) override;
+    void set_sample_rate(uint32_t rate_hz) override;
+    std::vector<std::complex<float>> read_samples(size_t count) override;
+    // ... additional device-specific methods
+};
+```
+
+### 2. Implement the Interface
+
+All hardware backends must implement the `SdrDeviceBase` interface:
+
+```cpp
+// include/hardware/sdr_device_base.h (recommended addition)
+class SdrDeviceBase {
+public:
+    virtual ~SdrDeviceBase() = default;
+    virtual bool open() = 0;
+    virtual void close() = 0;
+    virtual bool is_open() const = 0;
+    virtual void set_frequency(uint32_t freq_hz) = 0;
+    virtual void set_sample_rate(uint32_t rate_hz) = 0;
+    virtual void set_gain(float gain_db) = 0;
+    virtual std::vector<std::complex<float>> read_samples(size_t count) = 0;
+};
+```
+
+### 3. Integrate into Main Program
+
+```cpp
+// src/main.cpp
+#include "hardware/new_sdr_device.h"
+
+int main() {
+    // Use polymorphism for device selection
+    std::unique_ptr<SdrDeviceBase> device;
+    
+    device = std::make_unique<RtlSdrDevice>();
+    
+    if (!device->open()) {
+        LOG_ERROR("Failed to open device");
+        return 1;
+    }
+    // Rest of pipeline remains unchanged!
+}
+```
+
+**The rest of the signal chain — processor, FFT, visualization — remains untouched.** This is the power of *divide et impera*.
+
+---
+
+## Testing
+
+### Run Unit Tests
+
+At the moment test suites are excluded from Makefile and standalone compilation is required.
+
+### Verify Hardware
+
+Ensure your RTL-SDR device is detected:
+
+```bash
+# List available RTL-SDR devices
+rtl_test -t
+
+# Check device information
+rtl_eeprom
+```
+
+---
+
+## Performance Notes
+
+Dell Precision notebook with Intel® Core™ i7-12700H processor displays minimal usage under maximum size FFT computations, utilizing ~1% CPU power and 30 MB of system memory.
+
+- **FFT Performance:** KissFFT provides optimized FFT computation. For larger FFT sizes (8192+), paralelization is required.
+- **Sample Rate:** Maximum stable rate depends on USB 2.0 bandwidth (~40 MB/s).
+- **Latency:** End-to-end latency is typically <50ms at 2.048 MS/s with FFT_SIZE=4096.
+
+---
+
+## Security
+
+OpenSpectrum is compiled with **security-hardened flags** by default:
+
+| Flag | Purpose |
+|------|---------|
+| `-D_FORTIFY_SOURCE=2` | Buffer overflow protection |
+| `-fstack-protector-strong` | Stack canary protection |
+| `-Wl,-z,now` | Disable lazy binding |
+| `-Wl,-z,relro` | Relocation read-only |
+| `-Wl,-z,noexecstack` | Non-executable stack |
+| `-Wall -Wextra -Wpedantic` | Comprehensive warnings |
+
+---
+
+## License
+
+This project is licensed under the **MIT License** — see [LICENSE](LICENSE) for details.
+
+```
+MIT License
+
+Copyright (c) 2026 domagoj-kod
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software...
+```
+
+---
+
+## Contributing
+
+Contributions are welcome! Please follow these guidelines:
+
+1. **Modularity First:** New features should be added as separate modules when possible.
+2. **Security:** Maintain the existing security flags in the Makefile.
+3. **Testing:** Add tests for new functionality.
+4. **Documentation:** Update this README for significant changes.
+
+### Development Workflow
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'feat: add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+---
+
+## Acknowledgments
+
+- **librtlsdr** — RTL-SDR device library
+- **KissFFT** — Fast Fourier Transform implementation by Mark Borgerding
+- **SDL2** — Simple DirectMedia Layer for cross-platform rendering
+- **GNU Radio** — Inspiration for modular SDR pipeline architecture
+
+---
+
+*Built with ❤️ for the SDR community*
