@@ -128,7 +128,7 @@ void WaterfallDisplay::render() {
 
   // Render history lines from bottom to top (oldest at bottom, newest at top)
   size_t y_offset = 0;
-  const size_t line_height = std::max(1UL, m_height / m_history_capacity);
+  const size_t line_height = std::max<size_t>(1UL, m_height / m_history_capacity);
 
   for (auto it = m_history.begin(); it != m_history.end();
        ++it, y_offset += line_height) {
