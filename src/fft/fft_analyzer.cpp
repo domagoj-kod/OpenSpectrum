@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: MIT
 
 #include "fft_analyzer.h"
-#include <algorithm>
+#include "kiss_fft.h"
 #include <cmath>
-#include <numbers>
+#include <complex>
+#include <cstddef>
 #include <stdexcept>
+#include <utility>
+#include <vector>
 
 namespace openspectrum {
 
@@ -95,7 +98,7 @@ void FftAnalyzer::execute(const std::vector<std::complex<float>> &input,
 
   // Fill input buffer (apply DC centering if enabled)
   for (size_t i = 0; i < m_fft_size; ++i) {
-    float sign = m_center_dc ? ((i % 2 == 0) ? 1.0F : -1.0F) : 1.0F;
+    float const sign = m_center_dc ? ((i % 2 == 0) ? 1.0F : -1.0F) : 1.0F;
     m_input_buffer[i].r = sign * input[i].real();
     m_input_buffer[i].i = sign * input[i].imag();
   }
@@ -105,7 +108,7 @@ void FftAnalyzer::execute(const std::vector<std::complex<float>> &input,
   kiss_fft(m_cfg, m_input_buffer.data(), m_output_buffer.data());
 
   // Process output and cache results
-  size_t half_size = (m_fft_size / 2) + 1;
+  size_t const half_size = (m_fft_size / 2) + 1;
 
   for (size_t i = 0; i < half_size; ++i) {
     // Get output bin (may need reordering for centered DC)
@@ -114,8 +117,8 @@ void FftAnalyzer::execute(const std::vector<std::complex<float>> &input,
       out_idx = (i + m_fft_size / 2) % m_fft_size;
     }
 
-    float real = m_output_buffer[out_idx].r;
-    float imag = m_output_buffer[out_idx].i;
+    float const real = m_output_buffer[out_idx].r;
+    float const imag = m_output_buffer[out_idx].i;
 
     m_power_spectrum[i] = real * real + imag * imag;
     m_magnitude_spectrum[i] = std::sqrt(m_power_spectrum[i]);
@@ -123,7 +126,7 @@ void FftAnalyzer::execute(const std::vector<std::complex<float>> &input,
 
     // dB conversion with floor to avoid log(0)
     // Security: prevent NaN from log(0) with epsilon
-    float scale = (i != 0 && i != m_fft_size / 2) ? 2.0F : 1.0F;
+    float const scale = (i != 0 && i != m_fft_size / 2) ? 2.0F : 1.0F;
     m_db_spectrum[i] =
         20.0F * std::log10((m_magnitude_spectrum[i] * scale /
                                (static_cast<float>(m_fft_size) *

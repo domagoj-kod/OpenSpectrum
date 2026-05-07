@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: MIT
 
 #include "text_renderer.h"
-#include <algorithm>
+#include "SDL_pixels.h"
+#include "SDL_render.h"
+#include "SDL_surface.h"
+#include <cstdint>
 #include <cstring>
+#include <string>
 
 namespace openspectrum {
 
@@ -248,9 +252,9 @@ TextRenderer::create_texture_from_bitmap(const uint8_t * /*bitmap*/,
   for (int y = 0; y < glyph_height; ++y) {
     for (int x = 0; x < glyph_width; ++x) {
       // Get bitmap bit (scaled from 8x8)
-      int src_x = (x * 8) / glyph_width;
-      int src_y = (y * 8) / glyph_height;
-      uint8_t bit = BITMAP_FONT[0][src_y] & (1 << (7 - src_x));
+      int const src_x = (x * 8) / glyph_width;
+      int const src_y = (y * 8) / glyph_height;
+      uint8_t const bit = BITMAP_FONT[0][src_y] & (1 << (7 - src_x));
 
       if (bit != 0U) {
         // FG color
@@ -279,8 +283,8 @@ auto TextRenderer::render_text(const std::string &text,
 
   // For simplicity, render each string as a single texture
   // Calculate total width
-  int total_width = static_cast<int>(text.length()) * glyph_width;
-  int total_height = glyph_height;
+  int const total_width = static_cast<int>(text.length()) * glyph_width;
+  int const total_height = glyph_height;
 
   SDL_Texture *texture =
       SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA32,
@@ -311,7 +315,7 @@ auto TextRenderer::render_text(const std::string &text,
 
   // Render each character
   for (size_t i = 0; i < text.length(); ++i) {
-    char c = text[i];
+    char const c = text[i];
     int char_index = static_cast<int>(c) - 32;
 
     // Only render printable ASCII
@@ -322,14 +326,14 @@ auto TextRenderer::render_text(const std::string &text,
     const uint8_t *bitmap = BITMAP_FONT[char_index];
 
     for (int y = 0; y < glyph_height; ++y) {
-      int src_y = (y * 8) / glyph_height;
+      int const src_y = (y * 8) / glyph_height;
       for (int x = 0; x < glyph_width; ++x) {
-        int src_x = (x * 8) / glyph_width;
-        uint8_t bit = bitmap[src_y] & (1 << (7 - src_x));
+        int const src_x = (x * 8) / glyph_width;
+        uint8_t const bit = bitmap[src_y] & (1 << (7 - src_x));
 
         if (bit != 0U) {
-          int px = (static_cast<int>(i) * glyph_width) + x;
-          int py = y;
+          int const px = (static_cast<int>(i) * glyph_width) + x;
+          int const py = y;
           if (px < total_width && py < total_height) {
             pixels[(py * surface->pitch / 4) + px] =
                 (color.r << 24) | (color.g << 16) | (color.b << 8) | color.a;

@@ -10,10 +10,17 @@
 #include "visualization/spectrum_display.h"
 #include "visualization/waterfall_display.h"
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <complex>
 #include <csignal>
-#include <iostream>
+#include <cstddef>
+#include <cstdint>
+#include <exception>
+#include <memory>
+#include <string>
+#include <vector>
 
 // Security: Use hardened compiler flags (defined in Makefile)
 // -fstack-protector-strong, -D_FORTIFY_SOURCE=2, -O2, -Wall, -Wextra
@@ -31,7 +38,7 @@ static void signal_handler(int signum) {
 
 auto main(int argc, char *argv[]) -> int {
   // Parse command-line arguments
-  AppConfig config = parse_arguments(argc, argv);
+  AppConfig const config = parse_arguments(argc, argv);
 
   if (config.show_help) {
     print_usage(argv[0]);
@@ -149,7 +156,7 @@ auto main(int argc, char *argv[]) -> int {
 
       // === 1.2. Check for FFT size change and reinitialize if needed ===
       if (runtime_controls.fft_size_changed()) {
-        size_t new_fft_size = runtime_controls.get_fft_size();
+        size_t const new_fft_size = runtime_controls.get_fft_size();
         runtime_controls.set_reconfiguring(true);
         runtime_controls.clear_fft_change_flag();
 
@@ -219,9 +226,9 @@ auto main(int argc, char *argv[]) -> int {
       const auto &wf_pixels = waterfall_display.get_pixels();
 
       // Copy spectrum to top half
-      size_t spec_size = spec_pixels.size();
-      size_t wf_size = wf_pixels.size();
-      size_t half_size = DISPLAY_WIDTH * (DISPLAY_HEIGHT / 2) * 4;
+      size_t const spec_size = spec_pixels.size();
+      size_t const wf_size = wf_pixels.size();
+      size_t const half_size = DISPLAY_WIDTH * (DISPLAY_HEIGHT / 2) * 4;
 
       std::copy_n(spec_pixels.data(), std::min(spec_size, half_size),
                   combined_pixels.data());

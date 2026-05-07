@@ -3,17 +3,17 @@
 #include "runtime_controls.h"
 #include "../hardware/rtl_sdr_device.h"
 #include "../utils/logger.h"
+#include "SDL_keycode.h"
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <cstdio>
+#include <iterator>
 #include <string>
 
 namespace openspectrum {
-
-// Free function to apply runtime controls to device
-// Defined here where RtlSdrDevice is fully visible
-void apply_runtime_controls_to_device(RuntimeControls &controls,
-                                      RtlSdrDevice &dev);
 
 RuntimeControls::RuntimeControls() {
   // Initialize RTL2832U-specific constraints
@@ -126,7 +126,7 @@ auto RuntimeControls::handle_keyboard(SDL_Keycode key, bool shift_held,
   case SDLK_2:
   case SDLK_3:
   case SDLK_4: {
-    int index = key - SDLK_1;
+    int const index = key - SDLK_1;
     if (index < static_cast<int>(constraints.supported_fft_sizes.size())) {
       fft_prev = fft_size;
       fft_size = constraints.supported_fft_sizes[index];
@@ -161,7 +161,7 @@ void RuntimeControls::set_gain(float db) {
 }
 
 void RuntimeControls::set_fft_size(size_t size) {
-  int index = find_fft_index(size);
+  int const index = find_fft_index(size);
   if (index >= 0) {
     fft_size = size;
     fft_prev = size;

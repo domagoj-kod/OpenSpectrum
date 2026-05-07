@@ -1,23 +1,26 @@
 // SPDX-License-Identifier: MIT
 
 #include "logger.h"
+#include <chrono>
+#include <cstdio>
 #include <cstring>
 #include <ctime>
 #include <iomanip>
 #include <iostream>
+#include <memory>
+#include <mutex>
 #include <sstream>
-#include <sys/stat.h>
+#include <string>
 #include <thread>
 #include <utility>
-#include <unistd.h>
 
 namespace openspectrum {
 
 // --- ConsoleSink Implementation ---
 
 void ConsoleSink::write(const LogEntry &entry) {
-  std::time_t time = std::chrono::system_clock::to_time_t(entry.timestamp);
-  std::tm tm = *std::localtime(&time);
+  std::time_t const time = std::chrono::system_clock::to_time_t(entry.timestamp);
+  std::tm const tm = *std::localtime(&time);
 
   const char *level_str = "";
   switch (entry.level) {
@@ -57,9 +60,9 @@ void ConsoleSink::flush() { std::cout << std::flush; }
 // --- FileSink Implementation ---
 
 FileSink::FileSink(const std::string &filename, size_t max_size)
-    : m_filename(filename), m_max_size(max_size) {
+    : m_filename(filename), m_max_size(max_size), m_file(std::fopen(filename.c_str(), "a")) {
   // Open file in append mode
-  m_file = std::fopen(filename.c_str(), "a");
+  
   if (m_file != nullptr) {
     // Get current file size
     std::fseek(m_file, 0, SEEK_END);
@@ -84,12 +87,12 @@ void FileSink::rotate() {
   m_file = nullptr;
 
   // Create rotated filename with timestamp
-  std::time_t now = std::time(nullptr);
-  std::tm tm = *std::localtime(&now);
+  std::time_t const now = std::time(nullptr);
+  std::tm const tm = *std::localtime(&now);
   char timestamp[20];
   std::strftime(timestamp, sizeof(timestamp), "%Y%m%d_%H%M%S", &tm);
 
-  std::string rotated_name = m_filename + "." + timestamp;
+  std::string const rotated_name = m_filename + "." + timestamp;
 
   // Rename current file
   std::rename(m_filename.c_str(), rotated_name.c_str());
@@ -108,7 +111,7 @@ void FileSink::write(const LogEntry &entry) {
     return;
 }
 
-  std::lock_guard<std::mutex> lock(m_mutex);
+  std::lock_guard<std::mutex> const lock(m_mutex);
 
   // Check if rotation is needed
   if (m_current_size >= m_max_size) {
@@ -118,8 +121,8 @@ void FileSink::write(const LogEntry &entry) {
 }
   }
 
-  std::time_t time = std::chrono::system_clock::to_time_t(entry.timestamp);
-  std::tm tm = *std::localtime(&time);
+  std::time_t const time = std::chrono::system_clock::to_time_t(entry.timestamp);
+  std::tm const tm = *std::localtime(&time);
 
   const char *level_str = "";
   switch (entry.level) {
@@ -144,7 +147,7 @@ void FileSink::write(const LogEntry &entry) {
   }
 
   // Estimate message size (rough approximation)
-  size_t msg_size = 64 + entry.message.size() + entry.file.size() + 32;
+  size_t const msg_size = 64 + entry.message.size() + entry.file.size() + 32;
   if (m_current_size + msg_size >= m_max_size) {
     rotate();
     if (m_file == nullptr) {
@@ -183,7 +186,7 @@ auto Logger::get_instance() -> Logger & {
 Logger::~Logger() { flush(); }
 
 void Logger::add_sink(std::unique_ptr<ILogSink> sink) {
-  std::lock_guard<std::mutex> lock(m_mutex);
+  std::lock_guard<std::mutex> const lock(m_mutex);
   m_sinks.push_back(std::move(sink));
 }
 
@@ -206,14 +209,14 @@ void Logger::log(LogLevel level, const std::string &file, int line,
   tid_ss << std::this_thread::get_id();
   entry.thread_id = tid_ss.str();
 
-  std::lock_guard<std::mutex> lock(m_mutex);
+  std::lock_guard<std::mutex> const lock(m_mutex);
   for (auto &sink : m_sinks) {
     sink->write(entry);
 }
 }
 
 void Logger::flush() {
-  std::lock_guard<std::mutex> lock(m_mutex);
+  std::lock_guard<std::mutex> const lock(m_mutex);
   for (auto &sink : m_sinks) {
     sink->flush();
 }

@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: MIT
 
 #include "spectrum_display.h"
+
+#include <cmath>
 #include <algorithm>
 #include <cmath>
-#include <numbers>
+#include <cstddef>
+#include <cstdint>
+#include <vector>
 
 namespace openspectrum {
 
@@ -38,10 +42,10 @@ void SpectrumPalette::set_color_map(ColorMap map) {
 
 void SpectrumPalette::generate_jet_palette() {
   for (size_t i = 0; i < PALETTE_SIZE; ++i) {
-    float t = static_cast<float>(i) / (PALETTE_SIZE - 1);
-    float r;
-    float g;
-    float b;
+    float const t = static_cast<float>(i) / (PALETTE_SIZE - 1);
+    float r = NAN;
+    float g = NAN;
+    float b = NAN;
 
     if (t < 0.125F) {
       r = 0.0F;
@@ -74,12 +78,12 @@ void SpectrumPalette::generate_jet_palette() {
 void SpectrumPalette::generate_viridis_palette() {
   // Simplified viridis approximation
   for (size_t i = 0; i < PALETTE_SIZE; ++i) {
-    float t = static_cast<float>(i) / (PALETTE_SIZE - 1);
-    float r = std::clamp(
+    float const t = static_cast<float>(i) / (PALETTE_SIZE - 1);
+    float const r = std::clamp(
         0.267F + (0.329F * t) + (1.453F * t * t) - (1.099F * t * t * t), 0.0F, 1.0F);
-    float g = std::clamp(
+    float const g = std::clamp(
         0.005F + (1.404F * t) - (0.598F * t * t) + (0.189F * t * t * t), 0.0F, 1.0F);
-    float b = std::clamp(
+    float const b = std::clamp(
         0.329F + (1.509F * t) - (2.814F * t * t) + (1.976F * t * t * t), 0.0F, 1.0F);
 
     m_palette[i] =
@@ -90,7 +94,7 @@ void SpectrumPalette::generate_viridis_palette() {
 
 void SpectrumPalette::generate_hot_palette() {
   for (size_t i = 0; i < PALETTE_SIZE; ++i) {
-    float t = static_cast<float>(i) / (PALETTE_SIZE - 1);
+    float const t = static_cast<float>(i) / (PALETTE_SIZE - 1);
     m_palette[i] = RgbColor(static_cast<uint8_t>(255 * t),
                             static_cast<uint8_t>(255 * t * t),
                             static_cast<uint8_t>(255 * t * t * t));
@@ -106,7 +110,7 @@ void SpectrumPalette::generate_grayscale_palette() {
 
 void SpectrumPalette::generate_blue_red_palette() {
   for (size_t i = 0; i < PALETTE_SIZE; ++i) {
-    float t = static_cast<float>(i) / (PALETTE_SIZE - 1);
+    float const t = static_cast<float>(i) / (PALETTE_SIZE - 1);
     m_palette[i] = RgbColor(static_cast<uint8_t>(255 * t), 0,
                             static_cast<uint8_t>(255 * (1 - t)));
   }
@@ -119,7 +123,7 @@ void SpectrumPalette::set_db_range(float min_db, float max_db) {
   // Phase 2: Integer quantization - precompute scale for direct int mapping
   // index = (int)((db - min) * scale + 0.5f) where scale =
   // (PALETTE_SIZE-1)/range
-  float range = max_db - min_db;
+  float const range = max_db - min_db;
   if (range > 0.0F) {
     m_scale_to_index =
         (static_cast<float>(PALETTE_SIZE - 1)) / (range + 1e-10F);
@@ -132,7 +136,7 @@ auto SpectrumPalette::get_color(float db_value) const -> RgbColor {
   // Phase 2: Integer quantization - direct int mapping with rounding
   // index = (int)((db - min) * scale + 0.5f)
   // Uses fma (fused multiply-add) for: (db - min) * scale + 0.5f
-  float scaled = std::fma(db_value - m_db_min, m_scale_to_index, 0.5F);
+  float const scaled = std::fma(db_value - m_db_min, m_scale_to_index, 0.5F);
 
   // Convert to int (rounds to nearest due to +0.5f)
   int index = static_cast<int>(scaled);
@@ -151,7 +155,7 @@ auto SpectrumPalette::get_color(float db_value) const -> RgbColor {
 auto SpectrumPalette::get_color(float db_value, float min_db,
                                     float max_db) const -> RgbColor {
   // Integer quantization: index = (int)((db - min) * scale + 0.5f)
-  float range = max_db - min_db;
+  float const range = max_db - min_db;
   if (range <= 0.0F) {
     return m_palette[0];
   }
@@ -161,7 +165,7 @@ auto SpectrumPalette::get_color(float db_value, float min_db,
   db_value = std::min(db_value, max_db);
 
   // Compute scale and index with rounding
-  float scale = (static_cast<float>(PALETTE_SIZE - 1)) / (range + 1e-10F);
+  float const scale = (static_cast<float>(PALETTE_SIZE - 1)) / (range + 1e-10F);
   int index = static_cast<int>(std::fma(db_value - min_db, scale, 0.5F));
 
   // Clamp to valid range
@@ -200,8 +204,8 @@ void SpectrumDisplay::update_spectrum(const std::vector<float> &db_values,
   m_spectrum_data = db_values;
 
   if (m_autoscale && !db_values.empty()) {
-    float min_val = *std::ranges::min_element(db_values);
-    float max_val = *std::ranges::max_element(db_values);
+    float const min_val = *std::ranges::min_element(db_values);
+    float const max_val = *std::ranges::max_element(db_values);
     set_db_range(min_val - 5.0F, max_val + 5.0F); // Add 5dB margin
   }
 
@@ -230,7 +234,7 @@ void SpectrumDisplay::render() {
   const size_t row_stride = m_width * 4;
 
   for (size_t i = 0; i < num_bins; ++i) {
-    float db = m_spectrum_data[i];
+    float const db = m_spectrum_data[i];
     // Invert Y-axis: higher dB = higher on screen
     float bar_height = (db - m_min_db) * db_to_height;
     bar_height = std::clamp(bar_height, 0.0F, static_cast<float>(m_height));
@@ -240,7 +244,7 @@ void SpectrumDisplay::render() {
 
     // Fill from bottom to spectrum line
     auto x = static_cast<size_t>(static_cast<float>(i) * bin_width);
-    size_t bottom_y = m_height - 1;
+    size_t const bottom_y = m_height - 1;
     auto top_y =
         static_cast<size_t>(static_cast<float>(m_height) - bar_height);
 

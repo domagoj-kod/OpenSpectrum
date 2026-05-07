@@ -3,8 +3,10 @@
 #include "signal_processor.h"
 #include <algorithm>
 #include <cmath>
+#include <complex>
+#include <cstddef>
 #include <numbers>
-#include <stdexcept>
+#include <vector>
 
 namespace openspectrum {
 
@@ -66,7 +68,7 @@ void SignalProcessor::compute_blackman() {
   const auto size_minus_1 = static_cast<float>(m_fft_size - 1);
 
   for (size_t i = 0; i < m_fft_size; ++i) {
-    float n = static_cast<float>(i) / size_minus_1;
+    float const n = static_cast<float>(i) / size_minus_1;
     m_window_coeffs[i] =
         a0 - a1 * std::cos(2.0F * pi * n) + a2 * std::cos(4.0F * pi * n);
   }
@@ -81,7 +83,7 @@ void SignalProcessor::compute_blackman_harris() {
   const auto size_minus_1 = static_cast<float>(m_fft_size - 1);
 
   for (size_t i = 0; i < m_fft_size; ++i) {
-    float n = static_cast<float>(i) / size_minus_1;
+    float const n = static_cast<float>(i) / size_minus_1;
     m_window_coeffs[i] = a0 - a1 * std::cos(2.0F * pi * n) +
                          a2 * std::cos(4.0F * pi * n) -
                          a3 * std::cos(6.0F * pi * n);
@@ -98,7 +100,7 @@ void SignalProcessor::compute_flat_top() {
   const auto size_minus_1 = static_cast<float>(m_fft_size - 1);
 
   for (size_t i = 0; i < m_fft_size; ++i) {
-    float n = static_cast<float>(i) / size_minus_1;
+    float const n = static_cast<float>(i) / size_minus_1;
     m_window_coeffs[i] =
         a0 - a1 * std::cos(2.0F * pi * n) + a2 * std::cos(4.0F * pi * n) -
         a3 * std::cos(6.0F * pi * n) + a4 * std::cos(8.0F * pi * n);
@@ -120,7 +122,7 @@ void SignalProcessor::apply_window(std::vector<std::complex<float>> &samples) {
   }
 
   for (size_t i = 0; i < samples.size(); ++i) {
-    float w = get_window_coeff(i);
+    float const w = get_window_coeff(i);
     samples[i].real(samples[i].real() * w);
     samples[i].imag(samples[i].imag() * w);
   }

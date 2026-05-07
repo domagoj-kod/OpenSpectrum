@@ -55,7 +55,7 @@ auto parse_arguments(int argc, char *argv[]) -> AppConfig {
   AppConfig config;
 
   for (int i = 1; i < argc; ++i) {
-    std::string_view arg = argv[i];
+    std::string_view const arg = argv[i];
 
     if (arg == "-f" || arg == "--freq") {
       if (i + 1 >= argc || !parse_float(argv[i + 1], config.center_freq_hz)) {

@@ -3,7 +3,10 @@
 #include "waterfall_display.h"
 #include <algorithm>
 #include <cmath>
-#include <numeric>
+#include <cstddef>
+#include <cstdint>
+#include <utility>
+#include <vector>
 
 namespace openspectrum {
 
@@ -36,15 +39,15 @@ void WaterfallDisplay::update_global_range() {
 
   for (const auto &line : m_history) {
     if (!line.empty()) {
-      float line_min = *std::ranges::min_element(line);
-      float line_max = *std::ranges::max_element(line);
+      float const line_min = *std::ranges::min_element(line);
+      float const line_max = *std::ranges::max_element(line);
       new_min = std::min(new_min, line_min);
       new_max = std::max(new_max, line_max);
     }
   }
 
   // Add margin
-  float range = new_max - new_min;
+  float const range = new_max - new_min;
   if (range > 0) {
     new_min -= range * 0.05F;
     new_max += range * 0.05F;
@@ -82,7 +85,7 @@ void WaterfallDisplay::add_spectrum_line(const std::vector<float> &db_values) {
     line = db_values;
   } else {
     // Downsample by averaging
-    float scale =
+    float const scale =
         static_cast<float>(db_values.size()) / static_cast<float>(m_width);
     for (size_t i = 0; i < m_width; ++i) {
       auto start = static_cast<size_t>(static_cast<float>(i) * scale);
@@ -137,18 +140,18 @@ void WaterfallDisplay::render() {
 }
 
     const auto &line = *it;
-    size_t actual_line_height = (y_offset + line_height <= m_height)
+    size_t const actual_line_height = (y_offset + line_height <= m_height)
                                     ? line_height
                                     : (m_height - y_offset);
 
     for (size_t y = 0; y < actual_line_height; ++y) {
-      size_t pixel_row = y_offset + y;
+      size_t const pixel_row = y_offset + y;
 
       // Phase 3: Precompute row start pointer
       uint8_t *row_ptr = m_pixels.data() + (pixel_row * row_stride);
 
       for (size_t x = 0; x < m_width && x < line.size(); ++x) {
-        float db = line[x];
+        float const db = line[x];
         auto color = m_palette.get_color(db);
 
         // Phase 3: Direct pointer access (no bounds check)

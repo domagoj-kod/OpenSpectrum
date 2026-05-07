@@ -1,10 +1,27 @@
 // SPDX-License-Identifier: MIT
 
 #include "sdl_renderer.h"
+#include "SDL.h"
+#include "SDL_error.h"
+#include "SDL_events.h"
+#include "SDL_keyboard.h"
+#include "SDL_keycode.h"
+#include "SDL_pixels.h"
+#include "SDL_rect.h"
+#include "SDL_render.h"
+#include "SDL_scancode.h"
+#include "SDL_stdinc.h"
+#include "SDL_video.h"
 #include "runtime_controls.h"
 #include "text_renderer.h"
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
+#include <string>
+#include <vector>
 
 namespace openspectrum {
 
@@ -93,7 +110,7 @@ auto SdlRenderer::render(const std::vector<uint8_t> &pixels, size_t pitch) -> bo
   }
 
   // Copy pixels (respecting pitch if provided)
-  size_t src_pitch = pitch > 0 ? pitch : m_width * 4;
+  size_t const src_pitch = pitch > 0 ? pitch : m_width * 4;
   for (size_t y = 0; y < m_height; ++y) {
     const uint8_t *src_row = pixels.data() + (y * src_pitch);
     uint8_t *dst_row =
@@ -111,11 +128,11 @@ auto SdlRenderer::render(const std::vector<uint8_t> &pixels, size_t pitch) -> bo
   
   // Render status bar on top
   if (m_status_texture != nullptr) {
-    int text_width;
-    int text_height;
+    int text_width = 0;
+    int text_height = 0;
     m_text_renderer->get_text_size(m_current_status, &text_width, &text_height);
     
-    SDL_Rect dest_rect = {
+    SDL_Rect const dest_rect = {
         static_cast<int>(m_width - text_width - 10),  // 10px margin from right
         static_cast<int>(m_height - text_height - 10), // 10px margin from bottom
         text_width,
@@ -146,9 +163,9 @@ auto SdlRenderer::poll_events(RuntimeControls* controls) -> bool {
       if (controls != nullptr) {
         // Get modifier state
         const Uint8* keystate = SDL_GetKeyboardState(nullptr);
-        bool shift_held = (keystate[SDL_SCANCODE_LSHIFT] != 0U) ||
+        bool const shift_held = (keystate[SDL_SCANCODE_LSHIFT] != 0U) ||
                           (keystate[SDL_SCANCODE_RSHIFT] != 0U);
-        bool ctrl_held = (keystate[SDL_SCANCODE_LCTRL] != 0U) ||
+        bool const ctrl_held = (keystate[SDL_SCANCODE_LCTRL] != 0U) ||
                          (keystate[SDL_SCANCODE_RCTRL] != 0U);
 
         // Handle control keys
@@ -185,7 +202,7 @@ void SdlRenderer::render_status_bar(const std::string& status_text) {
 
   // Render new status text
   if (!status_text.empty()) {
-    SDL_Color text_color = {255, 255, 255, 255}; // White
+    SDL_Color const text_color = {255, 255, 255, 255}; // White
     m_status_texture = m_text_renderer->render_text(status_text, text_color);
   }
 }

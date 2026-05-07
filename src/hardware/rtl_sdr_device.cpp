@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: MIT
 
 #include "rtl_sdr_device.h"
+#include <complex>
+#include <cstddef>
+#include <cstdint>
+#include <rtl-sdr.h>
 #include <stdexcept>
+#include <utility>
+#include <vector>
 
 RtlSdrDevice::RtlSdrDevice(uint32_t index) : m_index(index) {}
 
@@ -61,7 +67,7 @@ void RtlSdrDevice::set_gain(float gain_db) {
 auto RtlSdrDevice::read_samples(size_t count) -> std::vector<std::complex<float>> {
   std::vector<uint8_t> buf(count * 2); // I + Q = 2 bytes per sample
   int n_read = 0;
-  int ret = rtlsdr_read_sync(m_dev, buf.data(), static_cast<int>(buf.size()),
+  int const ret = rtlsdr_read_sync(m_dev, buf.data(), static_cast<int>(buf.size()),
                              &n_read);
   if (ret < 0 || n_read != static_cast<int>(buf.size())) {
     throw std::runtime_error("RTL-SDR read failed or short read");
@@ -94,7 +100,7 @@ void RtlSdrDevice::process_callback(const uint8_t *buf, uint32_t len) {
   if (!m_callback) {
     return;
 }
-  size_t count = len / 2;
+  size_t const count = len / 2;
   std::vector<std::complex<float>> samples(count);
   for (size_t i = 0; i < count; ++i) {
     samples[i] = std::complex<float>(
