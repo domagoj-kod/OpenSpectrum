@@ -1,39 +1,51 @@
 # SPDX-License-Identifier: MIT
-# OpenSpectrum Makefile - Secure Compilation
+# OpenSpectrum Makefile - Secure Cross-Platform Compilation
 
 # Compiler selection
 CC := gcc
 CXX := g++
 
-# Security-hardened compilation flags
-# -Wformat-security: Check format strings in *printf and *scanf
-# -Wformat=2: Enable format string checking
-# -D_FORTIFY_SOURCE=2: Buffer overflow protection (requires -O)
-# -fstack-protector-strong: Stack canary protection
-# -fPIE: Position Independent Executable
-# -pie: Generate position-independent code
-# -Wl,-z,now: Disable lazy binding (load-time binding)
-# -Wl,-z,relro: Relocation read-only (data segments are read-only)
-# -Wl,-z,noexecstack: Mark stack as non-executable
-CFLAGS := -O2 -g -D_FORTIFY_SOURCE=2 -fstack-protector-strong -fPIE
-CXXFLAGS := -std=c++20 -Wall -Wextra -Wpedantic -Wshadow -Wconversion \
-            -Wformat=2 -Wformat-security -Wformat-nonliteral \
-            -D_FORTIFY_SOURCE=2 -fstack-protector-strong -fPIE
-
 # SDL2 flags (detect via pkg-config, fallback to manual)
 SDL2_CFLAGS := $(shell pkg-config --cflags sdl2 2>/dev/null || echo "")
 SDL2_LDFLAGS := $(shell pkg-config --libs sdl2 2>/dev/null || echo "-lSDL2")
 
-# Base linker flags
-LDFLAGS := -lrtlsdr -lpthread -lm $(SDL2_LDFLAGS) -Wl,-z,now -Wl,-z,relro -Wl,-z,noexecstack
+# Platform-specific configuration
+ifeq ($(OS),Windows_NT)
+    # Windows (MinGW/MSYS2)
+    TARGET := openspectrum.exe
+
+    CFLAGS := -O2 -g -D_FORTIFY_SOURCE=2 -fstack-protector-strong
+    CXXFLAGS := -std=c++20 -Wall -Wextra -Wpedantic \
+                -Wshadow -Wconversion \
+                -Wformat=2 -Wformat-security \
+                -Wformat-nonliteral \
+                -D_FORTIFY_SOURCE=2 \
+                -fstack-protector-strong \
+                -static-libgcc -static-libstdc++
+
+    LDFLAGS := -lrtlsdr $(SDL2_LDFLAGS) -static-libgcc -static-libstdc++
+else
+    # Linux and other Unix-like systems
+    TARGET := openspectrum
+
+    CFLAGS := -O2 -g -D_FORTIFY_SOURCE=2 -fstack-protector-strong -fPIE
+    CXXFLAGS := -std=c++20 -Wall -Wextra -Wpedantic \
+                -Wshadow -Wconversion \
+                -Wformat=2 -Wformat-security \
+                -Wformat-nonliteral \
+                -D_FORTIFY_SOURCE=2 \
+                -fstack-protector-strong -fPIE
+
+    LDFLAGS := -lrtlsdr -lpthread -lm $(SDL2_LDFLAGS) \
+               -Wl,-z,now \
+               -Wl,-z,relro \
+               -Wl,-z,noexecstack
+endif
 
 # Additional security flags for Release builds
 # Uncomment for release: -flto (Link-Time Optimization)
 # CXXFLAGS += -flto
 # LDFLAGS += -flto
-
-# Windows-specific flags (if cross-compiling)
-# CXXFLAGS += -static -static-libgcc -static-libstdc++
 
 # Directories
 SRC_DIR := src
@@ -76,13 +88,6 @@ GUI_OBJS := $(patsubst $(GUI_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(GUI_SRCS))
 KISSFFT_OBJS := $(patsubst $(THIRD_PARTY)/%.c,$(BUILD_DIR)/%.o,$(KISSFFT_SRCS))
 MAIN_OBJ := $(BUILD_DIR)/main.o
 
-# Targets
-TARGET := openspectrum
-
-ifeq ($(OS),Windows_NT)
-    TARGET := openspectrum.exe
-endif
-
 all: $(TARGET)
 
 # Build directory
@@ -114,7 +119,7 @@ $(BUILD_DIR)/%.o: $(THIRD_PARTY)/%.c | $(BUILD_DIR)
 $(MAIN_OBJ): $(MAIN_SRC) | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 
-# Final target - NOW INCLUDES GUI_OBJS
+# Final target
 $(TARGET): $(HARDWARE_OBJS) $(SIGNAL_OBJS) $(FFT_OBJS) $(VIS_OBJS) $(UTILS_OBJS) $(GUI_OBJS) $(KISSFFT_OBJS) $(MAIN_OBJ)
 	$(CXX) $^ -o $@ $(LDFLAGS)
 
