@@ -52,14 +52,18 @@ OpenSpectrum/
 
 ## Installation
 
+## Prebuilt binaries
+
+Check out the Releases page for latest Windows and Linux compatible releases.
+
 ### Prerequisites
 
-OpenSpectrum is **platform-agnostic** and supports Linux, macOS, and Windows (via cross-compilation or `WSL2`).
+OpenSpectrum is **platform-agnostic** and supports Linux, macOS (in theory at least), and Windows (native support or via `WSL2`).
 
 | Dependency | Purpose | Installation Command (Ubuntu/Debian) |
 |-----------|---------|--------------------------------------|
 | `g++` / `clang++` | C++20 Compiler | `sudo apt install build-essential` |
-| `cmake` | Build system (optional) | `sudo apt install cmake` |
+| `make` | Build system (optional) | `sudo apt install make` |
 | `librtlsdr-dev` | RTL-SDR hardware support | `sudo apt install librtlsdr-dev` |
 | `libsdl2-dev` | GUI rendering | `sudo apt install libsdl2-dev` |
 | `pkg-config` | Dependency detection | `sudo apt install pkg-config` |
@@ -69,9 +73,9 @@ OpenSpectrum is **platform-agnostic** and supports Linux, macOS, and Windows (vi
 brew install librtlsdr sdl2 pkg-config
 ```
 
-**Windows (MSYS2):**
+**Windows (MSYS2) build:**
 ```bash
-pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake \
+pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-make \
        mingw-w64-x86_64-rtl-sdr mingw-w64-x86_64-SDL2
 ```
 
@@ -86,9 +90,12 @@ pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake \
 # Clone the repository
 git clone https://github.com/domagoj-kod/OpenSpectrum.git
 cd OpenSpectrum
+git submodule update --init --recursive
 
-# Build the project
-make
+# Build the project (Unix)
+make -j$(nproc)
+# Build the project (Windows MSYS2)
+mingw32-make.exe -j$(nproc)
 
 # Build with debug symbols
 make debug
@@ -100,7 +107,7 @@ make release
 make clean
 ```
 
-The compiled binary will be created as `openspectrum.out`.
+The compiled binary will be created as `openspectrum`.
 
 ---
 
@@ -110,8 +117,8 @@ The compiled binary will be created as `openspectrum.out`.
 
 ```bash
 # Run the spectrum analyzer (RTL-SDR required)
-./openspectrum.out --help
-Usage: ./openspectrum.out [OPTIONS]
+./openspectrum --help
+Usage: ./openspectrum [OPTIONS]
 
 OpenSpectrum - SDR Spectrum Analyzer
 
@@ -125,8 +132,8 @@ Options:
   --help              Show this help message
 
 Examples:
-  ./openspectrum.out -f 100000000 -g 20
-  ./openspectrum.out --freq 144500000 --gain 15 --fft-size 8192
+  ./openspectrum -f 100000000 -g 20
+  ./openspectrum --freq 144500000 --gain 15 --fft-size 8192
 ```
 
 Apart from command line arguments the program uses keyboard shortcuts for frequency tuning, gain control and Fast Fourier Transform size changes. Shift modifer allows for fine control fine control (0.1 MHz, 0.1 dB), while Ctrl modifier is used for coarse control (10 MHz, 10 dB).
@@ -151,10 +158,10 @@ Apart from command line arguments the program uses keyboard shortcuts for freque
 
 ```bash
 # Use a specific RTL-SDR device index
-./openspectrum.out --device 0
+./openspectrum --device 0
 
 # Headless mode (data output only)
-./openspectrum.out --headless --output spectrum.csv
+./openspectrum --headless --output spectrum.csv
 ```
 
 ---
