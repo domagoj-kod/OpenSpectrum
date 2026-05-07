@@ -32,7 +32,7 @@ void WaterfallDisplay::set_db_range(float min_db, float max_db) {
 void WaterfallDisplay::update_global_range() {
   if (m_history.empty()) {
     return;
-}
+  }
 
   float new_min = m_history.front()[0];
   float new_max = m_history.front()[0];
@@ -77,13 +77,13 @@ void WaterfallDisplay::reset() {
 void WaterfallDisplay::add_spectrum_line(const std::vector<float> &db_values) {
   if (db_values.empty()) {
     return; // Invalid input
-}
+  }
 
   // Resample if needed to match width
   std::vector<float> line(m_width, m_min_db);
   if (db_values.size() == m_width) {
     line = db_values;
-  } else {
+  } else if (db_values.size() > m_width) {
     // Downsample by averaging
     float const scale =
         static_cast<float>(db_values.size()) / static_cast<float>(m_width);
@@ -91,12 +91,21 @@ void WaterfallDisplay::add_spectrum_line(const std::vector<float> &db_values) {
       auto start = static_cast<size_t>(static_cast<float>(i) * scale);
       auto end = static_cast<size_t>(static_cast<float>(i + 1) * scale);
       end = std::min(end, db_values.size());
-
       float sum = 0.0F;
       for (size_t j = start; j < end; ++j) {
         sum += db_values[j];
       }
-      line[i] = sum / static_cast<float>(end - start);
+      line[i] = (end > start) ? sum / static_cast<float>(end - start)
+                              : db_values[start];
+    }
+  } else {
+    // Upsample using nearest-neighbor interpolation
+    float const scale =
+        static_cast<float>(db_values.size()) / static_cast<float>(m_width);
+    for (size_t i = 0; i < m_width; ++i) {
+      auto src_idx = static_cast<size_t>(static_cast<float>(i) * scale);
+      src_idx = std::min(src_idx, db_values.size() - 1);
+      line[i] = db_values[src_idx];
     }
   }
 
@@ -131,18 +140,19 @@ void WaterfallDisplay::render() {
 
   // Render history lines from bottom to top (oldest at bottom, newest at top)
   size_t y_offset = 0;
-  const size_t line_height = std::max<size_t>(1UL, m_height / m_history_capacity);
+  const size_t line_height =
+      std::max<size_t>(1UL, m_height / m_history_capacity);
 
   for (auto it = m_history.begin(); it != m_history.end();
        ++it, y_offset += line_height) {
     if (y_offset >= m_height) {
       break;
-}
+    }
 
     const auto &line = *it;
     size_t const actual_line_height = (y_offset + line_height <= m_height)
-                                    ? line_height
-                                    : (m_height - y_offset);
+                                          ? line_height
+                                          : (m_height - y_offset);
 
     for (size_t y = 0; y < actual_line_height; ++y) {
       size_t const pixel_row = y_offset + y;
