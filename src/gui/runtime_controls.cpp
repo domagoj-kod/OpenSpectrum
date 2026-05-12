@@ -4,6 +4,7 @@
 #include "../hardware/rtl_sdr_device.h"
 #include "../utils/logger.h"
 #include "SDL_keycode.h"
+#include "signal_processor.h"
 
 #include <algorithm>
 #include <cmath>
@@ -157,7 +158,7 @@ auto RuntimeControls::handle_keyboard(SDL_Keycode key, bool shift_held,
   // Window function controls (UP/DOWN arrows cycle through supported windows)
   case SDLK_UP:
   case SDLK_DOWN: {
-    int direction = (key == SDLK_UP) ? 1 : -1;
+    int const direction = (key == SDLK_UP) ? 1 : -1;
     int index = find_window_index(window_function) + direction;
     if (index < 0) {
       index =
