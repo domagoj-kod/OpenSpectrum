@@ -129,14 +129,18 @@ Options:
   -s, --fft-size N    FFT size (power of 2, default: 4096)
   -w, --width N       Display width in pixels (default: 800)
   -H, --height N      Display height in pixels (default: 480)
+  -W, --window NAME   Window function: rectangle, hann, hamming,
+                      blackman, blackman-harris, flat-top
+                      (default: blackman-harris)
   --help              Show this help message
 
 Examples:
   ./openspectrum -f 100000000 -g 20
   ./openspectrum --freq 144500000 --gain 15 --fft-size 8192
+  ./openspectrum -W hann
 ```
 
-Apart from command line arguments the program uses keyboard shortcuts for frequency tuning, gain control and Fast Fourier Transform size changes. Shift modifer allows for fine control fine control (0.1 MHz, 0.1 dB), while Ctrl modifier is used for coarse control (10 MHz, 10 dB).
+Apart from command line arguments the program uses keyboard shortcuts for frequency tuning, gain control, Fast Fourier Transform size & window functions change. Shift modifer allows for fine control fine control (0.1 MHz, 0.1 dB), while Ctrl modifier is used for coarse control (1 MHz, 10 dB).
 
 ### Keyboard Controls
 
@@ -149,7 +153,9 @@ Apart from command line arguments the program uses keyboard shortcuts for freque
 | `1-4` | Set FFT size (512, 1024, 2048, 4096) |
 | `Ctrl` | Coarse control (10 MHz, 10 dB) |
 | `Shift` | Fine control (0.1 MHz, 0.1 dB) |
-| `ESC` | Exit the program |
+| `UP` | Cycle through supported window functions |
+| `DOWN` | Reverse through supported window functions |
+| `ESC/q` | Exit the program |
 | `Ctrl+C` | Graceful shutdown (terminal) |
 
 ### Command-Line Configuration (Future)
@@ -167,8 +173,6 @@ Apart from command line arguments the program uses keyboard shortcuts for freque
 ---
 
 ## Supported Window Functions
-
-Requires C++ code alteration.
 
 - `RECTANGLE`
 - `HAMMING`
