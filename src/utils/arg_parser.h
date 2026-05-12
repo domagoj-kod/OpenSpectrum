@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <string>
 
+#include "signal_processor.h"
+
 namespace openspectrum {
 
 // Configuration structure for command-line arguments
@@ -14,6 +16,7 @@ struct AppConfig {
   float center_freq_hz = 92600000.0f; // 92.6 MHz
   float sample_rate_hz = 2048000.0f;  // 2.048 MS/s
   float gain_db = 10.0f;              // 10 dB
+  WindowFunction window_function = WindowFunction::BLACKMAN_HARRIS;
   bool show_help = false;
 };
 

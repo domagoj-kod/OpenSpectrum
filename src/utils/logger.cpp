@@ -75,8 +75,9 @@ FileSink::FileSink(const std::string &filename, size_t max_size)
 }
 
 FileSink::~FileSink() {
-  if (m_file != nullptr)
+  if (m_file != nullptr) {
     std::fclose(m_file);
+  }
 }
 
 void FileSink::rotate() {

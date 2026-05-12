@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 
 #include "arg_parser.h"
+#include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <iostream>
 #include <string>
@@ -43,11 +45,15 @@ void print_usage(const char *argv0) {
       << "  -s, --fft-size N    FFT size (power of 2, default: 4096)\n"
       << "  -w, --width N       Display width in pixels (default: 800)\n"
       << "  -H, --height N      Display height in pixels (default: 480)\n"
+      << "  -W, --window NAME   Window function: rectangle, hann, hamming,\n"
+      << "                      blackman, blackman-harris, flat-top\n"
+      << "                      (default: blackman-harris)\n"
       << "  --help              Show this help message\n"
       << "\n"
       << "Examples:\n"
       << "  " << argv0 << " -f 100000000 -g 20\n"
       << "  " << argv0 << " --freq 144500000 --gain 15 --fft-size 8192\n"
+      << "  " << argv0 << " -W hann\n"
       << std::flush;
 }
 
@@ -99,6 +105,34 @@ auto parse_arguments(int argc, char *argv[]) -> AppConfig {
         std::exit(1);
       }
       ++i;
+    } else if (arg == "-W" || arg == "--window") {
+      if (i + 1 >= argc) {
+        std::cerr << "Error: Window function name required\n";
+        print_usage(argv[0]);
+        std::exit(1);
+      }
+      std::string window_name = argv[++i];
+      // Convert to lowercase for case-insensitive matching
+      std::ranges::transform(window_name, window_name.begin(),
+                             [](unsigned char c) { return std::tolower(c); });
+      if (window_name == "rectangle") {
+        config.window_function = WindowFunction::RECTANGLE;
+      } else if (window_name == "hann") {
+        config.window_function = WindowFunction::HANN;
+      } else if (window_name == "hamming") {
+        config.window_function = WindowFunction::HAMMING;
+      } else if (window_name == "blackman") {
+        config.window_function = WindowFunction::BLACKMAN;
+      } else if (window_name == "blackman-harris" ||
+                 window_name == "blackman_harris") {
+        config.window_function = WindowFunction::BLACKMAN_HARRIS;
+      } else if (window_name == "flat-top" || window_name == "flat_top") {
+        config.window_function = WindowFunction::FLAT_TOP;
+      } else {
+        std::cerr << "Error: Unknown window function: " << window_name << "\n";
+        print_usage(argv[0]);
+        std::exit(1);
+      }
     } else if (arg == "--help" || arg == "-h") {
       config.show_help = true;
       print_usage(argv[0]);

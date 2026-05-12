@@ -61,6 +61,26 @@ public:
     }
   }
 
+  // Convert window function enum to human-readable string
+  static const char *window_function_to_string(WindowFunction window) noexcept {
+    switch (window) {
+    case WindowFunction::RECTANGLE:
+      return "Rectangle";
+    case WindowFunction::HANN:
+      return "Hann";
+    case WindowFunction::HAMMING:
+      return "Hamming";
+    case WindowFunction::BLACKMAN:
+      return "Blackman";
+    case WindowFunction::BLACKMAN_HARRIS:
+      return "B-Harris";
+    case WindowFunction::FLAT_TOP:
+      return "Flat-Top";
+    default:
+      return "Unknown";
+    }
+  }
+
 private:
   size_t m_fft_size;
   WindowFunction m_window = WindowFunction::HANN;

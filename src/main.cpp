@@ -66,7 +66,9 @@ auto main(int argc, char *argv[]) -> int {
   LOGS_INFO << "Configuration: freq=" << static_cast<int>(config.center_freq_hz)
             << "Hz, rate=" << static_cast<int>(config.sample_rate_hz)
             << "Hz, gain=" << config.gain_db
-            << "dB, fft_size=" << config.fft_size;
+            << "dB, fft_size=" << config.fft_size << ", window="
+            << SignalProcessor::window_function_to_string(
+                   config.window_function);
 
   // Configuration
   const size_t FFT_SIZE = config.fft_size;
@@ -89,6 +91,7 @@ auto main(int argc, char *argv[]) -> int {
         static_cast<uint32_t>(config.center_freq_hz));
     runtime_controls.set_gain(config.gain_db);
     runtime_controls.set_fft_size(config.fft_size);
+    runtime_controls.set_window(config.window_function);
     LOG_INFO("Runtime controls initialized");
 
     // 2. Initialize hardware
@@ -112,13 +115,13 @@ auto main(int argc, char *argv[]) -> int {
 
     // 3. Initialize signal processor
     SignalProcessor signal_processor(FFT_SIZE);
-    signal_processor.set_window(WindowFunction::BLACKMAN_HARRIS);
+    signal_processor.set_window(config.window_function);
 
     // 4. Initialize FFT analyzer
     FftAnalyzer fft_analyzer(FFT_SIZE);
     fft_analyzer.enable_dc_center(true);
     fft_analyzer.set_window_coherent_gain(
-        SignalProcessor::get_coherent_gain(WindowFunction::BLACKMAN_HARRIS));
+        SignalProcessor::get_coherent_gain(config.window_function));
 
     // 5. Initialize displays (split vertically: spectrum on top, waterfall
     // below)
@@ -136,8 +139,8 @@ auto main(int argc, char *argv[]) -> int {
 
     // Main processing loop
     LOG_INFO("Starting main loop. Press ESC or Ctrl+C to stop.");
-    LOG_INFO("Controls: +/- Frequency, r/f Gain, 1-4 FFT size, Shift/Ctrl for "
-             "fine/coarse");
+    LOG_INFO("Controls: +/- Frequency, r/f Gain, 1-4 FFT size, UP/DOWN Window, "
+             "Shift/Ctrl for fine/coarse");
 
     std::vector<std::complex<float>> samples;
     std::vector<std::complex<float>> fft_output;
@@ -152,6 +155,17 @@ auto main(int argc, char *argv[]) -> int {
       if (!renderer.poll_events(&runtime_controls)) {
         g_running = false;
         break;
+      }
+
+      // === 1.1. Check for window function change ===
+      if (runtime_controls.window_changed()) {
+        signal_processor.set_window(runtime_controls.get_window());
+        fft_analyzer.set_window_coherent_gain(
+            SignalProcessor::get_coherent_gain(runtime_controls.get_window()));
+        runtime_controls.clear_window_change_flag();
+        LOG_INFO("Window function changed to: " +
+                 std::string(SignalProcessor::window_function_to_string(
+                     runtime_controls.get_window())));
       }
 
       // === 1.2. Check for FFT size change and reinitialize if needed ===
@@ -170,14 +184,13 @@ auto main(int argc, char *argv[]) -> int {
 
         // Recreate signal processor with new size
         signal_processor = SignalProcessor(current_fft_size);
-        signal_processor.set_window(WindowFunction::BLACKMAN_HARRIS);
+        signal_processor.set_window(runtime_controls.get_window());
 
         // Recreate FFT analyzer with new size (using move semantics)
         fft_analyzer = FftAnalyzer(current_fft_size);
         fft_analyzer.enable_dc_center(true);
         fft_analyzer.set_window_coherent_gain(
-            SignalProcessor::get_coherent_gain(
-                WindowFunction::BLACKMAN_HARRIS));
+            SignalProcessor::get_coherent_gain(runtime_controls.get_window()));
 
         // Clear waterfall to avoid size mismatch
         waterfall_display.reset();

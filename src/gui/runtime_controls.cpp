@@ -28,8 +28,7 @@ RuntimeControls::~RuntimeControls() = default;
 
 // Helper to find FFT size index
 auto RuntimeControls::find_fft_index(size_t size) const -> int {
-  auto it = std::ranges::find(constraints.supported_fft_sizes,
-                      size);
+  auto it = std::ranges::find(constraints.supported_fft_sizes, size);
   if (it != constraints.supported_fft_sizes.end()) {
     return static_cast<int>(
         std::distance(constraints.supported_fft_sizes.begin(), it));
@@ -37,12 +36,28 @@ auto RuntimeControls::find_fft_index(size_t size) const -> int {
   return -1;
 }
 
+// Helper to find window function index
+auto RuntimeControls::find_window_index(WindowFunction w) const -> int {
+  auto it = std::ranges::find(constraints.supported_window_functions, w);
+  if (it != constraints.supported_window_functions.end()) {
+    return static_cast<int>(
+        std::distance(constraints.supported_window_functions.begin(), it));
+  }
+  return -1;
+}
+
+// Format window function name for display
+static auto format_window(WindowFunction w) -> std::string {
+  return std::string(SignalProcessor::window_function_to_string(w));
+}
+
 // Format frequency with auto-scaling units
 auto RuntimeControls::format_frequency(uint32_t hz) -> std::string {
   if (hz >= 1000000000) {
     return std::to_string(hz / 1000000000) + "." +
            std::to_string((hz % 1000000000) / 1000000) + " GHz";
-  } if (hz >= 1000000) {
+  }
+  if (hz >= 1000000) {
     return std::to_string(hz / 1000000) + "." +
            std::to_string((hz % 1000000) / 1000) + " MHz";
   }
@@ -138,6 +153,28 @@ auto RuntimeControls::handle_keyboard(SDL_Keycode key, bool shift_held,
     }
     break;
   }
+
+  // Window function controls (UP/DOWN arrows cycle through supported windows)
+  case SDLK_UP:
+  case SDLK_DOWN: {
+    int direction = (key == SDLK_UP) ? 1 : -1;
+    int index = find_window_index(window_function) + direction;
+    if (index < 0) {
+      index =
+          static_cast<int>(constraints.supported_window_functions.size()) - 1;
+    } else if (index >= static_cast<int>(
+                            constraints.supported_window_functions.size())) {
+      index = 0;
+    }
+    window_prev = window_function;
+    window_function = constraints.supported_window_functions[index];
+    window_changed_flag = true;
+    m_status_dirty = true;
+    LOG_INFO("[WINDOW] " + format_window(window_prev) + " -> " +
+             format_window(window_function));
+    changed = true;
+    break;
+  }
   }
 
   return changed;
@@ -186,6 +223,23 @@ void RuntimeControls::set_constraints(
       !constraints.supported_fft_sizes.empty()) {
     fft_size = constraints.supported_fft_sizes[0];
   }
+  // Ensure window function is supported
+  if (find_window_index(window_function) < 0 &&
+      !constraints.supported_window_functions.empty()) {
+    window_function = constraints.supported_window_functions[0];
+  }
+}
+
+// Setter for window function
+void RuntimeControls::set_window(WindowFunction w) {
+  int const index = find_window_index(w);
+  if (index >= 0) {
+    window_function = w;
+    window_prev = w;
+  } else if (!constraints.supported_window_functions.empty()) {
+    window_function = constraints.supported_window_functions[0];
+    window_prev = window_function;
+  }
 }
 
 // Get formatted status string for display (cached)
@@ -198,7 +252,8 @@ auto RuntimeControls::get_status_string() const -> std::string {
   } else {
     m_cached_status = "FREQ: " + format_frequency(frequency_hz) +
                       " | GAIN: " + format_gain(gain_db) +
-                      " | FFT: " + std::to_string(fft_size);
+                      " | FFT: " + std::to_string(fft_size) +
+                      " | WINDOW: " + format_window(window_function);
   }
   m_status_dirty = false;
   return m_cached_status;
