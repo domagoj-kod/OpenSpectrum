@@ -52,6 +52,11 @@ OpenSpectrum/
 
 ## Installation
 
+> [!WARN]
+> Skip this step when using macOS on Unix-like OS.
+
+To install RTL2832U device drivers on **Windows 10**+ follow the official [start guide](https://www.rtl-sdr.com/rtl-sdr-quick-start-guide/). This is the **Step 0**. Windows users might need to disable *Memory Integrity Protection* setting option as windows tends to replace the original drivers with generic Realtek ones. See **Troubleshooting** section of the [start guide](https://www.rtl-sdr.com/rtl-sdr-quick-start-guide/).
+
 ## Prebuilt binaries
 
 Check out the Releases page for latest Windows and Linux compatible releases.
@@ -79,12 +84,9 @@ pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-make \
        mingw-w64-x86_64-rtl-sdr mingw-w64-x86_64-SDL2
 ```
 
-> [!NOTE]
-> Windows users may need to adjust `Makefile` paths for SDL2 and librtlsdr
-
 ---
 
-### Build from Source
+## Build from Source
 
 ```bash
 # Clone the repository
