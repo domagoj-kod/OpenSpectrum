@@ -19,28 +19,29 @@ namespace openspectrum {
 // --- ConsoleSink Implementation ---
 
 void ConsoleSink::write(const LogEntry &entry) {
-  std::time_t const time = std::chrono::system_clock::to_time_t(entry.timestamp);
+  std::time_t const time =
+      std::chrono::system_clock::to_time_t(entry.timestamp);
   std::tm const tm = *std::localtime(&time);
 
   const char *level_str = "";
   switch (entry.level) {
   case LogLevel::TRACE:
-    level_str = "TRACE";
+    level_str = "\x1B[0;32mTRACE\x1B[0;37m";
     break;
   case LogLevel::DEBUG:
-    level_str = "DEBUG";
+    level_str = "\x1B[0;34mDEBUG\x1B[0;37m";
     break;
   case LogLevel::INFO:
-    level_str = "INFO";
+    level_str = "\x1B[0;34mINFO\x1B[0;37m";
     break;
   case LogLevel::WARNING:
-    level_str = "WARN";
+    level_str = "\x1B[0;35mWARN\x1B[0;37m";
     break;
   case LogLevel::ERROR:
-    level_str = "ERROR";
+    level_str = "\x1B[0;31mERROR\x1B[0;37m";
     break;
   case LogLevel::CRITICAL:
-    level_str = "CRIT";
+    level_str = "\x1B[0;31mCRIT\x1B[0;37m";
     break;
   }
 
@@ -60,9 +61,10 @@ void ConsoleSink::flush() { std::cout << std::flush; }
 // --- FileSink Implementation ---
 
 FileSink::FileSink(const std::string &filename, size_t max_size)
-    : m_filename(filename), m_max_size(max_size), m_file(std::fopen(filename.c_str(), "a")) {
+    : m_filename(filename), m_max_size(max_size),
+      m_file(std::fopen(filename.c_str(), "a")) {
   // Open file in append mode
-  
+
   if (m_file != nullptr) {
     // Get current file size
     std::fseek(m_file, 0, SEEK_END);
@@ -73,15 +75,14 @@ FileSink::FileSink(const std::string &filename, size_t max_size)
 }
 
 FileSink::~FileSink() {
-  if (m_file != nullptr) {
+  if (m_file != nullptr)
     std::fclose(m_file);
-}
 }
 
 void FileSink::rotate() {
   if (m_file == nullptr) {
     return;
-}
+  }
 
   std::fclose(m_file);
   m_file = nullptr;
@@ -102,14 +103,14 @@ void FileSink::rotate() {
   if (m_file == nullptr) {
     std::cerr << "Failed to reopen log file after rotation: " << m_filename
               << '\n';
-}
+  }
   m_current_size = 0;
 }
 
 void FileSink::write(const LogEntry &entry) {
   if (m_file == nullptr) {
     return;
-}
+  }
 
   std::lock_guard<std::mutex> const lock(m_mutex);
 
@@ -118,10 +119,11 @@ void FileSink::write(const LogEntry &entry) {
     rotate();
     if (m_file == nullptr) {
       return;
-}
+    }
   }
 
-  std::time_t const time = std::chrono::system_clock::to_time_t(entry.timestamp);
+  std::time_t const time =
+      std::chrono::system_clock::to_time_t(entry.timestamp);
   std::tm const tm = *std::localtime(&time);
 
   const char *level_str = "";
@@ -152,7 +154,7 @@ void FileSink::write(const LogEntry &entry) {
     rotate();
     if (m_file == nullptr) {
       return;
-}
+    }
   }
 
   std::fprintf(
@@ -173,7 +175,7 @@ void FileSink::write(const LogEntry &entry) {
 void FileSink::flush() {
   if (m_file != nullptr) {
     std::fflush(m_file);
-}
+  }
 }
 
 // --- Logger Implementation ---
@@ -194,7 +196,7 @@ void Logger::log(LogLevel level, const std::string &file, int line,
                  const std::string &function, const std::string &message) {
   if (level < m_min_level) {
     return;
-}
+  }
 
   LogEntry entry;
   entry.timestamp = std::chrono::system_clock::now();
@@ -212,21 +214,22 @@ void Logger::log(LogLevel level, const std::string &file, int line,
   std::lock_guard<std::mutex> const lock(m_mutex);
   for (auto &sink : m_sinks) {
     sink->write(entry);
-}
+  }
 }
 
 void Logger::flush() {
   std::lock_guard<std::mutex> const lock(m_mutex);
   for (auto &sink : m_sinks) {
     sink->flush();
-}
+  }
 }
 
 // --- LogStream Implementation ---
 
 LogStream::LogStream(LogLevel level, std::string file, int line,
                      std::string function)
-    : m_level(level), m_file(std::move(file)), m_line(line), m_function(std::move(function)) {}
+    : m_level(level), m_file(std::move(file)), m_line(line),
+      m_function(std::move(function)) {}
 
 LogStream::~LogStream() {
   Logger::get_instance().log(m_level, m_file, m_line, m_function, m_ss.str());
