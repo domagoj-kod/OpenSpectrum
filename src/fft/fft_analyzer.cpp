@@ -2,6 +2,7 @@
 
 #include "fft_analyzer.h"
 #include "kiss_fft.h"
+#include <algorithm>
 #include <cmath>
 #include <complex>
 #include <cstddef>
@@ -14,8 +15,9 @@ namespace openspectrum {
 FftAnalyzer::FftAnalyzer(size_t fft_size, bool inverse)
     : m_fft_size(fft_size), m_inverse(inverse), m_input_buffer(fft_size),
       m_output_buffer(fft_size), m_power_spectrum((fft_size / 2) + 1),
-      m_magnitude_spectrum((fft_size / 2) + 1), m_db_spectrum((fft_size / 2) + 1),
-      m_phase_spectrum((fft_size / 2) + 1), m_freq_bins((fft_size / 2) + 1) {
+      m_magnitude_spectrum((fft_size / 2) + 1),
+      m_db_spectrum((fft_size / 2) + 1), m_phase_spectrum((fft_size / 2) + 1),
+      m_freq_bins((fft_size / 2) + 1) {
   // Security: validate FFT size is a power of 2
   if (fft_size == 0 || (fft_size & (fft_size - 1)) != 0) {
     throw std::invalid_argument("FFT size must be a power of 2");
@@ -128,10 +130,10 @@ void FftAnalyzer::execute(const std::vector<std::complex<float>> &input,
     // Security: prevent NaN from log(0) with epsilon
     float const scale = (i != 0 && i != m_fft_size / 2) ? 2.0F : 1.0F;
     m_db_spectrum[i] =
-        20.0F * std::log10((m_magnitude_spectrum[i] * scale /
-                               (static_cast<float>(m_fft_size) *
-                                m_window_coherent_gain)) +
-                           1e-12F);
+        20.0F *
+        std::log10((m_magnitude_spectrum[i] * scale /
+                    (static_cast<float>(m_fft_size) * m_window_coherent_gain)) +
+                   1e-12F);
   }
 
   // Copy to output if provided
@@ -150,6 +152,14 @@ void FftAnalyzer::execute(const std::vector<std::complex<float>> &input,
 void FftAnalyzer::execute(const std::vector<std::complex<float>> &input) {
   std::vector<std::complex<float>> dummy;
   execute(input, dummy);
+}
+
+auto FftAnalyzer::get_max_db() const -> float {
+  if (m_db_spectrum.empty()) {
+    // Return sentinel value below typical noise floor when no data
+    return -140.0F;
+  }
+  return *std::ranges::max_element(m_db_spectrum);
 }
 
 } // namespace openspectrum

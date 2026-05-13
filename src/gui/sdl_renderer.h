@@ -28,10 +28,13 @@ public:
 
   // Process events. Returns true if should continue, false if quit requested
   // If controls is provided, handle keyboard input for runtime controls
-  bool poll_events(RuntimeControls* controls = nullptr);
+  bool poll_events(RuntimeControls *controls = nullptr);
 
   // Render status bar with current control values
-  void render_status_bar(const std::string& status_text);
+  void render_status_bar(const std::string &status_text);
+
+  // Render peak amplitude indicator in top-right corner
+  void render_peak_indicator(float peak_db);
 
   // Get dimensions
   size_t width() const noexcept { return m_width; }
@@ -43,7 +46,7 @@ public:
   }
 
   // Get the SDL renderer (for text rendering)
-  SDL_Renderer* get_sdl_renderer() const noexcept { return m_renderer; }
+  SDL_Renderer *get_sdl_renderer() const noexcept { return m_renderer; }
 
 private:
   size_t m_width;
@@ -51,12 +54,15 @@ private:
   SDL_Window *m_window = nullptr;
   SDL_Renderer *m_renderer = nullptr;
   SDL_Texture *m_texture = nullptr;
-  
+
   // Text rendering for status bar
   std::unique_ptr<TextRenderer> m_text_renderer;
-  SDL_Texture* m_status_texture = nullptr;
+  SDL_Texture *m_status_texture = nullptr;
   std::string m_current_status;
   bool m_status_dirty = true;
+
+  // Peak amplitude indicator for top-right corner
+  SDL_Texture *m_peak_texture = nullptr;
 };
 
 } // namespace openspectrum

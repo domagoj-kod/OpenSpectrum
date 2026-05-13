@@ -150,6 +150,9 @@ auto main(int argc, char *argv[]) -> int {
     samples.resize(current_fft_size);
     fft_output.resize(current_fft_size);
 
+    // Track peak amplitude for display
+    float peak_db = -140.0F;
+
     while (g_running.load(std::memory_order_relaxed)) {
       // === 1. Process SDL2 events (must be first in loop) ===
       if (!renderer.poll_events(&runtime_controls)) {
@@ -201,10 +204,15 @@ auto main(int argc, char *argv[]) -> int {
       // === 1.3. Apply runtime control changes to device (batch update) ===
       runtime_controls.apply_to_device(dev);
 
-      // Update status bar display only when values change
+      // Update status bar (without PEAK - now shown separately)
       if (runtime_controls.status_changed()) {
         renderer.render_status_bar(runtime_controls.get_status_string());
         runtime_controls.clear_status_dirty();
+      }
+
+      // Update peak indicator in top-right corner (updates every frame)
+      if (peak_db > -140.0F) {
+        renderer.render_peak_indicator(peak_db);
       }
 
       // === 2. Read samples from hardware ===
@@ -221,6 +229,9 @@ auto main(int argc, char *argv[]) -> int {
 
       // === 4. FFT execution ===
       fft_analyzer.execute(samples, fft_output);
+
+      // === 4.1. Get peak amplitude for status display ===
+      peak_db = fft_analyzer.get_max_db();
 
       // === 5. Get spectral data ===
       const auto &db_spectrum = fft_analyzer.get_db_spectrum();
