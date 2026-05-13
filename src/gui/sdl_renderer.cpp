@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "sdl_renderer.h"
-#include "runtime_controls.h"
+#include "sdl_control_input.h"
 #include "text_renderer.h"
 
 #include <algorithm>
@@ -188,7 +188,7 @@ auto SdlRenderer::render(const std::vector<uint8_t> &pixels, size_t pitch)
   return true;
 }
 
-auto SdlRenderer::poll_events(RuntimeControls *controls) -> bool {
+auto SdlRenderer::poll_events(ControlState *state) -> bool {
   SDL_Event event;
   while (SDL_PollEvent(&event) != 0) {
     switch (event.type) {
@@ -201,8 +201,11 @@ auto SdlRenderer::poll_events(RuntimeControls *controls) -> bool {
         return false;
       }
 
-      // Handle runtime controls if provided
-      if (controls != nullptr) {
+      // Handle control state if provided
+      if (state != nullptr) {
+        // Create temporary SDL control input handler
+        SdlControlInput control_input(*state);
+
         // Get modifier state
         const Uint8 *keystate = SDL_GetKeyboardState(nullptr);
         bool const shift_held = (keystate[SDL_SCANCODE_LSHIFT] != 0U) ||
@@ -211,8 +214,8 @@ auto SdlRenderer::poll_events(RuntimeControls *controls) -> bool {
                                (keystate[SDL_SCANCODE_RCTRL] != 0U);
 
         // Handle control keys
-        if (controls->handle_keyboard(event.key.keysym.sym, shift_held,
-                                      ctrl_held)) {
+        if (control_input.handle_keyboard(event.key.keysym.sym, shift_held,
+                                          ctrl_held)) {
           m_status_dirty = true;
         }
       }

@@ -71,11 +71,12 @@ FFT_SRCS := $(wildcard $(FFT_DIR)/*.cpp)
 VIS_SRCS := $(wildcard $(VIS_DIR)/*.cpp)
 UTILS_SRCS := $(wildcard $(UTILS_DIR)/*.cpp)
 GUI_SRCS := $(wildcard $(GUI_DIR)/*.cpp)
+CORE_SRCS := $(wildcard $(SRC_DIR)/control_state.cpp)
 KISSFFT_SRCS := $(wildcard $(THIRD_PARTY)/*.c)
 MAIN_SRC := $(SRC_DIR)/main.cpp
 
 # All source files
-ALL_SRCS := $(HARDWARE_SRCS) $(SIGNAL_SRCS) $(FFT_SRCS) $(VIS_SRCS) $(UTILS_SRCS) $(GUI_SRCS) $(MAIN_SRC)
+ALL_SRCS := $(HARDWARE_SRCS) $(SIGNAL_SRCS) $(FFT_SRCS) $(VIS_SRCS) $(UTILS_SRCS) $(GUI_SRCS) $(CORE_SRCS) $(MAIN_SRC)
 ALL_C_SRCS := $(KISSFFT_SRCS)
 
 # Object files
@@ -85,6 +86,7 @@ FFT_OBJS := $(patsubst $(FFT_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(FFT_SRCS))
 VIS_OBJS := $(patsubst $(VIS_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(VIS_SRCS))
 UTILS_OBJS := $(patsubst $(UTILS_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(UTILS_SRCS))
 GUI_OBJS := $(patsubst $(GUI_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(GUI_SRCS))
+CORE_OBJS := $(patsubst $(SRC_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(CORE_SRCS))
 KISSFFT_OBJS := $(patsubst $(THIRD_PARTY)/%.c,$(BUILD_DIR)/%.o,$(KISSFFT_SRCS))
 MAIN_OBJ := $(BUILD_DIR)/main.o
 
@@ -113,6 +115,9 @@ $(BUILD_DIR)/%.o: $(UTILS_DIR)/%.cpp | $(BUILD_DIR)
 $(BUILD_DIR)/%.o: $(GUI_DIR)/%.cpp | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
+
 $(BUILD_DIR)/%.o: $(THIRD_PARTY)/%.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
@@ -120,7 +125,7 @@ $(MAIN_OBJ): $(MAIN_SRC) | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 
 # Final target
-$(TARGET): $(HARDWARE_OBJS) $(SIGNAL_OBJS) $(FFT_OBJS) $(VIS_OBJS) $(UTILS_OBJS) $(GUI_OBJS) $(KISSFFT_OBJS) $(MAIN_OBJ)
+$(TARGET): $(HARDWARE_OBJS) $(SIGNAL_OBJS) $(FFT_OBJS) $(VIS_OBJS) $(UTILS_OBJS) $(GUI_OBJS) $(CORE_OBJS) $(KISSFFT_OBJS) $(MAIN_OBJ)
 	$(CXX) $^ -o $@ $(LDFLAGS)
 
 # Clean

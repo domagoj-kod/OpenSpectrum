@@ -3,7 +3,7 @@
 #include "fft/fft_analyzer.h"
 #include "gui/sdl_renderer.h"
 #include "hardware/rtl_sdr_device.h"
-#include "openspectrum/runtime_controls.h"
+#include "openspectrum/control_state.h"
 #include "signal/signal_processor.h"
 #include "utils/arg_parser.h"
 #include "utils/logger.h"
@@ -85,12 +85,12 @@ auto main(int argc, char *argv[]) -> int {
     LOG_INFO("SDL2 renderer initialized");
 
     // 1.5 Initialize runtime controls
-    RuntimeControls runtime_controls;
-    runtime_controls.set_frequency(
+    ControlState control_state;
+    control_state.set_frequency(
         static_cast<uint32_t>(config.center_freq_hz));
-    runtime_controls.set_gain(config.gain_db);
-    runtime_controls.set_fft_size(config.fft_size);
-    runtime_controls.set_window(config.window_function);
+    control_state.set_gain(config.gain_db);
+    control_state.set_fft_size(config.fft_size);
+    control_state.set_window(config.window_function);
     LOG_INFO("Runtime controls initialized");
 
     // 2. Initialize hardware
@@ -102,8 +102,8 @@ auto main(int argc, char *argv[]) -> int {
     }
 
     dev.set_sample_rate(static_cast<uint32_t>(config.sample_rate_hz));
-    dev.set_frequency(runtime_controls.get_frequency());
-    dev.set_gain(runtime_controls.get_gain());
+    dev.set_frequency(control_state.get_frequency());
+    dev.set_gain(control_state.get_gain());
 
     // CRITICAL: flush USB buffer before first read
     dev.reset_buffer();
@@ -154,27 +154,27 @@ auto main(int argc, char *argv[]) -> int {
 
     while (g_running.load(std::memory_order_relaxed)) {
       // === 1. Process SDL2 events (must be first in loop) ===
-      if (!renderer.poll_events(&runtime_controls)) {
+      if (!renderer.poll_events(&control_state)) {
         g_running = false;
         break;
       }
 
       // === 1.1. Check for window function change ===
-      if (runtime_controls.window_changed()) {
-        signal_processor.set_window(runtime_controls.get_window());
+      if (control_state.window_changed()) {
+        signal_processor.set_window(control_state.get_window());
         fft_analyzer.set_window_coherent_gain(
-            SignalProcessor::get_coherent_gain(runtime_controls.get_window()));
-        runtime_controls.clear_window_change_flag();
+            SignalProcessor::get_coherent_gain(control_state.get_window()));
+        control_state.clear_window_change_flag();
         LOG_INFO("Window function changed to: " +
                  std::string(SignalProcessor::window_function_to_string(
-                     runtime_controls.get_window())));
+                     control_state.get_window())));
       }
 
       // === 1.2. Check for FFT size change and reinitialize if needed ===
-      if (runtime_controls.fft_size_changed()) {
-        size_t const new_fft_size = runtime_controls.get_fft_size();
-        runtime_controls.set_reconfiguring(true);
-        runtime_controls.clear_fft_change_flag();
+      if (control_state.fft_size_changed()) {
+        size_t const new_fft_size = control_state.get_fft_size();
+        control_state.set_reconfiguring(true);
+        control_state.clear_fft_change_flag();
 
         LOG_INFO("Reinitializing with FFT size: " +
                  std::to_string(new_fft_size));
@@ -186,27 +186,27 @@ auto main(int argc, char *argv[]) -> int {
 
         // Recreate signal processor with new size
         signal_processor = SignalProcessor(current_fft_size);
-        signal_processor.set_window(runtime_controls.get_window());
+        signal_processor.set_window(control_state.get_window());
 
         // Recreate FFT analyzer with new size (using move semantics)
         fft_analyzer = FftAnalyzer(current_fft_size);
         fft_analyzer.enable_dc_center(true);
         fft_analyzer.set_window_coherent_gain(
-            SignalProcessor::get_coherent_gain(runtime_controls.get_window()));
+            SignalProcessor::get_coherent_gain(control_state.get_window()));
 
         // Clear waterfall to avoid size mismatch
         waterfall_display.reset();
 
-        runtime_controls.set_reconfiguring(false);
+        control_state.set_reconfiguring(false);
       }
 
-      // === 1.3. Apply runtime control changes to device (batch update) ===
-      runtime_controls.apply_to_device(dev);
+      // === 1.3. Apply control state changes to device (batch update) ===
+      control_state.apply_to_device(dev);
 
       // Update status bar (without PEAK - now shown separately)
-      if (runtime_controls.status_changed()) {
-        renderer.render_status_bar(runtime_controls.get_status_string());
-        runtime_controls.clear_status_dirty();
+      if (control_state.status_changed()) {
+        renderer.render_status_bar(control_state.get_status_string());
+        control_state.clear_status_dirty();
       }
 
       // Update peak indicator in top-right corner (updates every frame)
@@ -239,7 +239,7 @@ auto main(int argc, char *argv[]) -> int {
       // === 6. Update displays ===
       spectrum_display.update_spectrum(
           db_spectrum, freq_bins,
-          static_cast<float>(runtime_controls.get_frequency()),
+          static_cast<float>(control_state.get_frequency()),
           config.sample_rate_hz);
 
       waterfall_display.add_spectrum_line(db_spectrum);

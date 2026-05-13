@@ -10,7 +10,8 @@
 
 namespace openspectrum {
 
-class RuntimeControls;
+class ControlState;
+class SdlControlInput;
 class TextRenderer;
 
 class SdlRenderer {
@@ -28,8 +29,8 @@ public:
   bool render(const std::vector<uint8_t> &pixels, size_t pitch = 0);
 
   // Process events. Returns true if should continue, false if quit requested
-  // If controls is provided, handle keyboard input for runtime controls
-  bool poll_events(RuntimeControls *controls = nullptr);
+  // If state is provided, handle keyboard input for control state
+  bool poll_events(ControlState *state = nullptr);
 
   // Render status bar with current control values
   void render_status_bar(const std::string &status_text);
