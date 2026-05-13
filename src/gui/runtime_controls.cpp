@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: MIT
 
 #include "runtime_controls.h"
-#include "../hardware/rtl_sdr_device.h"
-#include "../utils/logger.h"
-#include "SDL_keycode.h"
+#include "logger.h"
+#include "rtl_sdr_device.h"
 #include "signal_processor.h"
 
 #include <algorithm>
@@ -12,6 +11,8 @@
 #include <cstdio>
 #include <iterator>
 #include <string>
+
+#include <SDL2/SDL_keycode.h>
 
 namespace openspectrum {
 

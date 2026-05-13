@@ -2,6 +2,7 @@
 #pragma once
 
 #include "spectrum_display.h"
+
 #include <cstdint>
 #include <deque>
 #include <memory>

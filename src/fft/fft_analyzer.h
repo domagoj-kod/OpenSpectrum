@@ -4,9 +4,10 @@
 #include <array>
 #include <complex>
 #include <cstddef>
-#include <kiss_fft.h>
 #include <memory>
 #include <vector>
+
+#include "kiss_fft.h"
 
 namespace openspectrum {
 

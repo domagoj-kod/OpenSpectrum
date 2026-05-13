@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
-#include <SDL2/SDL.h>
 #include <cstddef>
 #include <memory>
 #include <string>
 #include <vector>
+
+#include <SDL2/SDL.h>
 
 namespace openspectrum {
 

@@ -121,8 +121,7 @@ private:
 // RAII log entry builder (supports stream-like syntax)
 class LogStream {
 public:
-  LogStream(LogLevel level, std::string file, int line,
-            std::string function);
+  LogStream(LogLevel level, std::string file, int line, std::string function);
   ~LogStream();
 
   template <typename T> LogStream &operator<<(const T &value) {

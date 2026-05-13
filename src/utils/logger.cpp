@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "logger.h"
+
 #include <chrono>
 #include <cstdio>
 #include <cstring>

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "fft_analyzer.h"
-#include "kiss_fft.h"
+
 #include <algorithm>
 #include <cmath>
 #include <complex>
@@ -9,6 +9,8 @@
 #include <stdexcept>
 #include <utility>
 #include <vector>
+
+#include "kiss_fft.h"
 
 namespace openspectrum {
 

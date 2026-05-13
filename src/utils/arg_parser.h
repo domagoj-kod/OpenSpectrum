@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+#include "signal_processor.h"
+
 #include <cstdint>
 #include <string>
-
-#include "signal_processor.h"
 
 namespace openspectrum {
 

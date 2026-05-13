@@ -1,19 +1,9 @@
 // SPDX-License-Identifier: MIT
 
 #include "sdl_renderer.h"
-#include "SDL.h"
-#include "SDL_error.h"
-#include "SDL_events.h"
-#include "SDL_keyboard.h"
-#include "SDL_keycode.h"
-#include "SDL_pixels.h"
-#include "SDL_rect.h"
-#include "SDL_render.h"
-#include "SDL_scancode.h"
-#include "SDL_stdinc.h"
-#include "SDL_video.h"
 #include "runtime_controls.h"
 #include "text_renderer.h"
+
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -23,6 +13,18 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+#include <SDL2/SDL.h>
+#include <SDL2/SDL_error.h>
+#include <SDL2/SDL_events.h>
+#include <SDL2/SDL_keyboard.h>
+#include <SDL2/SDL_keycode.h>
+#include <SDL2/SDL_pixels.h>
+#include <SDL2/SDL_rect.h>
+#include <SDL2/SDL_render.h>
+#include <SDL2/SDL_scancode.h>
+#include <SDL2/SDL_stdinc.h>
+#include <SDL2/SDL_video.h>
 
 namespace openspectrum {
 
