@@ -97,8 +97,9 @@ public:
 
   // Fast memset-style clear
   void memset_clear() {
-    if (m_data)
+    if (m_data) {
       std::fill(m_data, m_data + m_size, 0);
+    }
   }
 
 private:

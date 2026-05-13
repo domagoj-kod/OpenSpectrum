@@ -12,7 +12,6 @@
 
 #include <algorithm>
 #include <atomic>
-#include <cmath>
 #include <complex>
 #include <csignal>
 #include <cstddef>

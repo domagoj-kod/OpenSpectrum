@@ -7,7 +7,6 @@
 #include "signal_processor.h"
 
 #include <algorithm>
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -24,8 +23,6 @@ RuntimeControls::RuntimeControls() {
   constraints.max_gain_db = 49.6F;
   constraints.supported_fft_sizes = {512, 1024, 2048, 4096};
 }
-
-RuntimeControls::~RuntimeControls() = default;
 
 // Helper to find FFT size index
 auto RuntimeControls::find_fft_index(size_t size) const -> int {

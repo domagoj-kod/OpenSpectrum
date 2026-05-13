@@ -31,7 +31,7 @@ struct DeviceConstraints {
 class RuntimeControls {
 public:
   RuntimeControls();
-  ~RuntimeControls();
+  ~RuntimeControls() = default;
 
   // Update from keyboard event, returns true if values changed
   bool handle_keyboard(SDL_Keycode key, bool shift_held, bool ctrl_held);

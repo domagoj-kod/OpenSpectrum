@@ -5,7 +5,6 @@
 #include "SDL_render.h"
 #include "SDL_surface.h"
 #include <cstdint>
-#include <cstring>
 #include <string>
 
 namespace openspectrum {
