@@ -104,9 +104,8 @@ auto main(int argc, char *argv[]) -> int {
     double iq_capture_start = 0.0;
 
     // Set up callback for when capture completes
-    iq_logger.set_complete_callback([](
-                                        const std::string &filename,
-                                        const std::string &meta_filename) {
+    iq_logger.set_complete_callback([](const std::string &filename,
+                                       const std::string &meta_filename) {
       LOG_INFO("IQ capture complete: " + filename + " (" + meta_filename + ")");
     });
 
@@ -172,7 +171,7 @@ auto main(int argc, char *argv[]) -> int {
     // Main processing loop
     LOG_INFO("Starting main loop. Press ESC or Ctrl+C to stop.");
     LOG_INFO("Controls: +/- Frequency, r/f Gain, 1-4 FFT size, UP/DOWN Window, "
-             "Shift/Ctrl for fine/coarse");
+             "Ctrl+S Toggle IQ logging, Shift/Ctrl for fine/coarse");
 
     std::vector<std::complex<float>> samples;
     std::vector<std::complex<float>> fft_output;
@@ -231,6 +230,29 @@ auto main(int argc, char *argv[]) -> int {
         waterfall_display.reset();
 
         control_state.set_reconfiguring(false);
+      }
+
+      // === 1.2.5. Check for IQ logging toggle request ===
+      if (control_state.iq_logging_toggle_requested()) {
+        control_state.clear_iq_logging_toggle();
+        if (iq_capturing) {
+          iq_logger.stop_capture();
+          iq_capturing = false;
+          LOG_INFO("IQ logging stopped");
+        } else {
+          iq_logger.start_capture(static_cast<uint32_t>(config.center_freq_hz),
+                                  static_cast<uint32_t>(config.sample_rate_hz),
+                                  config.gain_db, current_fft_size,
+                                  SignalProcessor::window_function_to_string(
+                                      control_state.get_window()),
+                                  "Manual capture");
+          iq_capturing = true;
+          iq_capture_start =
+              std::chrono::duration<double>(
+                  std::chrono::system_clock::now().time_since_epoch())
+                  .count();
+          LOG_INFO("IQ logging started: " + iq_logger.get_data_filename());
+        }
       }
 
       // === 1.3. Apply control state changes to device (batch update) ===

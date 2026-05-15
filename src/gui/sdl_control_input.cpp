@@ -41,8 +41,9 @@ auto SdlControlInput::handle_keyboard(SDL_Keycode key, bool shift_held,
   case SDLK_PLUS:
   case SDLK_EQUALS: {
     uint32_t const prev = m_state.get_frequency();
-    uint32_t const new_freq = std::min(m_state.get_frequency() + current_freq_step,
-                                 constraints.max_frequency_hz);
+    uint32_t const new_freq =
+        std::min(m_state.get_frequency() + current_freq_step,
+                 constraints.max_frequency_hz);
     if (new_freq != prev) {
       m_state.set_frequency(new_freq);
       LOG_INFO("[FREQ+] " + ControlState::format_frequency(prev) + " -> " +
@@ -56,8 +57,9 @@ auto SdlControlInput::handle_keyboard(SDL_Keycode key, bool shift_held,
   case SDLK_MINUS:
   case SDLK_UNDERSCORE: {
     uint32_t const prev = m_state.get_frequency();
-    uint32_t const new_freq = std::max(m_state.get_frequency() - current_freq_step,
-                                 constraints.min_frequency_hz);
+    uint32_t const new_freq =
+        std::max(m_state.get_frequency() - current_freq_step,
+                 constraints.min_frequency_hz);
     if (new_freq != prev) {
       m_state.set_frequency(new_freq);
       LOG_INFO("[FREQ-] " + ControlState::format_frequency(prev) + " -> " +
@@ -72,7 +74,7 @@ auto SdlControlInput::handle_keyboard(SDL_Keycode key, bool shift_held,
   case SDLK_r: {
     float const prev = m_state.get_gain();
     float const new_gain = std::min(m_state.get_gain() + current_gain_step,
-                               constraints.max_gain_db);
+                                    constraints.max_gain_db);
     if (new_gain != prev) {
       m_state.set_gain(new_gain);
       LOG_INFO("[GAIN+] " + ControlState::format_gain(prev) + " -> " +
@@ -86,7 +88,7 @@ auto SdlControlInput::handle_keyboard(SDL_Keycode key, bool shift_held,
   case SDLK_f: {
     float const prev = m_state.get_gain();
     float const new_gain = std::max(m_state.get_gain() - current_gain_step,
-                               constraints.min_gain_db);
+                                    constraints.min_gain_db);
     if (new_gain != prev) {
       m_state.set_gain(new_gain);
       LOG_INFO("[GAIN-] " + ControlState::format_gain(prev) + " -> " +
@@ -145,16 +147,28 @@ auto SdlControlInput::handle_keyboard(SDL_Keycode key, bool shift_held,
       WindowFunction const new_window = windows[new_index];
       if (new_window != current) {
         m_state.set_window(new_window);
-        LOG_INFO("[WINDOW] " +
-                 std::string(SignalProcessor::window_function_to_string(current)) +
-                 " -> " +
-                 std::string(SignalProcessor::window_function_to_string(new_window)));
+        LOG_INFO(
+            "[WINDOW] " +
+            std::string(SignalProcessor::window_function_to_string(current)) +
+            " -> " +
+            std::string(
+                SignalProcessor::window_function_to_string(new_window)));
         changed = true;
         m_state.mark_status_dirty();
       }
     }
     break;
   }
+
+  // IQ logging toggle (Ctrl+S)
+  case SDLK_s:
+    if (ctrl_held && !shift_held) {
+      m_state.request_iq_logging_toggle();
+      LOG_INFO("IQ logging toggle requested");
+      changed = true;
+      m_state.mark_status_dirty();
+    }
+    break;
   }
 
   return changed;

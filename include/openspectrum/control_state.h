@@ -78,6 +78,13 @@ public:
   bool is_reconfiguring() const noexcept { return reconfiguring; }
   void set_reconfiguring(bool state) noexcept { reconfiguring = state; }
 
+  // IQ logging control
+  bool iq_logging_toggle_requested() const noexcept {
+    return m_iq_logging_toggle;
+  }
+  void clear_iq_logging_toggle() noexcept { m_iq_logging_toggle = false; }
+  void request_iq_logging_toggle() noexcept { m_iq_logging_toggle = true; }
+
   // Apply all pending changes to device (batch update)
   void apply_to_device(RtlSdrDevice &dev) const;
 
@@ -106,6 +113,7 @@ private:
   bool fft_changed = false;
   bool reconfiguring = false;
   bool window_changed_flag = false;
+  bool m_iq_logging_toggle = false;
 
   // Status string caching for performance
   mutable std::string m_cached_status;
