@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 
 #include "openspectrum/control_state.h"
-#include "logger.h"
 #include "rtl_sdr_device.h"
 #include "signal_processor.h"
 
@@ -9,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <iterator>
 #include <string>
 
 namespace openspectrum {
