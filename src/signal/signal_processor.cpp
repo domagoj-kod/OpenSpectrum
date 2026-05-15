@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "signal_processor.h"
+
 #include <algorithm>
 #include <cmath>
 #include <complex>

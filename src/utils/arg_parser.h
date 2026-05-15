@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+#include "signal_processor.h"
+
 #include <cstdint>
 #include <string>
-
-#include "signal_processor.h"
 
 namespace openspectrum {
 
@@ -18,6 +18,11 @@ struct AppConfig {
   float gain_db = 10.0f;              // 10 dB
   WindowFunction window_function = WindowFunction::BLACKMAN_HARRIS;
   bool show_help = false;
+
+  // IQ logging options
+  bool iq_logging_enabled = false;
+  double iq_capture_duration = 0.0; // seconds (0 = manual stop via keyboard)
+  std::string iq_output_file;       // Output filename (without extension)
 };
 
 // Parse command-line arguments

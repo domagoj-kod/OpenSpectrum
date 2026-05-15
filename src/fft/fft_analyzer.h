@@ -4,9 +4,10 @@
 #include <array>
 #include <complex>
 #include <cstddef>
-#include <kiss_fft.h>
 #include <memory>
 #include <vector>
+
+#include "kiss_fft.h"
 
 namespace openspectrum {
 
@@ -53,6 +54,9 @@ public:
 
   // Get normalized frequency bins (0 to 1, where 1 = sample rate)
   const std::vector<float> &get_frequency_bins() const { return m_freq_bins; }
+
+  // Amplitude analysis: get maximum dB value from last FFT result
+  float get_max_db() const;
 
   size_t fft_size() const noexcept { return m_fft_size; }
 

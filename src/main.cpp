@@ -3,7 +3,8 @@
 #include "fft/fft_analyzer.h"
 #include "gui/sdl_renderer.h"
 #include "hardware/rtl_sdr_device.h"
-#include "openspectrum/runtime_controls.h"
+#include "openspectrum/control_state.h"
+#include "openspectrum/iq_logger.h"
 #include "signal/signal_processor.h"
 #include "utils/arg_parser.h"
 #include "utils/logger.h"
@@ -12,7 +13,7 @@
 
 #include <algorithm>
 #include <atomic>
-#include <cmath>
+#include <chrono>
 #include <complex>
 #include <csignal>
 #include <cstddef>
@@ -86,13 +87,43 @@ auto main(int argc, char *argv[]) -> int {
     LOG_INFO("SDL2 renderer initialized");
 
     // 1.5 Initialize runtime controls
-    RuntimeControls runtime_controls;
-    runtime_controls.set_frequency(
-        static_cast<uint32_t>(config.center_freq_hz));
-    runtime_controls.set_gain(config.gain_db);
-    runtime_controls.set_fft_size(config.fft_size);
-    runtime_controls.set_window(config.window_function);
+    ControlState control_state;
+    control_state.set_frequency(static_cast<uint32_t>(config.center_freq_hz));
+    control_state.set_gain(config.gain_db);
+    control_state.set_fft_size(config.fft_size);
+    control_state.set_window(config.window_function);
     LOG_INFO("Runtime controls initialized");
+
+    // 1.6 Initialize IQ logger (if enabled)
+    IqLoggerConfig iq_logger_config;
+    if (!config.iq_output_file.empty()) {
+      iq_logger_config.filename_prefix = config.iq_output_file;
+    }
+    IqLogger iq_logger(iq_logger_config);
+    bool iq_capturing = false;
+    double iq_capture_start = 0.0;
+
+    // Set up callback for when capture completes
+    iq_logger.set_complete_callback([](const std::string &filename,
+                                       const std::string &meta_filename) {
+      LOG_INFO("IQ capture complete: " + filename + " (" + meta_filename + ")");
+    });
+
+    // Start IQ capture if enabled via command line
+    if (config.iq_logging_enabled) {
+      iq_logger.start_capture(
+          static_cast<uint32_t>(config.center_freq_hz),
+          static_cast<uint32_t>(config.sample_rate_hz), config.gain_db,
+          config.fft_size,
+          SignalProcessor::window_function_to_string(config.window_function),
+          "Command-line capture");
+      iq_capturing = true;
+      iq_capture_start =
+          std::chrono::duration<double>(
+              std::chrono::system_clock::now().time_since_epoch())
+              .count();
+      LOG_INFO("IQ logging enabled: " + iq_logger.get_data_filename());
+    }
 
     // 2. Initialize hardware
     LOG_INFO("Initializing RTL-SDR device...");
@@ -103,8 +134,8 @@ auto main(int argc, char *argv[]) -> int {
     }
 
     dev.set_sample_rate(static_cast<uint32_t>(config.sample_rate_hz));
-    dev.set_frequency(runtime_controls.get_frequency());
-    dev.set_gain(runtime_controls.get_gain());
+    dev.set_frequency(control_state.get_frequency());
+    dev.set_gain(control_state.get_gain());
 
     // CRITICAL: flush USB buffer before first read
     dev.reset_buffer();
@@ -140,7 +171,7 @@ auto main(int argc, char *argv[]) -> int {
     // Main processing loop
     LOG_INFO("Starting main loop. Press ESC or Ctrl+C to stop.");
     LOG_INFO("Controls: +/- Frequency, r/f Gain, 1-4 FFT size, UP/DOWN Window, "
-             "Shift/Ctrl for fine/coarse");
+             "Ctrl+S Toggle IQ logging, Shift/Ctrl for fine/coarse");
 
     std::vector<std::complex<float>> samples;
     std::vector<std::complex<float>> fft_output;
@@ -150,29 +181,32 @@ auto main(int argc, char *argv[]) -> int {
     samples.resize(current_fft_size);
     fft_output.resize(current_fft_size);
 
+    // Track peak amplitude for display
+    float peak_db = -140.0F;
+
     while (g_running.load(std::memory_order_relaxed)) {
       // === 1. Process SDL2 events (must be first in loop) ===
-      if (!renderer.poll_events(&runtime_controls)) {
+      if (!renderer.poll_events(&control_state)) {
         g_running = false;
         break;
       }
 
       // === 1.1. Check for window function change ===
-      if (runtime_controls.window_changed()) {
-        signal_processor.set_window(runtime_controls.get_window());
+      if (control_state.window_changed()) {
+        signal_processor.set_window(control_state.get_window());
         fft_analyzer.set_window_coherent_gain(
-            SignalProcessor::get_coherent_gain(runtime_controls.get_window()));
-        runtime_controls.clear_window_change_flag();
+            SignalProcessor::get_coherent_gain(control_state.get_window()));
+        control_state.clear_window_change_flag();
         LOG_INFO("Window function changed to: " +
                  std::string(SignalProcessor::window_function_to_string(
-                     runtime_controls.get_window())));
+                     control_state.get_window())));
       }
 
       // === 1.2. Check for FFT size change and reinitialize if needed ===
-      if (runtime_controls.fft_size_changed()) {
-        size_t const new_fft_size = runtime_controls.get_fft_size();
-        runtime_controls.set_reconfiguring(true);
-        runtime_controls.clear_fft_change_flag();
+      if (control_state.fft_size_changed()) {
+        size_t const new_fft_size = control_state.get_fft_size();
+        control_state.set_reconfiguring(true);
+        control_state.clear_fft_change_flag();
 
         LOG_INFO("Reinitializing with FFT size: " +
                  std::to_string(new_fft_size));
@@ -184,27 +218,71 @@ auto main(int argc, char *argv[]) -> int {
 
         // Recreate signal processor with new size
         signal_processor = SignalProcessor(current_fft_size);
-        signal_processor.set_window(runtime_controls.get_window());
+        signal_processor.set_window(control_state.get_window());
 
         // Recreate FFT analyzer with new size (using move semantics)
         fft_analyzer = FftAnalyzer(current_fft_size);
         fft_analyzer.enable_dc_center(true);
         fft_analyzer.set_window_coherent_gain(
-            SignalProcessor::get_coherent_gain(runtime_controls.get_window()));
+            SignalProcessor::get_coherent_gain(control_state.get_window()));
 
         // Clear waterfall to avoid size mismatch
         waterfall_display.reset();
 
-        runtime_controls.set_reconfiguring(false);
+        control_state.set_reconfiguring(false);
       }
 
-      // === 1.3. Apply runtime control changes to device (batch update) ===
-      runtime_controls.apply_to_device(dev);
+      // === 1.2.5. Check for IQ logging toggle request ===
+      if (control_state.iq_logging_toggle_requested()) {
+        control_state.clear_iq_logging_toggle();
+        if (iq_capturing) {
+          iq_logger.stop_capture();
+          iq_capturing = false;
+          LOG_INFO("IQ logging stopped");
+        } else {
+          iq_logger.start_capture(static_cast<uint32_t>(config.center_freq_hz),
+                                  static_cast<uint32_t>(config.sample_rate_hz),
+                                  config.gain_db, current_fft_size,
+                                  SignalProcessor::window_function_to_string(
+                                      control_state.get_window()),
+                                  "Manual capture");
+          iq_capturing = true;
+          iq_capture_start =
+              std::chrono::duration<double>(
+                  std::chrono::system_clock::now().time_since_epoch())
+                  .count();
+          LOG_INFO("IQ logging started: " + iq_logger.get_data_filename());
+        }
+      }
 
-      // Update status bar display only when values change
-      if (runtime_controls.status_changed()) {
-        renderer.render_status_bar(runtime_controls.get_status_string());
-        runtime_controls.clear_status_dirty();
+      // === 1.3. Apply control state changes to device (batch update) ===
+      control_state.apply_to_device(dev);
+
+      // Update status bar (without PEAK - now shown separately)
+      if (control_state.status_changed()) {
+        renderer.render_status_bar(control_state.get_status_string());
+        control_state.clear_status_dirty();
+      }
+
+      // Update IQ logging status indicator periodically
+      static size_t frame_count = 0;
+      if (++frame_count % 60 == 0) { // Update every ~60 frames (~1 second)
+        if (iq_capturing) {
+          auto stats = iq_logger.get_stats();
+          std::string const iq_status =
+              "LOGGING: " +
+              std::to_string(static_cast<size_t>(stats.duration_seconds)) +
+              "s (" + std::to_string(stats.sample_count) + " samples)";
+          renderer.render_iq_status(iq_status);
+        } else {
+          // Clear IQ status when not capturing
+          renderer.render_iq_status("");
+        }
+      }
+
+      // Update peak indicator in top-right corner (updates every frame)
+      if (peak_db > -140.0F) {
+        renderer.render_peak_indicator(peak_db);
       }
 
       // === 2. Read samples from hardware ===
@@ -215,12 +293,20 @@ auto main(int argc, char *argv[]) -> int {
         break;
       }
 
+      // === 2.5. IQ logging (if enabled) ===
+      if (iq_capturing) {
+        iq_logger.write_samples(samples);
+      }
+
       // === 3. Signal processing ===
       openspectrum::SignalProcessor::remove_dc(samples);
       signal_processor.apply_window(samples);
 
       // === 4. FFT execution ===
       fft_analyzer.execute(samples, fft_output);
+
+      // === 4.1. Get peak amplitude for status display ===
+      peak_db = fft_analyzer.get_max_db();
 
       // === 5. Get spectral data ===
       const auto &db_spectrum = fft_analyzer.get_db_spectrum();
@@ -229,7 +315,7 @@ auto main(int argc, char *argv[]) -> int {
       // === 6. Update displays ===
       spectrum_display.update_spectrum(
           db_spectrum, freq_bins,
-          static_cast<float>(runtime_controls.get_frequency()),
+          static_cast<float>(control_state.get_frequency()),
           config.sample_rate_hz);
 
       waterfall_display.add_spectrum_line(db_spectrum);
@@ -255,6 +341,25 @@ auto main(int argc, char *argv[]) -> int {
         LOG_ERROR("Render failed");
         break;
       }
+
+      // === 9. Check for IQ capture duration expiry ===
+      if (iq_capturing && config.iq_capture_duration > 0.0) {
+        double const current_time =
+            std::chrono::duration<double>(
+                std::chrono::system_clock::now().time_since_epoch())
+                .count();
+        if ((current_time - iq_capture_start) >= config.iq_capture_duration) {
+          iq_logger.stop_capture();
+          iq_capturing = false;
+          LOG_INFO("IQ capture stopped after duration: " +
+                   std::to_string(config.iq_capture_duration) + " seconds");
+        }
+      }
+    }
+
+    // Stop IQ capture if still running
+    if (iq_capturing) {
+      iq_logger.stop_capture();
     }
 
     LOG_INFO("Main loop exited cleanly");

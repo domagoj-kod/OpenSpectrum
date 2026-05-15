@@ -134,13 +134,20 @@ Options:
   -W, --window NAME   Window function: rectangle, hann, hamming,
                       blackman, blackman-harris, flat-top
                       (default: blackman-harris)
+  --iq-log            Enable IQ data logging to file
+  --iq-duration SEC   Capture duration in seconds (default: 0 = manual)
+  --iq-output FILE    Output filename prefix (default: auto-generated)
   --help              Show this help message
 
 Examples:
   ./openspectrum -f 100000000 -g 20
   ./openspectrum --freq 144500000 --gain 15 --fft-size 8192
   ./openspectrum -W hann
+  ./openspectrum --iq-log --iq-duration 10 --iq-output my_capture
 ```
+
+> [!NOTE]
+> The log batching is expected behavior for USB 2.0 RTL-SDR devices. The ~8.5 FPS frame rate is limited by USB transfer latency, not CPU/FFT. This is normal and acceptable for the current hardware configuration. Cosmetic issue, functionality works correctly.
 
 Apart from command line arguments the program uses keyboard shortcuts for frequency tuning, gain control, Fast Fourier Transform size & window functions change. Shift modifer allows for fine control fine control (0.1 MHz, 0.1 dB), while Ctrl modifier is used for coarse control (1 MHz, 10 dB).
 
@@ -157,6 +164,7 @@ Apart from command line arguments the program uses keyboard shortcuts for freque
 | `Shift` | Fine control (0.1 MHz, 0.1 dB) |
 | `UP` | Cycle through supported window functions |
 | `DOWN` | Reverse through supported window functions |
+| `Ctrl+S` | Toggle IQ logging |
 | `ESC/q` | Exit the program |
 | `Ctrl+C` | Graceful shutdown (terminal) |
 

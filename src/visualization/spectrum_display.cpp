@@ -144,7 +144,7 @@ auto SpectrumPalette::get_color(float db_value) const -> RgbColor {
   index = std::max(index, 0);
   if (index >= static_cast<int>(PALETTE_SIZE)) {
     index = static_cast<int>(PALETTE_SIZE - 1);
-}
+  }
 
   return m_palette[static_cast<size_t>(index)];
 }
@@ -171,7 +171,7 @@ auto SpectrumPalette::get_color(float db_value, float min_db,
   index = std::max(index, 0);
   if (index >= static_cast<int>(PALETTE_SIZE)) {
     index = static_cast<int>(PALETTE_SIZE - 1);
-}
+  }
 
   return m_palette[static_cast<size_t>(index)];
 }
@@ -249,7 +249,7 @@ void SpectrumDisplay::render() {
 
     if (top_y >= m_height) {
       top_y = m_height - 1;
-}
+    }
 
     // Phase 3: Direct pointer access - precompute starting pixel pointer
     // idx = (y * m_width + x) * 4 = y * (m_width * 4) + x * 4

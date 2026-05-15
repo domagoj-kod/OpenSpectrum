@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: MIT
 
 #include "text_renderer.h"
-#include "SDL_pixels.h"
-#include "SDL_render.h"
-#include "SDL_surface.h"
+
+#include <cstddef>
 #include <cstdint>
-#include <cstring>
 #include <string>
+
+#include <SDL2/SDL_pixels.h>
+#include <SDL2/SDL_render.h>
+#include <SDL2/SDL_surface.h>
 
 namespace openspectrum {
 
@@ -218,16 +220,14 @@ TextRenderer::TextRenderer(SDL_Renderer *sdl_renderer, int size)
 
 TextRenderer::~TextRenderer() { clear_cache(); }
 
-auto TextRenderer::init() -> bool {
-  return renderer != nullptr;
-}
+auto TextRenderer::init() -> bool { return renderer != nullptr; }
 
-auto
-TextRenderer::create_texture_from_bitmap(const uint8_t * /*bitmap*/,
-                                         SDL_Color color) -> SDL_Texture * {
+auto TextRenderer::create_texture_from_bitmap(const uint8_t * /*bitmap*/,
+                                              SDL_Color color)
+    -> SDL_Texture * {
   if (renderer == nullptr) {
     return nullptr;
-}
+  }
 
   SDL_Texture *texture =
       SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA32,
@@ -275,11 +275,11 @@ TextRenderer::create_texture_from_bitmap(const uint8_t * /*bitmap*/,
   return texture;
 }
 
-auto TextRenderer::render_text(const std::string &text,
-                                       SDL_Color color) -> SDL_Texture * {
+auto TextRenderer::render_text(const std::string &text, SDL_Color color)
+    -> SDL_Texture * {
   if ((renderer == nullptr) || text.empty()) {
     return nullptr;
-}
+  }
 
   // For simplicity, render each string as a single texture
   // Calculate total width
@@ -292,7 +292,7 @@ auto TextRenderer::render_text(const std::string &text,
 
   if (texture == nullptr) {
     return nullptr;
-}
+  }
 
   // Create surface
   SDL_Surface *surface = SDL_CreateRGBSurfaceWithFormat(
@@ -354,10 +354,10 @@ void TextRenderer::get_text_size(const std::string &text, int *w,
                                  int *h) const {
   if (w != nullptr) {
     *w = static_cast<int>(text.length()) * glyph_width;
-}
+  }
   if (h != nullptr) {
     *h = glyph_height;
-}
+  }
 }
 
 void TextRenderer::clear_cache() {

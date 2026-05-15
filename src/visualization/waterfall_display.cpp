@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "waterfall_display.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstddef>

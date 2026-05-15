@@ -1,27 +1,30 @@
 // SPDX-License-Identifier: MIT
 
 #include "sdl_renderer.h"
-#include "SDL.h"
-#include "SDL_error.h"
-#include "SDL_events.h"
-#include "SDL_keyboard.h"
-#include "SDL_keycode.h"
-#include "SDL_pixels.h"
-#include "SDL_rect.h"
-#include "SDL_render.h"
-#include "SDL_scancode.h"
-#include "SDL_stdinc.h"
-#include "SDL_video.h"
-#include "runtime_controls.h"
+#include "sdl_control_input.h"
 #include "text_renderer.h"
+
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+#include <SDL2/SDL.h>
+#include <SDL2/SDL_error.h>
+#include <SDL2/SDL_events.h>
+#include <SDL2/SDL_keyboard.h>
+#include <SDL2/SDL_keycode.h>
+#include <SDL2/SDL_pixels.h>
+#include <SDL2/SDL_rect.h>
+#include <SDL2/SDL_render.h>
+#include <SDL2/SDL_scancode.h>
+#include <SDL2/SDL_stdinc.h>
+#include <SDL2/SDL_video.h>
 
 namespace openspectrum {
 
@@ -80,22 +83,29 @@ SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title)
 }
 
 SdlRenderer::~SdlRenderer() {
+  if (m_iq_texture != nullptr) {
+    SDL_DestroyTexture(m_iq_texture);
+  }
+  if (m_peak_texture != nullptr) {
+    SDL_DestroyTexture(m_peak_texture);
+  }
   if (m_status_texture != nullptr) {
     SDL_DestroyTexture(m_status_texture);
-}
+  }
   if (m_texture != nullptr) {
     SDL_DestroyTexture(m_texture);
-}
+  }
   if (m_renderer != nullptr) {
     SDL_DestroyRenderer(m_renderer);
-}
+  }
   if (m_window != nullptr) {
     SDL_DestroyWindow(m_window);
-}
+  }
   SDL_Quit();
 }
 
-auto SdlRenderer::render(const std::vector<uint8_t> &pixels, size_t pitch) -> bool {
+auto SdlRenderer::render(const std::vector<uint8_t> &pixels, size_t pitch)
+    -> bool {
   if ((m_texture == nullptr) || pixels.size() < m_width * m_height * 4) {
     return false;
   }
@@ -125,28 +135,82 @@ auto SdlRenderer::render(const std::vector<uint8_t> &pixels, size_t pitch) -> bo
   // Clear and render
   SDL_RenderClear(m_renderer);
   SDL_RenderCopy(m_renderer, m_texture, nullptr, nullptr);
-  
+
   // Render status bar on top
   if (m_status_texture != nullptr) {
     int text_width = 0;
     int text_height = 0;
     m_text_renderer->get_text_size(m_current_status, &text_width, &text_height);
-    
+
     SDL_Rect const dest_rect = {
-        static_cast<int>(m_width - text_width - 10),  // 10px margin from right
-        static_cast<int>(m_height - text_height - 10), // 10px margin from bottom
-        text_width,
-        text_height
-    };
+        static_cast<int>(m_width - text_width - 10), // 10px margin from right
+        static_cast<int>(m_height - text_height -
+                         10), // 10px margin from bottom
+        text_width, text_height};
     SDL_RenderCopy(m_renderer, m_status_texture, nullptr, &dest_rect);
   }
-  
+
+  // Render IQ logging status in top-right corner (below PEAK)
+  if (m_iq_texture != nullptr) {
+    int text_width = 0;
+    int text_height = 0;
+    m_text_renderer->get_text_size(m_current_iq_status, &text_width, &text_height);
+
+    // Position below PEAK indicator (which is at y=6 with background padding)
+    // PEAK background height: text_height + 10 (5px padding each side)
+    int peak_text_height = 0;
+    m_text_renderer->get_text_size("PEAK: -00.0 dB", nullptr, &peak_text_height);
+    int const peak_bg_height = peak_text_height + 10;
+
+    SDL_Rect const iq_dest_rect = {
+        static_cast<int>(m_width - text_width - 16), // Match PEAK X position
+        6 + peak_bg_height + 4, // Below PEAK background with 4px gap
+        text_width, text_height};
+    SDL_RenderCopy(m_renderer, m_iq_texture, nullptr, &iq_dest_rect);
+  }
+
+  // Render peak indicator in top-right corner with semi-transparent background
+  if (m_peak_texture != nullptr) {
+    int text_width = 0;
+    int text_height = 0;
+    m_text_renderer->get_text_size("PEAK: -00.0 dB", &text_width, &text_height);
+
+    // Background rectangle (slightly larger than text with padding)
+    SDL_Rect const bg_rect = {
+        static_cast<int>(m_width - text_width - 16), // 16px from right
+        6,                                           // 6px from top
+        text_width + 10,                             // 5px padding on each side
+        text_height + 10 // 5px padding on top/bottom
+    };
+
+    // Save current draw color
+    Uint8 r;
+    Uint8 g;
+    Uint8 b;
+    Uint8 a;
+    SDL_GetRenderDrawColor(m_renderer, &r, &g, &b, &a);
+
+    // Set background color (dark semi-transparent black)
+    SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 192);
+    SDL_RenderFillRect(m_renderer, &bg_rect);
+
+    // Render text on top of background (centered in backdrop)
+    SDL_Rect const text_rect = {
+        static_cast<int>(m_width - text_width - 13), // Center in backdrop
+        8,                                           // 8px from top
+        text_width, text_height};
+    SDL_RenderCopy(m_renderer, m_peak_texture, nullptr, &text_rect);
+
+    // Restore draw color
+    SDL_SetRenderDrawColor(m_renderer, r, g, b, a);
+  }
+
   SDL_RenderPresent(m_renderer);
 
   return true;
 }
 
-auto SdlRenderer::poll_events(RuntimeControls* controls) -> bool {
+auto SdlRenderer::poll_events(ControlState *state) -> bool {
   SDL_Event event;
   while (SDL_PollEvent(&event) != 0) {
     switch (event.type) {
@@ -158,18 +222,22 @@ auto SdlRenderer::poll_events(RuntimeControls* controls) -> bool {
           event.key.keysym.sym == SDLK_q) {
         return false;
       }
-      
-      // Handle runtime controls if provided
-      if (controls != nullptr) {
+
+      // Handle control state if provided
+      if (state != nullptr) {
+        // Create temporary SDL control input handler
+        SdlControlInput control_input(*state);
+
         // Get modifier state
-        const Uint8* keystate = SDL_GetKeyboardState(nullptr);
+        const Uint8 *keystate = SDL_GetKeyboardState(nullptr);
         bool const shift_held = (keystate[SDL_SCANCODE_LSHIFT] != 0U) ||
-                          (keystate[SDL_SCANCODE_RSHIFT] != 0U);
+                                (keystate[SDL_SCANCODE_RSHIFT] != 0U);
         bool const ctrl_held = (keystate[SDL_SCANCODE_LCTRL] != 0U) ||
-                         (keystate[SDL_SCANCODE_RCTRL] != 0U);
+                               (keystate[SDL_SCANCODE_RCTRL] != 0U);
 
         // Handle control keys
-        if (controls->handle_keyboard(event.key.keysym.sym, shift_held, ctrl_held)) {
+        if (control_input.handle_keyboard(event.key.keysym.sym, shift_held,
+                                          ctrl_held)) {
           m_status_dirty = true;
         }
       }
@@ -185,7 +253,7 @@ auto SdlRenderer::poll_events(RuntimeControls* controls) -> bool {
   return true;
 }
 
-void SdlRenderer::render_status_bar(const std::string& status_text) {
+void SdlRenderer::render_status_bar(const std::string &status_text) {
   // Only re-render if text changed
   if (status_text == m_current_status && !m_status_dirty) {
     return;
@@ -204,6 +272,49 @@ void SdlRenderer::render_status_bar(const std::string& status_text) {
   if (!status_text.empty()) {
     SDL_Color const text_color = {255, 255, 255, 255}; // White
     m_status_texture = m_text_renderer->render_text(status_text, text_color);
+  }
+}
+
+void SdlRenderer::render_peak_indicator(float peak_db) {
+  if (peak_db < -140.0F) {
+    // Invalid peak, destroy texture if exists
+    if (m_peak_texture != nullptr) {
+      SDL_DestroyTexture(m_peak_texture);
+      m_peak_texture = nullptr;
+    }
+    return;
+  }
+
+  char buf[32];
+  snprintf(buf, sizeof(buf), "PEAK: %.1f dB", peak_db);
+
+  // Destroy old texture
+  if (m_peak_texture != nullptr) {
+    SDL_DestroyTexture(m_peak_texture);
+  }
+
+  // Render new text
+  SDL_Color const text_color = {255, 255, 255, 255}; // White
+  m_peak_texture = m_text_renderer->render_text(buf, text_color);
+}
+
+void SdlRenderer::render_iq_status(const std::string &iq_text) {
+  // Only re-render if text changed
+  if (iq_text == m_current_iq_status) {
+    return;
+  }
+  m_current_iq_status = iq_text;
+
+  // Destroy old texture
+  if (m_iq_texture != nullptr) {
+    SDL_DestroyTexture(m_iq_texture);
+    m_iq_texture = nullptr;
+  }
+
+  // Render new text if not empty
+  if (!iq_text.empty()) {
+    SDL_Color const text_color = {255, 255, 255, 255}; // White
+    m_iq_texture = m_text_renderer->render_text(iq_text, text_color);
   }
 }
 
