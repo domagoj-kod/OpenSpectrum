@@ -1,8 +1,76 @@
-# Runtime Controls API
+# Runtime Controls API (DEPRECATED)
+
+> **⚠️ DEPRECATION NOTICE**
+> 
+> This module is **deprecated** and has been split into two components:
+> 
+> - **[ControlState](control_state.md)** - SDL-agnostic state management (RECOMMENDED replacement)
+> - `SdlControlInput` - SDL-specific keyboard input handling (internal GUI component)
+> 
+> **Please use `ControlState` for new code.** The `RuntimeControls` class is now a deprecated type alias that redirects to `ControlState`. Keyboard input handling has been moved to `SdlControlInput` which is used internally by `SdlRenderer::poll_events()`.
 
 Defined in: `include/openspectrum/runtime_controls.h`
 
-The Runtime Controls module provides real-time user-adjustable parameters for controlling the SDR spectrum analyzer during operation. This includes frequency tuning, gain adjustment, FFT size selection, and window function selection.
+The Runtime Controls module **was** the primary interface for real-time user-adjustable parameters. It has been architecturally split to separate platform-independent state management from platform-specific input handling.
+
+---
+
+## Migration Guide
+
+### Quick Migration
+
+| Old Code | New Code |
+|----------|----------|
+| `RuntimeControls controls;` | `ControlState state;` |
+| `controls.handle_keyboard(key, shift, ctrl);` | Use `SdlRenderer::poll_events(&state)` |
+| `controls.get_frequency()` | `state.get_frequency()` |
+| `controls.set_frequency(hz)` | `state.set_frequency(hz)` |
+| `controls.apply_to_device(dev)` | `state.apply_to_device(dev)` |
+
+### Full Example
+
+**Before:**
+```cpp
+#include "openspectrum/runtime_controls.h"
+
+RuntimeControls controls;
+controls.set_frequency(100000000);
+
+// In event loop
+if (controls.handle_keyboard(key, shift, ctrl)) {
+    controls.apply_to_device(device);
+}
+```
+
+**After:**
+```cpp
+#include "openspectrum/control_state.h"
+#include "gui/sdl_renderer.h"
+
+ControlState state;
+state.set_frequency(100000000);
+
+// In event loop (using SdlRenderer)
+SdlRenderer renderer(width, height);
+if (!renderer.poll_events(&state)) {
+    // quit
+}
+state.apply_to_device(device);
+```
+
+Or with direct keyboard handling:
+```cpp
+#include "openspectrum/control_state.h"
+#include "gui/sdl_control_input.h"
+
+ControlState state;
+SdlControlInput input_handler(state);
+
+// In event loop
+if (input_handler.handle_keyboard(key, shift, ctrl)) {
+    state.apply_to_device(device);
+}
+```
 
 ---
 
@@ -14,25 +82,21 @@ namespace openspectrum {
 }
 ```
 
+> **Note:** `RuntimeControls` is now defined as:
+> ```cpp
+> using RuntimeControls [[deprecated("Use ControlState instead. SDL input handling moved to SdlControlInput.")]] = ControlState;
+> ```
+
 ---
 
 ## DeviceConstraints Struct
 
-The `DeviceConstraints` struct defines the operational limits for a hardware device. These constraints are used to validate user input and ensure parameters stay within valid ranges.
+> [!Note]
+> This struct is now defined in `include/openspectrum/control_state.h` (not runtime_controls.h). See [ControlState](control_state.md#deviceconstraints-struct) for the current documentation.
 
-```cpp
-struct DeviceConstraints {
-  uint32_t min_frequency_hz = 0;
-  uint32_t max_frequency_hz = 1700000000;      // 1.7 GHz (RTL2832U)
-  float min_gain_db = 0.0f;
-  float max_gain_db = 49.6f;                   // RTL2832U max
-  std::vector<size_t> supported_fft_sizes = {512, 1024, 2048, 4096};
-  std::vector<WindowFunction> supported_window_functions = {
-      WindowFunction::RECTANGLE,       WindowFunction::HANN,
-      WindowFunction::HAMMING,         WindowFunction::BLACKMAN,
-      WindowFunction::BLACKMAN_HARRIS, WindowFunction::FLAT_TOP};
-};
-```
+The `DeviceConstraints` struct **was** defined here but has been moved to the [ControlState](control_state.md) module. The struct remains the same and is still used to define operational limits for hardware devices.
+
+For complete, up-to-date documentation, see: [DeviceConstraints in ControlState](control_state.md#deviceconstraints-struct)
 
 ### Members
 
@@ -65,60 +129,58 @@ controls.set_constraints(constraints);
 
 ---
 
-## RuntimeControls Class
+## RuntimeControls Class (DEPRECATED)
 
-The `RuntimeControls` class manages all user-adjustable parameters and handles keyboard input for real-time control of the spectrum analyzer.
+> **⚠️ This class is deprecated.** Use [ControlState](control_state.md) instead.
+
+The `RuntimeControls` class **was** the main class for managing user-adjustable parameters and handling keyboard input. It has been **split** into:
+
+- **[ControlState](control_state.md)** - All state management methods (getters, setters, constraints, etc.)
+- `SdlControlInput` - SDL-specific keyboard input handling (internal)
+
+### Current Definition
+
+`RuntimeControls` is now a **deprecated type alias**:
 
 ```cpp
-class RuntimeControls {
-public:
-  RuntimeControls();
-  ~RuntimeControls();
-
-  // Input handling
-  bool handle_keyboard(SDL_Keycode key, bool shift_held, bool ctrl_held);
-
-  // Status display
-  std::string get_status_string() const;
-  static std::string format_frequency(uint32_t hz);
-  static std::string format_gain(float db);
-
-  // FFT configuration
-  bool fft_size_changed() const;
-  void clear_fft_change_flag();
-
-  // Getters
-  uint32_t get_frequency() const;
-  float get_gain() const;
-  size_t get_fft_size() const;
-  WindowFunction get_window() const;
-
-  // Change flags
-  bool window_changed() const;
-  void clear_window_change_flag();
-
-  // Setters (initial configuration)
-  void set_frequency(uint32_t hz);
-  void set_gain(float db);
-  void set_fft_size(size_t size);
-  void set_window(WindowFunction w);
-
-  // Constraints
-  void set_constraints(const DeviceConstraints &constraints);
-  const DeviceConstraints &get_constraints() const;
-
-  // Reconfiguration state
-  bool is_reconfiguring() const;
-  void set_reconfiguring(bool state);
-
-  // Status caching
-  bool status_changed() const;
-  void clear_status_dirty() const;
-
-  // Device application
-  void apply_to_device(RtlSdrDevice &dev) const;
-};
+using RuntimeControls [[deprecated("Use ControlState instead. SDL input "
+                                   "handling moved to SdlControlInput.")]] = ControlState;
 ```
+
+This means:
+- All **state management** methods work identically on `RuntimeControls` (because it IS `ControlState`)
+- The **`handle_keyboard()`** method is **NO LONGER AVAILABLE** on `RuntimeControls`
+- Keyboard handling must be done via `SdlRenderer::poll_events(&state)` or `SdlControlInput`
+
+### Methods Still Available (via ControlState)
+
+All state management methods are still available through the alias:
+
+| Method | Status | Replacement |
+|--------|--------|-------------|
+| `get_frequency()`, `get_gain()`, `get_fft_size()`, `get_window()` | ✅ Available | Same on ControlState |
+| `set_frequency()`, `set_gain()`, `set_fft_size()`, `set_window()` | ✅ Available | Same on ControlState |
+| `set_constraints()`, `get_constraints()` | ✅ Available | Same on ControlState |
+| `fft_size_changed()`, `clear_fft_change_flag()` | ✅ Available | Same on ControlState |
+| `window_changed()`, `clear_window_change_flag()` | ✅ Available | Same on ControlState |
+| `get_status_string()` | ✅ Available | Same on ControlState |
+| `format_frequency()`, `format_gain()` | ✅ Available | Same on ControlState |
+| `status_changed()`, `clear_status_dirty()` | ✅ Available | Same on ControlState |
+| `is_reconfiguring()`, `set_reconfiguring()` | ✅ Available | Same on ControlState |
+| `apply_to_device()` | ✅ Available | Same on ControlState |
+| `handle_keyboard()` | ❌ REMOVED | Use `SdlRenderer::poll_events(&state)` |
+
+### What Changed
+
+**REMOVED:**
+- `bool handle_keyboard(SDL_Keycode key, bool shift_held, bool ctrl_held)` - Moved to `SdlControlInput`
+
+**PRESERVED:**
+- All state getters/setters
+- All constraint management
+- All change flags
+- All status display methods
+- All device application methods
 
 ### Constructor and Destructor
 
@@ -129,24 +191,47 @@ public:
 
 ### Input Handling
 
-#### `handle_keyboard`
+> **⚠️ The `handle_keyboard()` method has been REMOVED from RuntimeControls.**
+
+Keyboard input handling has been moved to `SdlControlInput` which is used internally by `SdlRenderer::poll_events()`. For keyboard handling, use one of these approaches:
+
+#### Option 1: Using SdlRenderer (Recommended)
 
 ```cpp
-bool handle_keyboard(SDL_Keycode key, bool shift_held, bool ctrl_held);
+SdlRenderer renderer(width, height);
+ControlState state;
+
+// In event loop
+if (!renderer.poll_events(&state)) {
+    // quit
+}
 ```
 
-Processes a keyboard event and updates control values accordingly.
+#### Option 2: Using SdlControlInput Directly
 
-**Parameters:**
-- `key` - SDL_Keycode of the pressed key
-- `shift_held` - True if Shift key is held (enables fine adjustment)
-- `ctrl_held` - True if Ctrl key is held (enables coarse adjustment)
+```cpp
+#include "gui/sdl_control_input.h"
 
-**Returns:**
-- `true` if any control value was changed
-- `false` if the key was not handled or didn't change values
+ControlState state;
+SdlControlInput input_handler(state);
 
-**Keyboard Controls:**
+// In event loop
+SDL_Event event;
+while (SDL_PollEvent(&event)) {
+    if (event.type == SDL_KEYDOWN) {
+        bool shift = (event.key.keysym.mod & KMOD_SHIFT) != 0;
+        bool ctrl = (event.key.keysym.mod & KMOD_CTRL) != 0;
+        if (input_handler.handle_keyboard(event.key.keysym.sym, shift, ctrl)) {
+            // State changed, update device
+            state.apply_to_device(device);
+        }
+    }
+}
+```
+
+#### Available Keyboard Controls (via SdlControlInput)
+
+The same keyboard controls are available through `SdlControlInput`:
 
 | Key | Action | Shift (Fine) | Ctrl (Coarse) |
 |-----|--------|--------------|---------------|
@@ -160,6 +245,7 @@ Processes a keyboard event and updates control values accordingly.
 | `4` | FFT size: 4096 | - | - |
 | `UP` | Next window function | - | - |
 | `DOWN` | Previous window function | - | - |
+| `Ctrl+S` | Toggle IQ logging | - | - |
 
 ### Status Display
 
@@ -348,20 +434,24 @@ Applies all current control values to the hardware device in a batch update.
 
 ---
 
-## Usage Example
+## Usage Example (Deprecated - See ControlState)
+
+> **⚠️ This example uses the deprecated RuntimeControls.** For new code, see [ControlState](control_state.md) for updated examples.
+
+The following example shows how RuntimeControls **was** used. For new code, replace `RuntimeControls` with `ControlState` and use `SdlRenderer::poll_events()` for keyboard handling.
 
 ```cpp
-#include "openspectrum/runtime_controls.h"
+#include "openspectrum/runtime_controls.h"  // Deprecated - use control_state.h
 #include "hardware/rtl_sdr_device.h"
 #include "gui/sdl_renderer.h"
 
 using namespace openspectrum;
 
 int main() {
-  // Create runtime controls
-  RuntimeControls controls;
+  // Create runtime controls (DEPRECATED)
+  RuntimeControls controls;  // Now an alias for ControlState
   
-  // Set initial values
+  // Set initial values (these still work)
   controls.set_frequency(100000000);  // 100 MHz
   controls.set_gain(20.0f);            // 20 dB
   controls.set_fft_size(4096);        // 4K FFT
@@ -373,41 +463,37 @@ int main() {
   constraints.max_gain_db = 49.6f;
   controls.set_constraints(constraints);
   
-  // In event loop:
-  SDL_Event event;
-  while (SDL_PollEvent(&event)) {
-    if (event.type == SDL_KEYDOWN) {
-      bool shift = (event.key.keysym.mod & KMOD_SHIFT) != 0;
-      bool ctrl = (event.key.keysym.mod & KMOD_CTRL) != 0;
-      if (controls.handle_keyboard(event.key.keysym.sym, shift, ctrl)) {
-        // Values changed, update device
-        controls.apply_to_device(device);
-      }
-    }
-  }
-  
-  // Check for FFT size change
+  // State management methods still work:
   if (controls.fft_size_changed()) {
-    // Reinitialize FFT-dependent components
     size_t new_size = controls.get_fft_size();
     // ... reinitialize ...
     controls.clear_fft_change_flag();
   }
   
-  // Update status bar when changed
   if (controls.status_changed()) {
     renderer.render_status_bar(controls.get_status_string());
     controls.clear_status_dirty();
   }
+  
+  // But keyboard handling must now use SdlRenderer:
+  SdlRenderer renderer(width, height);
+  if (!renderer.poll_events(&controls)) {  // Pass ControlState (via alias)
+    // quit
+  }
+  controls.apply_to_device(device);
 }
 ```
+
+**For new code, see:** [ControlState Usage Examples](control_state.md#usage-example)
 
 ---
 
 ## See Also
 
+- **[ControlState](control_state.md)** - RECOMMENDED replacement for RuntimeControls
 - [Types](types.md) - WindowFunction enum
 - [SignalProcessor](signal_processing.md) - Uses window functions
 - [FftAnalyzer](fft_analysis.md) - FFT size affects analysis
-- [RtlSdrDevice](hardware.md) - Device controlled by RuntimeControls
-- [SdlRenderer](gui.md#sdlrenderer) - Handles keyboard input
+- [RtlSdrDevice](hardware.md) - Device controlled by ControlState
+- [SdlRenderer](gui.md#sdlrenderer) - Handles keyboard input via poll_events()
+- [SdlControlInput](gui.md#sdlcontrolinput) - SDL-specific keyboard input handler

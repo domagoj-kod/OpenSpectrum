@@ -479,7 +479,8 @@ Range: [-π, +π] radians
 ## See Also
 
 - [SignalProcessor](signal_processing.md) - Pre-processes signals before FFT
-- [RuntimeControls](runtime_controls.md) - Manages FFT size changes
+- [ControlState](control_state.md) - Manages FFT size changes
+- [RuntimeControls (Deprecated)](runtime_controls.md) - Deprecated, use ControlState
 - [Third Party - KissFFT](third_party.md) - Underlying FFT library
 - [SpectrumDisplay](visualization.md#spectrumdisplay) - Visualizes FFT results
 - [WaterfallDisplay](visualization.md#waterfalldisplay) - Shows FFT results over time

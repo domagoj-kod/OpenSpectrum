@@ -30,6 +30,11 @@ struct AppConfig {
   float gain_db = 10.0f;                 // 10 dB
   WindowFunction window_function = WindowFunction::BLACKMAN_HARRIS;
   bool show_help = false;
+
+  // IQ logging options
+  bool iq_logging_enabled = false;
+  double iq_capture_duration = 0.0; // seconds (0 = manual stop via keyboard)
+  std::string iq_output_file;       // Output filename prefix (without extension)
 };
 ```
 
@@ -45,6 +50,9 @@ struct AppConfig {
 | `gain_db` | `float` | 10.0 | Gain in dB |
 | `window_function` | `WindowFunction` | BLACKMAN_HARRIS | Window function for signal processing |
 | `show_help` | `bool` | false | Flag to display help message |
+| `iq_logging_enabled` | `bool` | false | Enable IQ data logging to file |
+| `iq_capture_duration` | `double` | 0.0 | Capture duration in seconds (0 = manual stop via Ctrl+S) |
+| `iq_output_file` | `std::string` | "" | Output filename prefix (auto-generated if empty) |
 
 ### Usage Example
 
@@ -99,10 +107,20 @@ Parses command-line arguments and returns an AppConfig structure.
 | `-w WIDTH` | Display width in pixels |
 | `-H HEIGHT` | Display height in pixels |
 | `--window WINDOW` | Window function: rectangle, hann, hamming, blackman, blackman_harris, flat_top |
+| `--iq-log` | Enable IQ data logging to file |
+| `--iq-duration SEC` | Capture duration in seconds (0 = manual stop via Ctrl+S) |
+| `--iq-output FILE` | Output filename prefix (default: auto-generated) |
 
 **Example:**
 ```bash
+# Basic usage
 ./openspectrum -f 100000000 -r 2048000 -g 20.0 -s 8192 --window hann
+
+# With IQ logging (10 second capture)
+./openspectrum -f 100000000 --iq-log --iq-duration 10
+
+# With IQ logging (manual stop with Ctrl+S)
+./openspectrum -f 100000000 --iq-log --iq-output my_capture
 ```
 
 ### `print_usage`
@@ -124,17 +142,27 @@ Prints usage information to the console.
 
 **Example Output:**
 ```
-Usage: ./openspectrum [options]
+Usage: ./openspectrum [OPTIONS]
+
+OpenSpectrum - SDR Spectrum Analyzer
 
 Options:
-  -h, --help            Show this help message
-  -f FREQ              Center frequency in Hz (default: 92600000)
-  -r RATE              Sample rate in Hz (default: 2048000)
-  -g GAIN              Gain in dB (default: 10.0)
-  -s SIZE              FFT size (default: 4096)
-  -w WIDTH             Display width in pixels (default: 1050)
-  -H HEIGHT            Display height in pixels (default: 576)
-  --window WINDOW       Window function: rectangle, hann, hamming, blackman, blackman_harris, flat_top (default: blackman_harris)
+  -f, --freq HZ       Center frequency in Hz (default: 92600000)
+  -r, --rate HZ       Sample rate in Hz (default: 2048000)
+  -g, --gain DB       Gain in dB (default: 10.0)
+  -s, --fft-size N    FFT size (power of 2, default: 4096)
+  -w, --width N       Display width in pixels (default: 1050)
+  -H, --height N      Display height in pixels (default: 576)
+  -W, --window NAME   Window function: rectangle, hann, hamming, blackman, blackman-harris, flat-top (default: blackman-harris)
+  --iq-log            Enable IQ data logging to file
+  --iq-duration SEC   Capture duration in seconds (default: 0 = manual)
+  --iq-output FILE    Output filename prefix (default: auto-generated)
+  --help              Show this help message
+
+Examples:
+  ./openspectrum -f 100000000 -g 20
+  ./openspectrum --freq 144500000 --gain 15 --fft-size 8192
+  ./openspectrum --iq-log --iq-duration 10 --iq-output my_capture
 ```
 
 ### `is_power_of_two`
@@ -741,4 +769,6 @@ Logger::get_instance().add_sink(std::make_unique<JsonSink>("logs.json"));
 
 - [Types - LogLevel](types.md#loglevel-enum) - Log level enumeration
 - [RtlSdrDevice](hardware.md) - Uses logging for error reporting
-- [RuntimeControls](runtime_controls.md) - Uses logging for status changes
+- [ControlState](control_state.md) - Uses logging for status changes
+- [IqLogger](iq_logging.md) - IQ data logging with progress/completion callbacks
+- [RuntimeControls (Deprecated)](runtime_controls.md) - Deprecated class, use ControlState

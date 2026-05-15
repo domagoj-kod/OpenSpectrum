@@ -1,8 +1,8 @@
 # GUI API
 
-Defined in: `src/gui/sdl_renderer.h` and `src/gui/text_renderer.h`
+Defined in: `src/gui/sdl_renderer.h`, `src/gui/sdl_control_input.h`, and `src/gui/text_renderer.h`
 
-The GUI module provides SDL2-based rendering capabilities for the spectrum analyzer, including window management, texture rendering, and text rendering using a bitmap font.
+The GUI module provides SDL2-based rendering capabilities for the spectrum analyzer, including window management, texture rendering, text rendering using a bitmap font, and keyboard input handling.
 
 ---
 
@@ -21,6 +21,14 @@ namespace openspectrum {
   // All classes defined here
 }
 ```
+
+---
+
+## Overview
+
+**Architecture Update:** The GUI module now integrates with `ControlState` for state management. The `SdlRenderer::poll_events()` method accepts a `ControlState*` parameter, and internally uses `SdlControlInput` to handle keyboard events and update the state.
+
+This change separates platform-specific input handling (SDL) from platform-agnostic state management, making the state reusable in non-SDL contexts.
 
 ---
 
@@ -44,7 +52,7 @@ public:
   void render_status_bar(const std::string &status_text);
 
   // Event handling
-  bool poll_events(RuntimeControls *controls = nullptr);
+  bool poll_events(ControlState *state = nullptr);
 
   // Accessors
   size_t width() const noexcept;
@@ -176,13 +184,13 @@ Renders text to the status bar texture.
 #### `poll_events`
 
 ```cpp
-bool poll_events(RuntimeControls *controls = nullptr);
+bool poll_events(ControlState *state = nullptr);
 ```
 
 Poll and process SDL2 events.
 
 **Parameters:**
-- `controls` - Optional pointer to RuntimeControls for keyboard handling (default: nullptr)
+- `state` - Optional pointer to ControlState for keyboard handling (default: nullptr). The renderer internally creates an `SdlControlInput` to process keyboard events and update the state.
 
 **Returns:**
 - `true` if the application should continue running
@@ -192,19 +200,21 @@ Poll and process SDL2 events.
 - Polls all pending SDL events using SDL_PollEvent
 - Handles QUIT events (window close, Ctrl+C)
 - Handles KEYDOWN events
-- If `controls` is provided, passes keyboard events to `RuntimeControls::handle_keyboard()`
+- If `state` is provided, passes keyboard events to an internal `SdlControlInput` which updates the ControlState
 - Returns false on SDL_QUIT event
 
 **Event Types Handled:**
 - `SDL_QUIT` - Returns false to signal application exit
-- `SDL_KEYDOWN` - Passes to RuntimeControls if provided
+- `SDL_KEYDOWN` - Passes to SdlControlInput if state is provided
 
 **Example:**
 ```cpp
-RuntimeControls controls;
+#include "openspectrum/control_state.h"
+
+ControlState state;
 
 while (running) {
-  if (!renderer.poll_events(&controls)) {
+  if (!renderer.poll_events(&state)) {
     running = false;
     break;
   }
@@ -457,24 +467,24 @@ int main() {
     return 1;
   }
 
-  // Create runtime controls
-  RuntimeControls controls;
+  // Create control state
+  ControlState state;
 
   // Main loop
   bool running = true;
   std::vector<uint8_t> pixels(WIDTH * HEIGHT * 4, 0);
 
   while (running) {
-    // Process events
-    if (!renderer.poll_events(&controls)) {
+    // Process events (pass ControlState for keyboard handling)
+    if (!renderer.poll_events(&state)) {
       running = false;
       break;
     }
 
-    // Update controls
-    if (controls.status_changed()) {
-      renderer.render_status_bar(controls.get_status_string());
-      controls.clear_status_dirty();
+    // Update status bar when changed
+    if (state.status_changed()) {
+      renderer.render_status_bar(state.get_status_string());
+      state.clear_status_dirty();
     }
 
     // Render spectrum (pseudo-code)
@@ -559,8 +569,158 @@ Common SDL2 errors:
 
 ---
 
+## SdlControlInput Class
+
+Defined in: `src/gui/sdl_control_input.h`
+
+The `SdlControlInput` class provides SDL-specific keyboard input handling for `ControlState`. This class is used internally by `SdlRenderer::poll_events()` but can also be used directly for custom event handling.
+
+```cpp
+class SdlControlInput {
+public:
+  explicit SdlControlInput(ControlState &state);
+  ~SdlControlInput() = default;
+
+  // Non-copyable, non-movable
+  SdlControlInput(const SdlControlInput &) = delete;
+  SdlControlInput &operator=(const SdlControlInput &) = delete;
+
+  // Handle SDL keyboard event, returns true if state changed
+  bool handle_keyboard(SDL_Keycode key, bool shift_held, bool ctrl_held);
+
+  // Set step sizes (for testing or customization)
+  void set_frequency_step(uint32_t step) noexcept;
+  void set_gain_step(float step) noexcept;
+
+private:
+  ControlState &m_state;
+  uint32_t freq_step = 1000000; // 1 MHz default
+  float gain_step = 1.0f;       // 1 dB default
+};
+```
+
+### Constructor
+
+```cpp
+explicit SdlControlInput(ControlState &state);
+```
+
+Constructs an SdlControlInput that updates the specified ControlState.
+
+**Parameters:**
+- `state` - Reference to the ControlState to update
+
+**Behavior:**
+- Stores a reference to the ControlState
+- Initializes default step sizes (1 MHz for frequency, 1 dB for gain)
+
+### Destructor
+
+```cpp
+~SdlControlInput() = default;
+```
+
+Standard destructor.
+
+### Methods
+
+#### `handle_keyboard`
+
+```cpp
+bool handle_keyboard(SDL_Keycode key, bool shift_held, bool ctrl_held);
+```
+
+Processes a keyboard event and updates the ControlState accordingly.
+
+**Parameters:**
+- `key` - SDL_Keycode of the pressed key
+- `shift_held` - True if Shift key is held (enables fine adjustment)
+- `ctrl_held` - True if Ctrl key is held (enables coarse adjustment)
+
+**Returns:**
+- `true` if any control value was changed
+- `false` if the key was not handled or didn't change values
+
+**Keyboard Controls:**
+
+| Key | Action | Shift (Fine) | Ctrl (Coarse) |
+|-----|--------|--------------|---------------|
+| `+` / `=` | Increase frequency | +100kHz | +10MHz |
+| `-` / `_` | Decrease frequency | -100kHz | -10MHz |
+| `r` | Increase gain | +0.1 dB | +10 dB |
+| `f` | Decrease gain | -0.1 dB | -10 dB |
+| `1` | FFT size: 512 | - | - |
+| `2` | FFT size: 1024 | - | - |
+| `3` | FFT size: 2048 | - | - |
+| `4` | FFT size: 4096 | - | - |
+| `UP` | Next window function | - | - |
+| `DOWN` | Previous window function | - | - |
+| `Ctrl+S` | Toggle IQ logging request | - | - |
+
+#### `set_frequency_step`
+
+```cpp
+void set_frequency_step(uint32_t step) noexcept;
+```
+
+Sets the frequency adjustment step size.
+
+**Parameters:**
+- `step` - Step size in Hz
+
+**Default:** 1,000,000 (1 MHz)
+
+#### `set_gain_step`
+
+```cpp
+void set_gain_step(float step) noexcept;
+```
+
+Sets the gain adjustment step size.
+
+**Parameters:**
+- `step` - Step size in dB
+
+**Default:** 1.0 dB
+
+### Usage Example
+
+```cpp
+#include "openspectrum/control_state.h"
+#include "gui/sdl_control_input.h"
+
+using namespace openspectrum;
+
+int main() {
+    ControlState state;
+    SdlControlInput input_handler(state);
+    
+    // Customize step sizes
+    input_handler.set_frequency_step(500000); // 500 kHz
+    input_handler.set_gain_step(0.5f);       // 0.5 dB
+    
+    // In event loop
+    SDL_Event event;
+    while (SDL_PollEvent(&event)) {
+        if (event.type == SDL_KEYDOWN) {
+            bool shift = (event.key.keysym.mod & KMOD_SHIFT) != 0;
+            bool ctrl = (event.key.keysym.mod & KMOD_CTRL) != 0;
+            if (input_handler.handle_keyboard(event.key.keysym.sym, shift, ctrl)) {
+                // State changed, update device
+                state.apply_to_device(device);
+            }
+        }
+    }
+    
+    return 0;
+}
+```
+
+---
+
 ## See Also
 
-- [RuntimeControls](runtime_controls.md) - Handles keyboard input for controls
+- [ControlState](control_state.md) - SDL-agnostic state management
+- [RuntimeControls (Deprecated)](runtime_controls.md) - Deprecated class, use ControlState
 - [Visualization](visualization.md) - Provides pixel data for rendering
 - [SDL2 Documentation](https://wiki.libsdl.org/) - SDL2 library documentation

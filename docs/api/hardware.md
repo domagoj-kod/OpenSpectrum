@@ -623,7 +623,8 @@ sudo udevadm trigger
 
 ## See Also
 
-- [RuntimeControls](runtime_controls.md) - Controls device parameters (frequency, gain)
+- [ControlState](control_state.md) - Controls device parameters (frequency, gain)
+- [RuntimeControls (Deprecated)](runtime_controls.md) - Deprecated, use ControlState
 - [SignalProcessor](signal_processing.md) - Processes samples from the device
 - [FFT Analyzer](fft_analysis.md) - Analyzes processed samples
 - [librtlsdr Documentation](https://osmocom.org/projects/sdr/wiki/rtl-sdr) - RTL-SDR library documentation

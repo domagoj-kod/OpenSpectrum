@@ -12,33 +12,38 @@ The project follows a **divide and conquer** (divide et impera) architecture, se
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                         OpenSpectrum                              │
+│                         OpenSpectrum                            │
 ├─────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────────┐   │
-│  │  Hardware     │    │   Signal      │    │    FFT            │   │
-│  │  (RTL-SDR)    │───▶│ Processing    │───▶│  Analysis         │   │
-│  └──────────────┘    └──────────────┘    └──────────────────┘   │
-│          ▲                    │                    │               │
-│          │                    ▼                    ▼               │
-│          │            ┌──────────────────────────────────┐        │
-│          │            │         Visualization             │        │
-│          │            │  (Spectrum, Waterfall)             │        │
-│          │            └──────────────────────────────────┘        │
-│          │                            │                           │
-│          │                            ▼                           │
-│          │            ┌──────────────────────────────────┐        │
-│          └────────────│            GUI (SDL2)               │        │
-│                       └──────────────────────────────────┘        │
-│                                                                     │
+│                                                                 │
+│  ┌──────────────┐     ┌──────────────┐    ┌──────────────────┐  │
+│  │  Hardware    │     │   Signal     │    │    FFT           │  │
+│  │  (RTL-SDR)   │───▶│ Processing   │───▶│  Analysis        │  │
+│  └──────────────┘     └──────────────┘    └──────────────────┘  │
+│          ▲                    │                    │            │
+│          │                    ▼                    ▼            │
+│          │            ┌──────────────────────────────────┐      │
+│          │            │         Visualization            │      │
+│          │            │  (Spectrum, Waterfall)           │      │
+│          │            └──────────────────────────────────┘      │
+│          │                            │                         │
+│          │                            ▼                         │
+│          │            ┌──────────────────────────────────┐      │
+│          └────────────│            GUI (SDL2)            │      │
+│                       └──────────────────────────────────┘      │
+│                                                                 │
 │  ┌─────────────────────────────────────────────────────────────┐│
-│  │                    Runtime Controls                           ││
-│  │         (User input for frequency, gain, FFT settings)       ││
+│  │              Control State (SDL-agnostic)                   ││
+│  │         (User state: frequency, gain, FFT, window)          ││
 │  └─────────────────────────────────────────────────────────────┘│
-│                                                                     │
+│                                                                 │
 │  ┌─────────────────────────────────────────────────────────────┐│
-│  │                    Utilities                                   ││
-│  │  (Logging, Configuration Parsing, Argument Handling)          ││
+│  │                    Utilities                                ││
+│  │  (Logging, Configuration Parsing, Argument Handling, IQ)    ││
+│  └─────────────────────────────────────────────────────────────┘│
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │                    IQ Logger                                ││
+│  │         (IQ data capture for post-processing)               ││
 │  └─────────────────────────────────────────────────────────────┘│
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -50,8 +55,9 @@ The project follows a **divide and conquer** (divide et impera) architecture, se
 3. **FFT Analysis** (`FftAnalyzer`): Computes FFT and power spectrum
 4. **Visualization** (`SpectrumDisplay`, `WaterfallDisplay`): Renders spectral data
 5. **GUI** (`SdlRenderer`, `TextRenderer`): Handles rendering and user input
-6. **Runtime Controls** (`RuntimeControls`): Manages user-adjustable parameters
+6. **Control State** (`ControlState`): Manages user-adjustable parameters (replaces RuntimeControls)
 7. **Utilities** (`Logger`, `AppConfig`, etc.): Cross-cutting concerns
+8. **IQ Logger** (`IqLogger`): Captures raw IQ samples to files for post-processing
 
 ---
 
@@ -63,7 +69,8 @@ The project follows a **divide and conquer** (divide et impera) architecture, se
 #include "hardware/rtl_sdr_device.h"
 #include "signal/signal_processor.h"
 #include "fft/fft_analyzer.h"
-#include "visualization/spectrum_display.h"
+#include "openspectrum/control_state.h"
+#include "openspectrum/iq_logger.h"
 
 using namespace openspectrum;
 
@@ -72,6 +79,12 @@ RtlSdrDevice device;
 device.open();
 device.set_frequency(100000000);  // 100 MHz
 device.set_sample_rate(2048000);   // 2.048 MS/s
+
+// 1.5 Initialize control state (for parameter management)
+ControlState state;
+state.set_frequency(100000000);
+state.set_gain(20.0f);
+state.apply_to_device(device);
 
 // 2. Create signal processor with windowing
 SignalProcessor processor(4096);
@@ -88,6 +101,26 @@ fft.execute(samples);
 const auto& spectrum = fft.get_db_spectrum();
 ```
 
+### With IQ Logging
+
+```cpp
+// Initialize IQ logger
+IqLogger iq_logger;
+iq_logger.start_capture(100000000, 2048000, 20.0f, 4096, "Blackman-Harris");
+
+// In processing loop
+std::vector<std::complex<float>> samples = device.read_samples(4096);
+// Write to IQ logger
+iq_logger.write_samples(samples);
+// Process normally
+SignalProcessor::remove_dc(samples);
+processor.apply_window(samples);
+fft.execute(samples);
+
+// When done
+iq_logger.stop_capture();
+```
+
 ---
 
 ## Module Documentation
@@ -95,13 +128,15 @@ const auto& spectrum = fft.get_db_spectrum();
 | Module | Description | Key Components |
 |--------|-------------|-----------------|
 | **[Types](types.md)** | Common enumerations and type definitions | WindowFunction, ColorMap, LogLevel |
-| **[Runtime Controls](runtime_controls.md)** | User-adjustable parameters for real-time control | DeviceConstraints, RuntimeControls |
+| **[Control State](control_state.md)** | SDL-agnostic state management (replaces RuntimeControls) | DeviceConstraints, ControlState |
+| **[Runtime Controls (Deprecated)](runtime_controls.md)** | User-adjustable parameters - DEPRECATED, use ControlState | RuntimeControls (alias to ControlState) |
 | **[Signal Processing](signal_processing.md)** | Signal conditioning and windowing | SignalProcessor |
 | **[FFT Analysis](fft_analysis.md)** | Fast Fourier Transform computation | FftAnalyzer |
 | **[Visualization](visualization.md)** | Spectrum and waterfall rendering | RgbColor, PixelBuffer, SpectrumPalette, SpectrumDisplay, WaterfallDisplay |
 | **[GUI](gui.md)** | SDL2-based rendering and input | SdlRenderer, TextRenderer |
 | **[Hardware](hardware.md)** | SDR device abstraction | RtlSdrDevice |
 | **[Utilities](utilities.md)** | Logging, configuration, utilities | Logger, AppConfig, Logging Macros |
+| **[IQ Logging](iq_logging.md)** | IQ data capture for post-processing | IqLogger, IqLoggerConfig, IqCaptureStats |
 | **[Third Party](third_party.md)** | External library types | kissfft types |
 
 ---
@@ -126,7 +161,8 @@ const auto& spectrum = fft.get_db_spectrum();
 
 - **[SdlRenderer](gui.md#sdlrenderer)** - SDL2 window and texture management
 - **[TextRenderer](gui.md#textrenderer)** - Bitmap font text rendering
-- **[RuntimeControls](runtime_controls.md)** - Keyboard-controlled parameter adjustment
+- **[ControlState](control_state.md)** - SDL-agnostic state management for parameters
+- **[RuntimeControls (Deprecated)](runtime_controls.md)** - Keyboard-controlled parameter adjustment - DEPRECATED
 
 ### Configuration & Utilities
 
@@ -137,6 +173,12 @@ const auto& spectrum = fft.get_db_spectrum();
 - **[FileSink](utilities.md#filesink)** - File-based log sink with rotation
 - **[Logging Macros](utilities.md#logging-macros)** - LOG_TRACE, LOG_INFO, LOGS_DEBUG, etc.
 - **[parse_arguments()](utilities.md#parse_arguments)** - Command-line argument parsing
+
+### IQ Logging
+
+- **[IqLogger](iq_logging.md)** - Main IQ data capture class
+- **[IqLoggerConfig](iq_logging.md#iqloggerconfig-struct)** - Configuration for IQ logging
+- **[IqCaptureStats](iq_logging.md#iqcapturestats-struct)** - Capture statistics
 
 ---
 
@@ -187,6 +229,17 @@ The project uses security-hardened compiler flags:
 - [All Classes](index.md#module-documentation)
 - [All Functions](utilities.md#functions)
 - [All Macros](utilities.md#logging-macros)
+
+---
+
+## Changelog
+
+### Recently Added
+- **[ControlState](control_state.md)** - New SDL-agnostic state management (replaces RuntimeControls state handling)
+- **[IqLogger](iq_logging.md)** - New IQ data logging capability with CLI and UI integration
+
+### Deprecated
+- **[RuntimeControls](runtime_controls.md)** - Deprecated, now a type alias to ControlState. Use ControlState for new code.
 
 ---
 

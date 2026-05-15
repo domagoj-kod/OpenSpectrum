@@ -65,7 +65,8 @@ float gain = SignalProcessor::get_coherent_gain(WindowFunction::HAMMING);
 
 - [SignalProcessor](signal_processing.md) - Uses WindowFunction for windowing
 - [FftAnalyzer](fft_analysis.md) - Uses window coherent gain for normalization
-- [RuntimeControls](runtime_controls.md) - Allows changing window function at runtime
+- [ControlState](control_state.md) - Allows changing window function at runtime
+- [RuntimeControls (Deprecated)](runtime_controls.md) - Deprecated, use ControlState
 
 ---
 
@@ -191,6 +192,24 @@ LOG_CRITICAL("Out of memory!");
 Defined in: `src/visualization/spectrum_display.h`
 
 Represents an RGBA color value. See [Visualization](visualization.md#rgbcolor) for details.
+
+### DeviceConstraints Struct
+
+Defined in: `include/openspectrum/control_state.h`
+
+Defines operational limits for hardware devices. See [ControlState](control_state.md#deviceconstraints-struct) for details.
+
+### IqLoggerConfig Struct
+
+Defined in: `include/openspectrum/iq_logger.h`
+
+Configuration options for IQ data logging. See [IQ Logging](iq_logging.md#iqloggerconfig-struct) for details.
+
+### IqCaptureStats Struct
+
+Defined in: `include/openspectrum/iq_logger.h`
+
+Statistics for IQ data captures. See [IQ Logging](iq_logging.md#iqcapturestats-struct) for details.
 
 ### kiss_fft_cpx Type
 
