@@ -92,7 +92,7 @@ void ControlState::set_fft_size(size_t size) {
     }
   } else if (!constraints.supported_fft_sizes.empty()) {
     // Fallback to first supported size
-    size_t fallback = constraints.supported_fft_sizes[0];
+    size_t const fallback = constraints.supported_fft_sizes[0];
     if (fallback != fft_size) {
       fft_size = fallback;
       fft_prev = fft_size;
@@ -102,8 +102,7 @@ void ControlState::set_fft_size(size_t size) {
 }
 
 // Set constraints for different device types
-void ControlState::set_constraints(
-    const DeviceConstraints &new_constraints) {
+void ControlState::set_constraints(const DeviceConstraints &new_constraints) {
   constraints = new_constraints;
   // Clamp current values to new constraints
   frequency_hz = std::clamp(frequency_hz, constraints.min_frequency_hz,
@@ -132,7 +131,7 @@ void ControlState::set_window(WindowFunction w) {
       window_changed_flag = true;
     }
   } else if (!constraints.supported_window_functions.empty()) {
-    WindowFunction fallback = constraints.supported_window_functions[0];
+    WindowFunction const fallback = constraints.supported_window_functions[0];
     if (fallback != window_function) {
       window_function = fallback;
       window_prev = window_function;
