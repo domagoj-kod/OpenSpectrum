@@ -85,12 +85,19 @@ void ControlState::set_gain(float db) {
 void ControlState::set_fft_size(size_t size) {
   int const index = find_fft_index(size);
   if (index >= 0) {
-    fft_size = size;
-    fft_prev = size;
+    if (size != fft_size) {
+      fft_size = size;
+      fft_prev = size;
+      fft_changed = true;
+    }
   } else if (!constraints.supported_fft_sizes.empty()) {
     // Fallback to first supported size
-    fft_size = constraints.supported_fft_sizes[0];
-    fft_prev = fft_size;
+    size_t fallback = constraints.supported_fft_sizes[0];
+    if (fallback != fft_size) {
+      fft_size = fallback;
+      fft_prev = fft_size;
+      fft_changed = true;
+    }
   }
 }
 
@@ -119,11 +126,18 @@ void ControlState::set_constraints(
 void ControlState::set_window(WindowFunction w) {
   int const index = find_window_index(w);
   if (index >= 0) {
-    window_function = w;
-    window_prev = w;
+    if (w != window_function) {
+      window_function = w;
+      window_prev = w;
+      window_changed_flag = true;
+    }
   } else if (!constraints.supported_window_functions.empty()) {
-    window_function = constraints.supported_window_functions[0];
-    window_prev = window_function;
+    WindowFunction fallback = constraints.supported_window_functions[0];
+    if (fallback != window_function) {
+      window_function = fallback;
+      window_prev = window_function;
+      window_changed_flag = true;
+    }
   }
 }
 
