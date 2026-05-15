@@ -147,7 +147,7 @@ Examples:
 ```
 
 > [!NOTE]
-> The batching is expected behavior for USB 2.0 RTL-SDR devices. The ~8.5 FPS frame rate is limited by USB transfer latency, not CPU/FFT. This is normal and acceptable for the current hardware configuration. Cosmetic issue, functionality works correctly.
+> The log batching is expected behavior for USB 2.0 RTL-SDR devices. The ~8.5 FPS frame rate is limited by USB transfer latency, not CPU/FFT. This is normal and acceptable for the current hardware configuration. Cosmetic issue, functionality works correctly.
 
 Apart from command line arguments the program uses keyboard shortcuts for frequency tuning, gain control, Fast Fourier Transform size & window functions change. Shift modifer allows for fine control fine control (0.1 MHz, 0.1 dB), while Ctrl modifier is used for coarse control (1 MHz, 10 dB).
 
@@ -164,6 +164,7 @@ Apart from command line arguments the program uses keyboard shortcuts for freque
 | `Shift` | Fine control (0.1 MHz, 0.1 dB) |
 | `UP` | Cycle through supported window functions |
 | `DOWN` | Reverse through supported window functions |
+| `Ctrl+S` | Toggle IQ logging |
 | `ESC/q` | Exit the program |
 | `Ctrl+C` | Graceful shutdown (terminal) |
 
