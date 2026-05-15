@@ -4,6 +4,7 @@
 #include "gui/sdl_renderer.h"
 #include "hardware/rtl_sdr_device.h"
 #include "openspectrum/control_state.h"
+#include "openspectrum/iq_logger.h"
 #include "signal/signal_processor.h"
 #include "utils/arg_parser.h"
 #include "utils/logger.h"
@@ -12,6 +13,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <complex>
 #include <csignal>
 #include <cstddef>
@@ -86,12 +88,43 @@ auto main(int argc, char *argv[]) -> int {
 
     // 1.5 Initialize runtime controls
     ControlState control_state;
-    control_state.set_frequency(
-        static_cast<uint32_t>(config.center_freq_hz));
+    control_state.set_frequency(static_cast<uint32_t>(config.center_freq_hz));
     control_state.set_gain(config.gain_db);
     control_state.set_fft_size(config.fft_size);
     control_state.set_window(config.window_function);
     LOG_INFO("Runtime controls initialized");
+
+    // 1.6 Initialize IQ logger (if enabled)
+    IqLoggerConfig iq_logger_config;
+    if (!config.iq_output_file.empty()) {
+      iq_logger_config.filename_prefix = config.iq_output_file;
+    }
+    IqLogger iq_logger(iq_logger_config);
+    bool iq_capturing = false;
+    double iq_capture_start = 0.0;
+
+    // Set up callback for when capture completes
+    iq_logger.set_complete_callback([](
+                                        const std::string &filename,
+                                        const std::string &meta_filename) {
+      LOG_INFO("IQ capture complete: " + filename + " (" + meta_filename + ")");
+    });
+
+    // Start IQ capture if enabled via command line
+    if (config.iq_logging_enabled) {
+      iq_logger.start_capture(
+          static_cast<uint32_t>(config.center_freq_hz),
+          static_cast<uint32_t>(config.sample_rate_hz), config.gain_db,
+          config.fft_size,
+          SignalProcessor::window_function_to_string(config.window_function),
+          "Command-line capture");
+      iq_capturing = true;
+      iq_capture_start =
+          std::chrono::duration<double>(
+              std::chrono::system_clock::now().time_since_epoch())
+              .count();
+      LOG_INFO("IQ logging enabled: " + iq_logger.get_data_filename());
+    }
 
     // 2. Initialize hardware
     LOG_INFO("Initializing RTL-SDR device...");
@@ -209,6 +242,22 @@ auto main(int argc, char *argv[]) -> int {
         control_state.clear_status_dirty();
       }
 
+      // Update IQ logging status indicator periodically
+      static size_t frame_count = 0;
+      if (++frame_count % 60 == 0) { // Update every ~60 frames (~1 second)
+        if (iq_capturing) {
+          auto stats = iq_logger.get_stats();
+          std::string const iq_status =
+              "LOGGING: " +
+              std::to_string(static_cast<size_t>(stats.duration_seconds)) +
+              "s (" + std::to_string(stats.sample_count) + " samples)";
+          renderer.render_iq_status(iq_status);
+        } else {
+          // Clear IQ status when not capturing
+          renderer.render_iq_status("");
+        }
+      }
+
       // Update peak indicator in top-right corner (updates every frame)
       if (peak_db > -140.0F) {
         renderer.render_peak_indicator(peak_db);
@@ -220,6 +269,11 @@ auto main(int argc, char *argv[]) -> int {
       } catch (const std::exception &e) {
         LOG_ERROR("Read error: " + std::string(e.what()));
         break;
+      }
+
+      // === 2.5. IQ logging (if enabled) ===
+      if (iq_capturing) {
+        iq_logger.write_samples(samples);
       }
 
       // === 3. Signal processing ===
@@ -265,6 +319,25 @@ auto main(int argc, char *argv[]) -> int {
         LOG_ERROR("Render failed");
         break;
       }
+
+      // === 9. Check for IQ capture duration expiry ===
+      if (iq_capturing && config.iq_capture_duration > 0.0) {
+        double const current_time =
+            std::chrono::duration<double>(
+                std::chrono::system_clock::now().time_since_epoch())
+                .count();
+        if ((current_time - iq_capture_start) >= config.iq_capture_duration) {
+          iq_logger.stop_capture();
+          iq_capturing = false;
+          LOG_INFO("IQ capture stopped after duration: " +
+                   std::to_string(config.iq_capture_duration) + " seconds");
+        }
+      }
+    }
+
+    // Stop IQ capture if still running
+    if (iq_capturing) {
+      iq_logger.stop_capture();
     }
 
     LOG_INFO("Main loop exited cleanly");

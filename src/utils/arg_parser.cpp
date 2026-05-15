@@ -23,6 +23,15 @@ auto parse_float(const char *str, float &value) -> bool {
   }
 }
 
+auto parse_double(const char *str, double &value) -> bool {
+  try {
+    value = std::stod(str);
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
+
 auto parse_size_t(const char *str, size_t &value) -> bool {
   try {
     value = static_cast<size_t>(std::stoul(str));
@@ -50,12 +59,18 @@ void print_usage(const char *argv0) {
       << "  -W, --window NAME   Window function: rectangle, hann, hamming,\n"
       << "                      blackman, blackman-harris, flat-top\n"
       << "                      (default: blackman-harris)\n"
+      << "  --iq-log            Enable IQ data logging to file\n"
+      << "  --iq-duration SEC   Capture duration in seconds (default: 0 = "
+         "manual)\n"
+      << "  --iq-output FILE    Output filename prefix (default: "
+         "auto-generated)\n"
       << "  --help              Show this help message\n"
       << "\n"
       << "Examples:\n"
       << "  " << argv0 << " -f 100000000 -g 20\n"
       << "  " << argv0 << " --freq 144500000 --gain 15 --fft-size 8192\n"
       << "  " << argv0 << " -W hann\n"
+      << "  " << argv0 << " --iq-log --iq-duration 10 --iq-output my_capture\n"
       << std::flush;
 }
 
@@ -135,6 +150,25 @@ auto parse_arguments(int argc, char *argv[]) -> AppConfig {
         print_usage(argv[0]);
         std::exit(1);
       }
+    } else if (arg == "--iq-log") {
+      config.iq_logging_enabled = true;
+    } else if (arg == "--iq-duration") {
+      if (i + 1 >= argc ||
+          !parse_double(argv[i + 1], config.iq_capture_duration)) {
+        std::cerr << "Error: Invalid IQ capture duration value\n";
+        print_usage(argv[0]);
+        std::exit(1);
+      }
+      ++i;
+      config.iq_logging_enabled = true; // Enable logging if duration is set
+    } else if (arg == "--iq-output") {
+      if (i + 1 >= argc) {
+        std::cerr << "Error: IQ output filename required\n";
+        print_usage(argv[0]);
+        std::exit(1);
+      }
+      config.iq_output_file = argv[++i];
+      config.iq_logging_enabled = true; // Enable logging if output is set
     } else if (arg == "--help" || arg == "-h") {
       config.show_help = true;
       print_usage(argv[0]);

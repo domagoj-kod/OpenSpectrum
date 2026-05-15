@@ -341,7 +341,12 @@ bool IqLogger::is_capturing() const noexcept {
 
 IqCaptureStats IqLogger::get_stats() const {
   std::lock_guard<std::mutex> lock(m_mutex);
-  return m_stats;
+  IqCaptureStats stats = m_stats;
+  if (m_capturing && m_start_time > 0.0) {
+    double end_time = get_unix_timestamp();
+    stats.duration_seconds = end_time - m_start_time;
+  }
+  return stats;
 }
 
 void IqLogger::set_progress_callback(IqLoggerProgressCallback cb) {

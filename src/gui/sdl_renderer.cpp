@@ -83,6 +83,9 @@ SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title)
 }
 
 SdlRenderer::~SdlRenderer() {
+  if (m_iq_texture != nullptr) {
+    SDL_DestroyTexture(m_iq_texture);
+  }
   if (m_peak_texture != nullptr) {
     SDL_DestroyTexture(m_peak_texture);
   }
@@ -145,6 +148,25 @@ auto SdlRenderer::render(const std::vector<uint8_t> &pixels, size_t pitch)
                          10), // 10px margin from bottom
         text_width, text_height};
     SDL_RenderCopy(m_renderer, m_status_texture, nullptr, &dest_rect);
+  }
+
+  // Render IQ logging status in top-right corner (below PEAK)
+  if (m_iq_texture != nullptr) {
+    int text_width = 0;
+    int text_height = 0;
+    m_text_renderer->get_text_size(m_current_iq_status, &text_width, &text_height);
+
+    // Position below PEAK indicator (which is at y=6 with background padding)
+    // PEAK background height: text_height + 10 (5px padding each side)
+    int peak_text_height = 0;
+    m_text_renderer->get_text_size("PEAK: -00.0 dB", nullptr, &peak_text_height);
+    int const peak_bg_height = peak_text_height + 10;
+
+    SDL_Rect const iq_dest_rect = {
+        static_cast<int>(m_width - text_width - 16), // Match PEAK X position
+        6 + peak_bg_height + 4, // Below PEAK background with 4px gap
+        text_width, text_height};
+    SDL_RenderCopy(m_renderer, m_iq_texture, nullptr, &iq_dest_rect);
   }
 
   // Render peak indicator in top-right corner with semi-transparent background
@@ -274,6 +296,26 @@ void SdlRenderer::render_peak_indicator(float peak_db) {
   // Render new text
   SDL_Color const text_color = {255, 255, 255, 255}; // White
   m_peak_texture = m_text_renderer->render_text(buf, text_color);
+}
+
+void SdlRenderer::render_iq_status(const std::string &iq_text) {
+  // Only re-render if text changed
+  if (iq_text == m_current_iq_status) {
+    return;
+  }
+  m_current_iq_status = iq_text;
+
+  // Destroy old texture
+  if (m_iq_texture != nullptr) {
+    SDL_DestroyTexture(m_iq_texture);
+    m_iq_texture = nullptr;
+  }
+
+  // Render new text if not empty
+  if (!iq_text.empty()) {
+    SDL_Color const text_color = {255, 255, 255, 255}; // White
+    m_iq_texture = m_text_renderer->render_text(iq_text, text_color);
+  }
 }
 
 } // namespace openspectrum

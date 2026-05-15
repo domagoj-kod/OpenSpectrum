@@ -38,6 +38,9 @@ public:
   // Render peak amplitude indicator in top-right corner
   void render_peak_indicator(float peak_db);
 
+  // Render IQ logging status indicator in bottom-left corner
+  void render_iq_status(const std::string &iq_text);
+
   // Get dimensions
   size_t width() const noexcept { return m_width; }
   size_t height() const noexcept { return m_height; }
@@ -65,6 +68,10 @@ private:
 
   // Peak amplitude indicator for top-right corner
   SDL_Texture *m_peak_texture = nullptr;
+
+  // IQ logging status indicator for bottom-left corner
+  SDL_Texture *m_iq_texture = nullptr;
+  std::string m_current_iq_status;
 };
 
 } // namespace openspectrum
