@@ -1,0 +1,457 @@
+// SPDX-License-Identifier: MIT
+
+#include "openspectrum/spectrogram_exporter.h"
+
+#include <algorithm>
+#include <cstdio>
+#include <cstring>
+#include <ctime>
+#include <iomanip>
+#include <sstream>
+#include <sys/stat.h>
+#include <sys/types.h>
+
+#include "stb_image_write.h"
+
+// Define STB_IMAGE_WRITE_IMPLEMENTATION in exactly one compilation unit
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
+
+#ifdef _WIN32
+#include <direct.h>
+#define mkdir(dir, mode) _mkdir(dir)
+#else
+#include <unistd.h>
+#endif
+
+namespace openspectrum {
+
+// Helper to format frequency for display
+static std::string format_frequency(uint32_t hz) {
+  if (hz >= 1000000000) {
+    return std::to_string(hz / 1000000000) + "." +
+           std::to_string((hz % 1000000000) / 1000000) + " GHz";
+  }
+  if (hz >= 1000000) {
+    return std::to_string(hz / 1000000) + "." +
+           std::to_string((hz % 1000000) / 1000) + " MHz";
+  }
+  if (hz >= 1000) {
+    return std::to_string(hz / 1000) + "." + std::to_string(hz % 1000) + " kHz";
+  }
+  return std::to_string(hz) + " Hz";
+}
+
+SpectrogramExporter::SpectrogramExporter(const SpectrogramExportConfig &config)
+    : m_config(config) {}
+
+void SpectrogramExporter::set_config(const SpectrogramExportConfig &config) {
+  std::lock_guard<std::mutex> lock(m_mutex);
+  m_config = config;
+}
+
+// Create output directory if it doesn't exist
+bool SpectrogramExporter::create_output_directory() {
+  if (m_config.output_directory.empty()) {
+    return true;
+  }
+
+  struct stat info;
+  if (stat(m_config.output_directory.c_str(), &info) == 0 &&
+      (info.st_mode & S_IFDIR)) {
+    return true;
+  }
+
+  // Try to create directory
+#ifdef _WIN32
+  if (_mkdir(m_config.output_directory.c_str()) == 0) {
+    return true;
+  }
+#else
+  if (mkdir(m_config.output_directory.c_str(), 0755) == 0) {
+    return true;
+  }
+#endif
+
+  return false;
+}
+
+// Generate ISO 8601 timestamp
+std::string SpectrogramExporter::get_iso8601_timestamp() const {
+  auto now = std::chrono::system_clock::now();
+  auto in_time_t = std::chrono::system_clock::to_time_t(now);
+
+  std::stringstream ss;
+  ss << std::put_time(std::gmtime(&in_time_t), "%Y%m%dT%H%M%SZ");
+  return ss.str();
+}
+
+// Get current Unix timestamp with microseconds
+double SpectrogramExporter::get_unix_timestamp() const {
+  auto now = std::chrono::system_clock::now();
+  auto duration = now.time_since_epoch();
+  return static_cast<double>(
+             std::chrono::duration_cast<std::chrono::microseconds>(duration)
+                 .count()) /
+         1000000.0;
+}
+
+// Generate filename with timestamp and optional frequency
+std::string SpectrogramExporter::generate_filename(const std::string &extension) const {
+  std::string timestamp = get_iso8601_timestamp();
+
+  std::string filename = m_config.filename_prefix + "_" + timestamp;
+
+  // Prepend output directory
+  if (!m_config.output_directory.empty()) {
+    filename = m_config.output_directory + "/" + filename;
+  }
+
+  // Add export count for multiple exports in same second
+  if (m_export_count > 0) {
+    filename += "_" + std::to_string(m_export_count);
+  }
+
+  filename += "." + extension;
+
+  return filename;
+}
+
+std::string SpectrogramExporter::generate_metadata_filename() const {
+  std::string base = generate_filename("png");
+  size_t last_dot = base.find_last_of('.');
+  if (last_dot != std::string::npos) {
+    return base.substr(0, last_dot) + ".meta.json";
+  }
+  return base + ".meta.json";
+}
+
+// Escape string for JSON output
+std::string SpectrogramExporter::escape_json_string(const std::string &str) const {
+  std::string result;
+  result.reserve(str.size() * 2);
+  for (char c : str) {
+    switch (c) {
+    case '"': result += "\\\""; break;
+    case '\\': result += "\\\\"; break;
+    case '\b': result += "\\b"; break;
+    case '\f': result += "\\f"; break;
+    case '\n': result += "\\n"; break;
+    case '\r': result += "\\r"; break;
+    case '\t': result += "\\t"; break;
+    default:
+      if (c >= 0 && c < 32) {
+        // Skip control characters
+      } else {
+        result += c;
+      }
+    }
+  }
+  return result;
+}
+
+// Write PNG file using stb_image_write
+ExportResult SpectrogramExporter::write_png(const std::string &filename,
+                                            const uint8_t *data,
+                                            int width,
+                                            int height,
+                                            int stride_bytes) {
+  ExportResult result;
+
+  if (data == nullptr || width <= 0 || height <= 0) {
+    result.error_message = "Invalid PNG data: null data or zero dimensions";
+    return result;
+  }
+
+  // Set compression level
+  int previous_compression = stbi_write_png_compression_level;
+  stbi_write_png_compression_level = m_config.png_compression_level;
+
+  // Write PNG file (RGBA = 4 components)
+  int success = stbi_write_png(filename.c_str(), width, height, 4, data, stride_bytes);
+
+  // Restore compression level
+  stbi_write_png_compression_level = previous_compression;
+
+  if (success) {
+    result.success = true;
+    result.filename = filename;
+  } else {
+    result.error_message = "Failed to write PNG file: " + filename;
+  }
+
+  return result;
+}
+
+// Write JSON metadata file
+void SpectrogramExporter::write_metadata(
+    const std::string &filename,
+    int image_width,
+    int image_height,
+    const std::string &image_type,
+    uint32_t center_freq_hz,
+    uint32_t sample_rate_hz,
+    float gain_db,
+    size_t fft_size,
+    const std::string &window_function,
+    const std::string &color_map,
+    const std::string &notes) {
+
+  std::stringstream ss;
+  double timestamp = get_unix_timestamp();
+
+  ss << "{\n";
+  ss << "  \"version\": \"1.0\",\n";
+  ss << "  \"export_timestamp_iso8601\": \"" << get_iso8601_timestamp() << "\",\n";
+  ss << "  \"export_timestamp_unix\": " << timestamp << ",\n";
+
+  // Capture parameters
+  ss << "  \"capture\": {\n";
+  ss << "    \"center_frequency_hz\": " << center_freq_hz << ",\n";
+  ss << "    \"center_frequency_formatted\": \"" << escape_json_string(format_frequency(center_freq_hz)) << "\",\n";
+  ss << "    \"sample_rate_hz\": " << sample_rate_hz << ",\n";
+  ss << "    \"gain_db\": " << gain_db << ",\n";
+  ss << "    \"fft_size\": " << fft_size << ",\n";
+  ss << "    \"window_function\": \"" << escape_json_string(window_function) << "\"\n";
+  ss << "  },\n";
+
+  // Image parameters
+  ss << "  \"image\": {\n";
+  ss << "    \"type\": \"" << image_type << "\",\n";
+  ss << "    \"width\": " << image_width << ",\n";
+  ss << "    \"height\": " << image_height << ",\n";
+  ss << "    \"format\": \"PNG\",\n";
+  ss << "    \"color_map\": \"" << escape_json_string(color_map) << "\",\n";
+  ss << "    \"compression_level\": " << m_config.png_compression_level << "\n";
+  ss << "  },\n";
+
+  // Application info
+  ss << "  \"application\": {\n";
+  ss << "    \"name\": \"OpenSpectrum\",\n";
+  ss << "    \"version\": \"1.0.0-nightly\",\n";
+#ifdef _WIN32
+  ss << "    \"platform\": \"Windows\"\n";
+#elif __APPLE__
+  ss << "    \"platform\": \"macOS\"\n";
+#else
+  ss << "    \"platform\": \"Linux\"\n";
+#endif
+  ss << "  }" << (notes.empty() ? "\n" : ",\n");
+
+  // Notes
+  if (!notes.empty()) {
+    ss << "  \"notes\": \"" << escape_json_string(notes) << "\"\n";
+  }
+
+  ss << "}";
+
+  // Write to file
+  std::string json = ss.str();
+  FILE *f = std::fopen(filename.c_str(), "w");
+  if (f != nullptr) {
+    std::fwrite(json.c_str(), 1, json.size(), f);
+    std::fclose(f);
+  }
+}
+
+// Export combined spectrogram (spectrum + waterfall)
+ExportResult SpectrogramExporter::export_combined(
+    const PixelBuffer &spectrum_pixels,
+    const PixelBuffer &waterfall_pixels,
+    size_t display_width,
+    size_t spectrum_height,
+    size_t waterfall_height,
+    uint32_t center_freq_hz,
+    uint32_t sample_rate_hz,
+    float gain_db,
+    size_t fft_size,
+    const std::string &window_function,
+    const std::string &color_map,
+    const std::string &notes) {
+
+  std::lock_guard<std::mutex> lock(m_mutex);
+  ExportResult result;
+
+  // Validate inputs
+  if (spectrum_pixels.data() == nullptr || waterfall_pixels.data() == nullptr) {
+    result.error_message = "Null pixel buffer provided";
+    return result;
+  }
+
+  // Ensure output directory exists
+  if (!create_output_directory()) {
+    result.error_message = "Failed to create output directory: " + m_config.output_directory;
+    return result;
+  }
+
+  // Calculate total dimensions
+  size_t total_height = spectrum_height + waterfall_height;
+  size_t stride = display_width * 4; // RGBA = 4 bytes per pixel
+
+  // Create combined buffer
+  std::vector<uint8_t> combined_buffer(total_height * stride, 0);
+
+  // Copy spectrum to top
+  const uint8_t *spec_data = spectrum_pixels.data();
+  const uint8_t *wf_data = waterfall_pixels.data();
+
+  for (size_t y = 0; y < spectrum_height; ++y) {
+    size_t spec_offset = y * stride;
+    size_t dest_offset = y * stride;
+    std::copy(spec_data + spec_offset,
+              spec_data + spec_offset + stride,
+              combined_buffer.data() + dest_offset);
+  }
+
+  // Copy waterfall to bottom
+  for (size_t y = 0; y < waterfall_height; ++y) {
+    size_t wf_offset = y * stride;
+    size_t dest_offset = (spectrum_height + y) * stride;
+    std::copy(wf_data + wf_offset,
+              wf_data + wf_offset + stride,
+              combined_buffer.data() + dest_offset);
+  }
+
+  // Generate filename
+  std::string png_filename = generate_filename("png");
+
+  // Write PNG
+  result = write_png(png_filename.c_str(), combined_buffer.data(),
+                    static_cast<int>(display_width),
+                    static_cast<int>(total_height),
+                    static_cast<int>(stride));
+
+  if (result.success && m_config.include_metadata) {
+    std::string meta_filename = generate_metadata_filename();
+    write_metadata(
+        meta_filename,
+        static_cast<int>(display_width),
+        static_cast<int>(total_height),
+        "combined",
+        center_freq_hz,
+        sample_rate_hz,
+        gain_db,
+        fft_size,
+        window_function,
+        color_map,
+        notes);
+    result.metadata_filename = meta_filename;
+  }
+
+  // Increment export count for next export
+  m_export_count++;
+
+  return result;
+}
+
+// Export spectrum only
+ExportResult SpectrogramExporter::export_spectrum(
+    const PixelBuffer &pixels,
+    size_t width,
+    size_t height,
+    uint32_t center_freq_hz,
+    uint32_t sample_rate_hz,
+    float gain_db,
+    size_t fft_size,
+    const std::string &window_function,
+    const std::string &color_map,
+    const std::string &notes) {
+
+  std::lock_guard<std::mutex> lock(m_mutex);
+  ExportResult result;
+
+  if (pixels.data() == nullptr) {
+    result.error_message = "Null pixel buffer provided";
+    return result;
+  }
+
+  if (!create_output_directory()) {
+    result.error_message = "Failed to create output directory";
+    return result;
+  }
+
+  std::string png_filename = generate_filename("png");
+  int stride = static_cast<int>(width * 4);
+
+  result = write_png(png_filename.c_str(), pixels.data(),
+                    static_cast<int>(width),
+                    static_cast<int>(height),
+                    stride);
+
+  if (result.success && m_config.include_metadata) {
+    std::string meta_filename = generate_metadata_filename();
+    write_metadata(
+        meta_filename,
+        static_cast<int>(width),
+        static_cast<int>(height),
+        "spectrum",
+        center_freq_hz,
+        sample_rate_hz,
+        gain_db,
+        fft_size,
+        window_function,
+        color_map,
+        notes);
+    result.metadata_filename = meta_filename;
+  }
+
+  m_export_count++;
+  return result;
+}
+
+// Export waterfall only
+ExportResult SpectrogramExporter::export_waterfall(
+    const PixelBuffer &pixels,
+    size_t width,
+    size_t height,
+    uint32_t center_freq_hz,
+    uint32_t sample_rate_hz,
+    float gain_db,
+    size_t fft_size,
+    const std::string &window_function,
+    const std::string &color_map,
+    const std::string &notes) {
+
+  std::lock_guard<std::mutex> lock(m_mutex);
+  ExportResult result;
+
+  if (pixels.data() == nullptr) {
+    result.error_message = "Null pixel buffer provided";
+    return result;
+  }
+
+  if (!create_output_directory()) {
+    result.error_message = "Failed to create output directory";
+    return result;
+  }
+
+  std::string png_filename = generate_filename("png");
+  int stride = static_cast<int>(width * 4);
+
+  result = write_png(png_filename.c_str(), pixels.data(),
+                    static_cast<int>(width),
+                    static_cast<int>(height),
+                    stride);
+
+  if (result.success && m_config.include_metadata) {
+    std::string meta_filename = generate_metadata_filename();
+    write_metadata(
+        meta_filename,
+        static_cast<int>(width),
+        static_cast<int>(height),
+        "waterfall",
+        center_freq_hz,
+        sample_rate_hz,
+        gain_db,
+        fft_size,
+        window_function,
+        color_map,
+        notes);
+    result.metadata_filename = meta_filename;
+  }
+
+  m_export_count++;
+  return result;
+}
+
+} // namespace openspectrum

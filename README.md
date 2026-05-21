@@ -186,6 +186,7 @@ Apart from command line arguments the program uses keyboard shortcuts for freque
 | `UP` | Cycle through supported window functions |
 | `DOWN` | Reverse through supported window functions |
 | `Ctrl+S` | Toggle IQ logging |
+| `e` | Export spectrogram as PNG |
 | `ESC/q` | Exit the program |
 | `Ctrl+C` | Graceful shutdown (terminal) |
 

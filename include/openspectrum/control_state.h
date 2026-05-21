@@ -85,6 +85,13 @@ public:
   void clear_iq_logging_toggle() noexcept { m_iq_logging_toggle = false; }
   void request_iq_logging_toggle() noexcept { m_iq_logging_toggle = true; }
 
+  // Spectrogram export control
+  bool spectrogram_export_requested() const noexcept {
+    return m_spectrogram_export_requested;
+  }
+  void clear_spectrogram_export() noexcept { m_spectrogram_export_requested = false; }
+  void request_spectrogram_export() noexcept { m_spectrogram_export_requested = true; }
+
   // Apply all pending changes to device (batch update)
   void apply_to_device(RtlSdrDevice &dev) const;
 
@@ -114,6 +121,7 @@ private:
   bool reconfiguring = false;
   bool window_changed_flag = false;
   bool m_iq_logging_toggle = false;
+  bool m_spectrogram_export_requested = false;
 
   // Status string caching for performance
   mutable std::string m_cached_status;
