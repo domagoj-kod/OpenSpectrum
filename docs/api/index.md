@@ -137,6 +137,7 @@ iq_logger.stop_capture();
 | **[Hardware](hardware.md)** | SDR device abstraction | RtlSdrDevice |
 | **[Utilities](utilities.md)** | Logging, configuration, utilities | Logger, AppConfig, Logging Macros |
 | **[IQ Logging](iq_logging.md)** | IQ data capture for post-processing | IqLogger, IqLoggerConfig, IqCaptureStats |
+| **[Spectrogram Export](spectrogram_export.md)** | PNG export for visualization with metadata | SpectrogramExporter, SpectrogramExportConfig, ExportResult |
 | **[Third Party](third_party.md)** | External library types | kissfft types |
 
 ---
@@ -219,6 +220,7 @@ The project uses security-hardened compiler flags:
 | librtlsdr | RTL-SDR hardware support | `rtl-sdr.h` |
 | SDL2 | Graphics and input | `SDL2/SDL.h` |
 | KissFFT | FFT computation | `kiss_fft.h` |
+| stb_image_write | PNG/BMP/TGA/JPEG image writing | `stb_image_write.h` |
 | C++20 | Standard library | Various |
 
 ---
@@ -237,6 +239,7 @@ The project uses security-hardened compiler flags:
 ### Recently Added
 - **[ControlState](control_state.md)** - New SDL-agnostic state management (replaces RuntimeControls state handling)
 - **[IqLogger](iq_logging.md)** - New IQ data logging capability with CLI and UI integration
+- **[SpectrogramExporter](spectrogram_export.md)** - New PNG export functionality for spectrum/waterfall visualization with metadata
 
 ### Deprecated
 - **[RuntimeControls](runtime_controls.md)** - Deprecated, now a type alias to ControlState. Use ControlState for new code.
