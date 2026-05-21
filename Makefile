@@ -50,6 +50,7 @@ endif
 # Directories
 SRC_DIR := src
 THIRD_PARTY := third_party/kissfft
+THIRD_PARTY_STB := third_party/stb
 INCLUDE_DIR := include
 BUILD_DIR := build
 HARDWARE_DIR := $(SRC_DIR)/hardware
@@ -60,7 +61,7 @@ UTILS_DIR := $(SRC_DIR)/utils
 GUI_DIR := $(SRC_DIR)/gui
 
 # Include paths
-INCLUDES := -I$(THIRD_PARTY) -I$(HARDWARE_DIR) -I$(INCLUDE_DIR) \
+INCLUDES := -I$(THIRD_PARTY) -I$(THIRD_PARTY_STB) -I$(HARDWARE_DIR) -I$(INCLUDE_DIR) \
             -I$(SIGNAL_DIR) -I$(FFT_DIR) -I$(VIS_DIR) -I$(UTILS_DIR) \
             -I$(GUI_DIR) -I$(INCLUDE_DIR)/openspectrum $(SDL2_CFLAGS)
 

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
-#include <SDL2/SDL.h>
-
 #include "openspectrum/control_state.h"
+
+#include <SDL2/SDL.h>
 
 namespace openspectrum {
 

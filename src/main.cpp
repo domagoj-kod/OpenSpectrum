@@ -5,6 +5,7 @@
 #include "hardware/rtl_sdr_device.h"
 #include "openspectrum/control_state.h"
 #include "openspectrum/iq_logger.h"
+#include "openspectrum/spectrogram_exporter.h"
 #include "signal/signal_processor.h"
 #include "utils/arg_parser.h"
 #include "utils/logger.h"
@@ -125,6 +126,15 @@ auto main(int argc, char *argv[]) -> int {
       LOG_INFO("IQ logging enabled: " + iq_logger.get_data_filename());
     }
 
+    // 1.7 Initialize spectrogram exporter
+    SpectrogramExportConfig exp_config;
+    exp_config.output_directory = "spectrograms";
+    exp_config.filename_prefix = "spectrogram";
+    exp_config.include_metadata = true;
+    exp_config.png_compression_level = 8;
+    SpectrogramExporter spectrogram_exporter(exp_config);
+    LOG_INFO("Spectrogram exporter initialized");
+
     // 2. Initialize hardware
     LOG_INFO("Initializing RTL-SDR device...");
     RtlSdrDevice dev;
@@ -171,7 +181,8 @@ auto main(int argc, char *argv[]) -> int {
     // Main processing loop
     LOG_INFO("Starting main loop. Press ESC or Ctrl+C to stop.");
     LOG_INFO("Controls: +/- Frequency, r/f Gain, 1-4 FFT size, UP/DOWN Window, "
-             "Ctrl+S Toggle IQ logging, Shift/Ctrl for fine/coarse");
+             "Ctrl+S Toggle IQ logging, e Export spectrogram, Shift/Ctrl for "
+             "fine/coarse");
 
     std::vector<std::complex<float>> samples;
     std::vector<std::complex<float>> fft_output;
@@ -252,6 +263,39 @@ auto main(int argc, char *argv[]) -> int {
                   std::chrono::system_clock::now().time_since_epoch())
                   .count();
           LOG_INFO("IQ logging started: " + iq_logger.get_data_filename());
+        }
+      }
+
+      // === 1.2.7. Check for spectrogram export request ===
+      if (control_state.spectrogram_export_requested()) {
+        control_state.clear_spectrogram_export();
+
+        // Get current color map name from spectrum display
+        std::string color_map_name = "jet"; // Default
+        // Note: SpectrumDisplay doesn't expose color map getter,
+        // so we use default. Could be enhanced later.
+
+        // Export combined spectrogram (spectrum + waterfall)
+        auto result = spectrogram_exporter.export_combined(
+            spectrum_display.get_pixels(), waterfall_display.get_pixels(),
+            DISPLAY_WIDTH, spectrum_display.height(),
+            waterfall_display.height(), control_state.get_frequency(),
+            static_cast<uint32_t>(config.sample_rate_hz),
+            control_state.get_gain(), current_fft_size,
+            SignalProcessor::window_function_to_string(
+                control_state.get_window()),
+            color_map_name, "");
+
+        if (result.success) {
+          LOG_INFO("Spectrogram exported: " + result.filename);
+          if (!result.metadata_filename.empty()) {
+            LOG_INFO("Metadata written: " + result.metadata_filename);
+          }
+          // Show brief status message
+          renderer.render_status_bar("Exported: " + result.filename);
+        } else {
+          LOG_ERROR("Spectrogram export failed: " + result.error_message);
+          renderer.render_status_bar("Export failed!");
         }
       }
 

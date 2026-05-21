@@ -169,6 +169,16 @@ auto SdlControlInput::handle_keyboard(SDL_Keycode key, bool shift_held,
       m_state.mark_status_dirty();
     }
     break;
+
+  // Spectrogram export (e key - instant export)
+  case SDLK_e:
+    if (!ctrl_held && !shift_held) {
+      m_state.request_spectrogram_export();
+      LOG_INFO("Spectrogram export requested");
+      changed = true;
+      m_state.mark_status_dirty();
+    }
+    break;
   }
 
   return changed;
