@@ -381,7 +381,39 @@ auto main(int argc, char *argv[]) -> int {
                   combined_pixels.data() + half_size);
 
       // === 8. Render to window ===
-      if (!renderer.render(combined_pixels)) {
+      // Collect dirty rectangles from both displays
+      const auto &spec_dirty_rects = spectrum_display.get_dirty_rects();
+      const auto &wf_dirty_rects = waterfall_display.get_dirty_rects();
+
+      std::vector<SDL_Rect> all_dirty_rects;
+      all_dirty_rects.reserve(spec_dirty_rects.size() + wf_dirty_rects.size());
+
+      // Spectrum is in top half - no offset needed
+      for (const auto &rect : spec_dirty_rects) {
+        all_dirty_rects.push_back(rect);
+      }
+
+      // Waterfall is in bottom half - offset y by half height
+      size_t wf_y_offset = DISPLAY_HEIGHT / 2;
+      for (const auto &rect : wf_dirty_rects) {
+        SDL_Rect offset_rect = rect;
+        offset_rect.y += static_cast<int>(wf_y_offset);
+        all_dirty_rects.push_back(offset_rect);
+      }
+
+      // Use incremental rendering if there are dirty rects, otherwise full render
+      bool render_ok;
+      if (!all_dirty_rects.empty()) {
+        render_ok = renderer.render_with_dirty_regions(
+            combined_pixels, 0, all_dirty_rects);
+        // Clear dirty flags after rendering
+        spectrum_display.clear_dirty_rects();
+        waterfall_display.clear_dirty_rects();
+      } else {
+        render_ok = renderer.render(combined_pixels);
+      }
+
+      if (!render_ok) {
         LOG_ERROR("Render failed");
         break;
       }

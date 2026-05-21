@@ -8,6 +8,9 @@
 #include <string>
 #include <vector>
 
+// Forward declaration for SDL types
+#include <SDL2/SDL.h>
+
 namespace openspectrum {
 
 // RGB color structure for pixel data
@@ -179,6 +182,10 @@ public:
   float min_db() const noexcept { return m_min_db; }
   float max_db() const noexcept { return m_max_db; }
 
+  // Get dirty rectangles for incremental rendering
+  const std::vector<SDL_Rect>& get_dirty_rects() const { return m_dirty_rects; }
+  void clear_dirty_rects() { m_dirty_rects.clear(); }
+
 private:
   size_t m_width;
   size_t m_height;
@@ -192,6 +199,9 @@ private:
   float m_min_db = -120.0f;
   float m_max_db = 0.0f;
   bool m_autoscale = true;
+
+  // Dirty rectangles for incremental rendering
+  mutable std::vector<SDL_Rect> m_dirty_rects;
 
   void render();
   void clear();

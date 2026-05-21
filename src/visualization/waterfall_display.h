@@ -2,10 +2,14 @@
 #pragma once
 
 #include "spectrum_display.h"
+#include "ring_buffer.h"
 
 #include <cstdint>
-#include <deque>
 #include <memory>
+#include <vector>
+
+// Forward declaration for SDL types (to avoid including SDL.h in header)
+struct SDL_Rect;
 
 namespace openspectrum {
 
@@ -43,15 +47,18 @@ public:
   // Reset history (clear waterfall)
   void reset();
 
+  // Get dirty rectangles for incremental rendering
+  const std::vector<SDL_Rect>& get_dirty_rects() const { return m_dirty_rects; }
+  void clear_dirty_rects() { m_dirty_rects.clear(); }
+
 private:
   size_t m_width;
   size_t m_height;
   size_t m_history_lines;
   PixelBuffer m_pixels; // Phase 3: RGBA format
 
-  // Circular buffer for history
-  std::deque<std::vector<float>> m_history;
-  size_t m_history_capacity;
+  // Ring buffer for history (replaces std::deque for O(1) push)
+  RingBuffer<std::vector<float>> m_history;
 
   SpectrumPalette m_palette;
 
@@ -61,8 +68,14 @@ private:
   float m_global_min = -120.0f;
   float m_global_max = 0.0f;
 
+  // Dirty rectangles for incremental rendering
+  mutable std::vector<SDL_Rect> m_dirty_rects;
+
   void render();
   void update_global_range();
+
+  // Helper to calculate pixel rect from line index
+  SDL_Rect line_to_rect(size_t line_index) const;
 };
 
 } // namespace openspectrum

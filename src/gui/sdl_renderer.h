@@ -28,6 +28,14 @@ public:
   // Returns true on success, false on error
   bool render(const std::vector<uint8_t> &pixels, size_t pitch = 0);
 
+  // Render with dirty regions for incremental updates
+  // Only updates specified rectangles in the texture
+  // Returns true on success, false on error
+  bool render_with_dirty_regions(
+      const std::vector<uint8_t> &pixels,
+      size_t pitch,
+      const std::vector<SDL_Rect> &dirty_rects);
+
   // Process events. Returns true if should continue, false if quit requested
   // If state is provided, handle keyboard input for control state
   bool poll_events(ControlState *state = nullptr);
@@ -54,6 +62,10 @@ public:
   SDL_Renderer *get_sdl_renderer() const noexcept { return m_renderer; }
 
 private:
+  // Render overlays (status bar, peak indicator, IQ status)
+  // Called after rendering the main texture
+  void render_overlays();
+
   size_t m_width;
   size_t m_height;
   SDL_Window *m_window = nullptr;
