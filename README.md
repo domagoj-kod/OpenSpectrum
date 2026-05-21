@@ -12,6 +12,27 @@ Inspired by GNU Radio's pipeline architecture, OpenSpectrum provides a lightweig
     <img src="./assets/ui-layout.png">
 </p>
 
+> [!IMPORTANT]
+> RTL-SDR outputs complex IQ samples, which is why you get bandwidth roughly equal to the sample rate!
+
+## Conceptual preview
+
+For:
+
+```bash
+fc = 98.8 MHz  # center_frequency
+fs = 2.048 MS/s  # sample_rate
+```
+
+effective observed bandwidth we receive corresponds to:
+
+```bash
+97.776 ---------------- 98.8 ---------------- 99.824 MHz
+          <- 1.024 MHz -> <- 1.024 MHz ->
+```
+
+all simultaneously in the IQ stream.
+
 ## Features
 
 | Feature | Description |
