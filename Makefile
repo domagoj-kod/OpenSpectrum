@@ -28,18 +28,18 @@ else
     # Linux and other Unix-like systems
     TARGET := openspectrum
 
-    CFLAGS := -O2 -g -D_FORTIFY_SOURCE=2 -fstack-protector-strong -fPIE
+    CFLAGS := -O3 -g -D_FORTIFY_SOURCE=2 -fstack-protector-strong -fPIE -flto
     CXXFLAGS := -std=c++20 -Wall -Wextra -Wpedantic \
                 -Wshadow -Wconversion \
                 -Wformat=2 -Wformat-security \
                 -Wformat-nonliteral \
                 -D_FORTIFY_SOURCE=2 \
-                -fstack-protector-strong -fPIE
+                -fstack-protector-strong -fPIE -O3 -flto
 
     LDFLAGS := -lrtlsdr -lpthread -lm $(SDL2_LDFLAGS) \
                -Wl,-z,now \
                -Wl,-z,relro \
-               -Wl,-z,noexecstack
+               -Wl,-z,noexecstack -flto
 endif
 
 # Additional security flags for Release builds
