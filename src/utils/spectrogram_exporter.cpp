@@ -97,7 +97,8 @@ double SpectrogramExporter::get_unix_timestamp() const {
 }
 
 // Generate filename with timestamp and optional frequency
-std::string SpectrogramExporter::generate_filename(const std::string &extension) const {
+std::string
+SpectrogramExporter::generate_filename(const std::string &extension) const {
   std::string timestamp = get_iso8601_timestamp();
 
   std::string filename = m_config.filename_prefix + "_" + timestamp;
@@ -127,18 +128,33 @@ std::string SpectrogramExporter::generate_metadata_filename() const {
 }
 
 // Escape string for JSON output
-std::string SpectrogramExporter::escape_json_string(const std::string &str) const {
+std::string
+SpectrogramExporter::escape_json_string(const std::string &str) const {
   std::string result;
   result.reserve(str.size() * 2);
   for (char c : str) {
     switch (c) {
-    case '"': result += "\\\""; break;
-    case '\\': result += "\\\\"; break;
-    case '\b': result += "\\b"; break;
-    case '\f': result += "\\f"; break;
-    case '\n': result += "\\n"; break;
-    case '\r': result += "\\r"; break;
-    case '\t': result += "\\t"; break;
+    case '"':
+      result += "\\\"";
+      break;
+    case '\\':
+      result += "\\\\";
+      break;
+    case '\b':
+      result += "\\b";
+      break;
+    case '\f':
+      result += "\\f";
+      break;
+    case '\n':
+      result += "\\n";
+      break;
+    case '\r':
+      result += "\\r";
+      break;
+    case '\t':
+      result += "\\t";
+      break;
     default:
       if (c >= 0 && c < 32) {
         // Skip control characters
@@ -152,10 +168,8 @@ std::string SpectrogramExporter::escape_json_string(const std::string &str) cons
 
 // Write PNG file using stb_image_write
 ExportResult SpectrogramExporter::write_png(const std::string &filename,
-                                            const uint8_t *data,
-                                            int width,
-                                            int height,
-                                            int stride_bytes) {
+                                            const uint8_t *data, int width,
+                                            int height, int stride_bytes) {
   ExportResult result;
 
   if (data == nullptr || width <= 0 || height <= 0) {
@@ -168,7 +182,8 @@ ExportResult SpectrogramExporter::write_png(const std::string &filename,
   stbi_write_png_compression_level = m_config.png_compression_level;
 
   // Write PNG file (RGBA = 4 components)
-  int success = stbi_write_png(filename.c_str(), width, height, 4, data, stride_bytes);
+  int success =
+      stbi_write_png(filename.c_str(), width, height, 4, data, stride_bytes);
 
   // Restore compression level
   stbi_write_png_compression_level = previous_compression;
@@ -185,16 +200,10 @@ ExportResult SpectrogramExporter::write_png(const std::string &filename,
 
 // Write JSON metadata file
 void SpectrogramExporter::write_metadata(
-    const std::string &filename,
-    int image_width,
-    int image_height,
-    const std::string &image_type,
-    uint32_t center_freq_hz,
-    uint32_t sample_rate_hz,
-    float gain_db,
-    size_t fft_size,
-    const std::string &window_function,
-    const std::string &color_map,
+    const std::string &filename, int image_width, int image_height,
+    const std::string &image_type, uint32_t center_freq_hz,
+    uint32_t sample_rate_hz, float gain_db, size_t fft_size,
+    const std::string &window_function, const std::string &color_map,
     const std::string &notes) {
 
   std::stringstream ss;
@@ -202,17 +211,20 @@ void SpectrogramExporter::write_metadata(
 
   ss << "{\n";
   ss << "  \"version\": \"1.0\",\n";
-  ss << "  \"export_timestamp_iso8601\": \"" << get_iso8601_timestamp() << "\",\n";
+  ss << "  \"export_timestamp_iso8601\": \"" << get_iso8601_timestamp()
+     << "\",\n";
   ss << "  \"export_timestamp_unix\": " << timestamp << ",\n";
 
   // Capture parameters
   ss << "  \"capture\": {\n";
   ss << "    \"center_frequency_hz\": " << center_freq_hz << ",\n";
-  ss << "    \"center_frequency_formatted\": \"" << escape_json_string(format_frequency(center_freq_hz)) << "\",\n";
+  ss << "    \"center_frequency_formatted\": \""
+     << escape_json_string(format_frequency(center_freq_hz)) << "\",\n";
   ss << "    \"sample_rate_hz\": " << sample_rate_hz << ",\n";
   ss << "    \"gain_db\": " << gain_db << ",\n";
   ss << "    \"fft_size\": " << fft_size << ",\n";
-  ss << "    \"window_function\": \"" << escape_json_string(window_function) << "\"\n";
+  ss << "    \"window_function\": \"" << escape_json_string(window_function)
+     << "\"\n";
   ss << "  },\n";
 
   // Image parameters
@@ -256,18 +268,11 @@ void SpectrogramExporter::write_metadata(
 
 // Export combined spectrogram (spectrum + waterfall)
 ExportResult SpectrogramExporter::export_combined(
-    const PixelBuffer &spectrum_pixels,
-    const PixelBuffer &waterfall_pixels,
-    size_t display_width,
-    size_t spectrum_height,
-    size_t waterfall_height,
-    uint32_t center_freq_hz,
-    uint32_t sample_rate_hz,
-    float gain_db,
-    size_t fft_size,
-    const std::string &window_function,
-    const std::string &color_map,
-    const std::string &notes) {
+    const PixelBuffer &spectrum_pixels, const PixelBuffer &waterfall_pixels,
+    size_t display_width, size_t spectrum_height, size_t waterfall_height,
+    uint32_t center_freq_hz, uint32_t sample_rate_hz, float gain_db,
+    size_t fft_size, const std::string &window_function,
+    const std::string &color_map, const std::string &notes) {
 
   std::lock_guard<std::mutex> lock(m_mutex);
   ExportResult result;
@@ -280,7 +285,8 @@ ExportResult SpectrogramExporter::export_combined(
 
   // Ensure output directory exists
   if (!create_output_directory()) {
-    result.error_message = "Failed to create output directory: " + m_config.output_directory;
+    result.error_message =
+        "Failed to create output directory: " + m_config.output_directory;
     return result;
   }
 
@@ -298,8 +304,7 @@ ExportResult SpectrogramExporter::export_combined(
   for (size_t y = 0; y < spectrum_height; ++y) {
     size_t spec_offset = y * stride;
     size_t dest_offset = y * stride;
-    std::copy(spec_data + spec_offset,
-              spec_data + spec_offset + stride,
+    std::copy(spec_data + spec_offset, spec_data + spec_offset + stride,
               combined_buffer.data() + dest_offset);
   }
 
@@ -307,8 +312,7 @@ ExportResult SpectrogramExporter::export_combined(
   for (size_t y = 0; y < waterfall_height; ++y) {
     size_t wf_offset = y * stride;
     size_t dest_offset = (spectrum_height + y) * stride;
-    std::copy(wf_data + wf_offset,
-              wf_data + wf_offset + stride,
+    std::copy(wf_data + wf_offset, wf_data + wf_offset + stride,
               combined_buffer.data() + dest_offset);
   }
 
@@ -317,24 +321,15 @@ ExportResult SpectrogramExporter::export_combined(
 
   // Write PNG
   result = write_png(png_filename.c_str(), combined_buffer.data(),
-                    static_cast<int>(display_width),
-                    static_cast<int>(total_height),
-                    static_cast<int>(stride));
+                     static_cast<int>(display_width),
+                     static_cast<int>(total_height), static_cast<int>(stride));
 
   if (result.success && m_config.include_metadata) {
     std::string meta_filename = generate_metadata_filename();
-    write_metadata(
-        meta_filename,
-        static_cast<int>(display_width),
-        static_cast<int>(total_height),
-        "combined",
-        center_freq_hz,
-        sample_rate_hz,
-        gain_db,
-        fft_size,
-        window_function,
-        color_map,
-        notes);
+    write_metadata(meta_filename, static_cast<int>(display_width),
+                   static_cast<int>(total_height), "combined", center_freq_hz,
+                   sample_rate_hz, gain_db, fft_size, window_function,
+                   color_map, notes);
     result.metadata_filename = meta_filename;
   }
 
@@ -346,16 +341,10 @@ ExportResult SpectrogramExporter::export_combined(
 
 // Export spectrum only
 ExportResult SpectrogramExporter::export_spectrum(
-    const PixelBuffer &pixels,
-    size_t width,
-    size_t height,
-    uint32_t center_freq_hz,
-    uint32_t sample_rate_hz,
-    float gain_db,
-    size_t fft_size,
-    const std::string &window_function,
-    const std::string &color_map,
-    const std::string &notes) {
+    const PixelBuffer &pixels, size_t width, size_t height,
+    uint32_t center_freq_hz, uint32_t sample_rate_hz, float gain_db,
+    size_t fft_size, const std::string &window_function,
+    const std::string &color_map, const std::string &notes) {
 
   std::lock_guard<std::mutex> lock(m_mutex);
   ExportResult result;
@@ -374,24 +363,14 @@ ExportResult SpectrogramExporter::export_spectrum(
   int stride = static_cast<int>(width * 4);
 
   result = write_png(png_filename.c_str(), pixels.data(),
-                    static_cast<int>(width),
-                    static_cast<int>(height),
-                    stride);
+                     static_cast<int>(width), static_cast<int>(height), stride);
 
   if (result.success && m_config.include_metadata) {
     std::string meta_filename = generate_metadata_filename();
-    write_metadata(
-        meta_filename,
-        static_cast<int>(width),
-        static_cast<int>(height),
-        "spectrum",
-        center_freq_hz,
-        sample_rate_hz,
-        gain_db,
-        fft_size,
-        window_function,
-        color_map,
-        notes);
+    write_metadata(meta_filename, static_cast<int>(width),
+                   static_cast<int>(height), "spectrum", center_freq_hz,
+                   sample_rate_hz, gain_db, fft_size, window_function,
+                   color_map, notes);
     result.metadata_filename = meta_filename;
   }
 
@@ -401,16 +380,10 @@ ExportResult SpectrogramExporter::export_spectrum(
 
 // Export waterfall only
 ExportResult SpectrogramExporter::export_waterfall(
-    const PixelBuffer &pixels,
-    size_t width,
-    size_t height,
-    uint32_t center_freq_hz,
-    uint32_t sample_rate_hz,
-    float gain_db,
-    size_t fft_size,
-    const std::string &window_function,
-    const std::string &color_map,
-    const std::string &notes) {
+    const PixelBuffer &pixels, size_t width, size_t height,
+    uint32_t center_freq_hz, uint32_t sample_rate_hz, float gain_db,
+    size_t fft_size, const std::string &window_function,
+    const std::string &color_map, const std::string &notes) {
 
   std::lock_guard<std::mutex> lock(m_mutex);
   ExportResult result;
@@ -429,24 +402,14 @@ ExportResult SpectrogramExporter::export_waterfall(
   int stride = static_cast<int>(width * 4);
 
   result = write_png(png_filename.c_str(), pixels.data(),
-                    static_cast<int>(width),
-                    static_cast<int>(height),
-                    stride);
+                     static_cast<int>(width), static_cast<int>(height), stride);
 
   if (result.success && m_config.include_metadata) {
     std::string meta_filename = generate_metadata_filename();
-    write_metadata(
-        meta_filename,
-        static_cast<int>(width),
-        static_cast<int>(height),
-        "waterfall",
-        center_freq_hz,
-        sample_rate_hz,
-        gain_db,
-        fft_size,
-        window_function,
-        color_map,
-        notes);
+    write_metadata(meta_filename, static_cast<int>(width),
+                   static_cast<int>(height), "waterfall", center_freq_hz,
+                   sample_rate_hz, gain_db, fft_size, window_function,
+                   color_map, notes);
     result.metadata_filename = meta_filename;
   }
 

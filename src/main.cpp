@@ -181,7 +181,8 @@ auto main(int argc, char *argv[]) -> int {
     // Main processing loop
     LOG_INFO("Starting main loop. Press ESC or Ctrl+C to stop.");
     LOG_INFO("Controls: +/- Frequency, r/f Gain, 1-4 FFT size, UP/DOWN Window, "
-             "Ctrl+S Toggle IQ logging, e Export spectrogram, Shift/Ctrl for fine/coarse");
+             "Ctrl+S Toggle IQ logging, e Export spectrogram, Shift/Ctrl for "
+             "fine/coarse");
 
     std::vector<std::complex<float>> samples;
     std::vector<std::complex<float>> fft_output;
@@ -268,27 +269,23 @@ auto main(int argc, char *argv[]) -> int {
       // === 1.2.7. Check for spectrogram export request ===
       if (control_state.spectrogram_export_requested()) {
         control_state.clear_spectrogram_export();
-        
+
         // Get current color map name from spectrum display
         std::string color_map_name = "jet"; // Default
-        // Note: SpectrumDisplay doesn't expose color map getter, 
+        // Note: SpectrumDisplay doesn't expose color map getter,
         // so we use default. Could be enhanced later.
-        
+
         // Export combined spectrogram (spectrum + waterfall)
         auto result = spectrogram_exporter.export_combined(
-            spectrum_display.get_pixels(),
-            waterfall_display.get_pixels(),
-            DISPLAY_WIDTH,
-            spectrum_display.height(),
-            waterfall_display.height(),
-            control_state.get_frequency(),
+            spectrum_display.get_pixels(), waterfall_display.get_pixels(),
+            DISPLAY_WIDTH, spectrum_display.height(),
+            waterfall_display.height(), control_state.get_frequency(),
             static_cast<uint32_t>(config.sample_rate_hz),
-            control_state.get_gain(),
-            current_fft_size,
-            SignalProcessor::window_function_to_string(control_state.get_window()),
-            color_map_name,
-            "");
-        
+            control_state.get_gain(), current_fft_size,
+            SignalProcessor::window_function_to_string(
+                control_state.get_window()),
+            color_map_name, "");
+
         if (result.success) {
           LOG_INFO("Spectrogram exported: " + result.filename);
           if (!result.metadata_filename.empty()) {
