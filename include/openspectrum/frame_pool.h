@@ -5,7 +5,7 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
-#include <cstdlib> // for posix_memalign
+#include <cstdlib>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -13,10 +13,13 @@
 #include <unordered_set>
 #include <vector>
 
+#ifdef _WIN32
+#include <malloc.h> // For _aligned_malloc, _aligned_free
+#endif
+
 namespace openspectrum {
 
 // Cache-line aligned frame for FFT samples
-// 64-byte cache line alignment for optimal performance on x86-64
 struct alignas(64) FFTFrame {
   size_t capacity;
   size_t size;
@@ -26,7 +29,7 @@ struct alignas(64) FFTFrame {
   FFTFrame() : capacity(0), size(0), next(nullptr), data(nullptr) {}
 
   ~FFTFrame() {
-#if defined(_MSC_VER)
+#ifdef _WIN32
     _aligned_free(data);
 #else
     free(data);
@@ -39,12 +42,14 @@ struct alignas(64) FFTFrame {
     if (!frame)
       return nullptr;
 
-#if defined(_MSC_VER)
-    frame->data = static_cast<std::complex<float> *>(
-        _aligned_malloc(frame_capacity * sizeof(std::complex<float>), 64));
+    size_t const data_bytes = frame_capacity * sizeof(std::complex<float>);
+
+#ifdef _WIN32
+    frame->data =
+        static_cast<std::complex<float> *>(_aligned_malloc(data_bytes, 64));
 #else
     if (posix_memalign(reinterpret_cast<void **>(&frame->data), 64,
-                       frame_capacity * sizeof(std::complex<float>)) != 0) {
+                       data_bytes) != 0) {
       delete frame;
       return nullptr;
     }
@@ -199,7 +204,6 @@ public:
       }
     }
     frame->reset();
-    // Create return function that returns to this pool
     auto return_func = [this](FFTFrame *f) {
       if (f) {
         std::lock_guard<std::mutex> lock(m_mutex);
