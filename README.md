@@ -109,16 +109,19 @@ pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-make \
 
 ## Build from Source
 
+This project compiles with `-march=nehalem` as the architectural baseline, targeting CPUs from 2008+ with support for:
+- **SSE4.1 / SSE4.2** — Advanced SIMD instructions
+- **POPCNT** — Population count instruction
+- **CX16** — Compare and exchange 16-byte
+- **SAHF / FXSR** — Legacy x87 state management
+
+This should cover virtually all x86-64 processors in active use. For older CPUs, remove `-march=nehalem` from `CXXFLAGS` in the Makefile.
+
 ```bash
 # Clone the repository
 git clone https://github.com/domagoj-kod/OpenSpectrum.git
 cd OpenSpectrum
 git submodule update --init --recursive
-
-# Build the project (Unix)
-make -j$(nproc)
-# Build the project (Windows MSYS2)
-mingw32-make.exe -j$(nproc)
 
 # Build with debug symbols
 make debug
@@ -130,7 +133,16 @@ make release
 make clean
 ```
 
-The compiled binary will be created as `openspectrum`.
+| Target | Optimization | Debug Info | Use Case |
+|--------|--------------|------------|----------|
+| `make` or `make debug` | `-O0` | Full (`-g`) | Development, debugging |
+| `make release` | `-O3 -flto -march=nehalem` | None (`-DNDEBUG`) | Production |
+| `make profile` | `-O2 -pg` | Full (`-g`) | Performance analysis |
+
+All builds include:
+- `-D_FORTIFY_SOURCE=2` — Buffer overflow protection
+- `-fstack-protector-strong` — Stack smashing protection
+- `-Wl,-z,now -Wl,-z,relro` (Unix) — ASLR/PIE hardening
 
 ---
 
