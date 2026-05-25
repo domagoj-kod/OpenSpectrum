@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <utility>
 #include <vector>
 
@@ -175,6 +176,12 @@ void WaterfallDisplay::render() {
     m_dirty_rects.push_back({0, 0, static_cast<int>(m_width), static_cast<int>(m_height)});
     return;
   }
+
+  // Fix for white horizontal lines: Clear entire pixel buffer to background
+  // (black) before rendering. When history is not full, the top portion
+  // would otherwise contain stale pixel data from previous renders.
+  // This happens especially at large FFT sizes where processing is slower.
+  std::memset(m_pixels.data(), 0, m_pixels.size());
 
   // Phase 3: Precompute row stride in bytes (4 bytes per pixel)
   const size_t row_stride = m_width * 4;

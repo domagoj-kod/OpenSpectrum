@@ -44,8 +44,8 @@ endif
 
 # Default to debug build (safe default)
 .DEFAULT_GOAL := all
-CFLAGS   := $(BASE_CFLAGS) -O0 -DDEBUG
-CXXFLAGS := $(BASE_CXXFLAGS) -O0 -DDEBUG
+CFLAGS   := $(BASE_CFLAGS) -O0 -DOPENSPECTRUM_DEBUG
+CXXFLAGS := $(BASE_CXXFLAGS) -O0 -DOPENSPECTRUM_DEBUG
 LDFLAGS  := $(BASE_LDFLAGS)
 
 # Release target overrides

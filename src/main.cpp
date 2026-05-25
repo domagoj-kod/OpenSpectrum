@@ -44,6 +44,12 @@ static size_t g_async_fft_size = 0;
 static std::vector<std::complex<float>> g_sample_accumulator;
 static std::mutex g_accumulator_mutex;
 
+// Memory leak fix: Maximum queue size to prevent unbounded growth
+// At 8ms timeout and typical sample rates, 32 buffers is ~256ms of data
+// Each buffer at FFT 4096 = 4096 * 8 bytes = 32KB
+// 32 * 32KB = 1MB max queue memory (was growing to 1GB+)
+static const size_t MAX_SAMPLE_QUEUE_SIZE = 32;
+
 // Global device pointer for signal handler access (needed for cleanup)
 static RtlSdrDevice* g_dev_ptr = nullptr;
 
@@ -100,6 +106,11 @@ static void async_sample_callback(std::vector<std::complex<float>> samples) {
     acc_lock.unlock();
     {
       std::lock_guard<std::mutex> queue_lock(g_sample_mutex);
+      // Memory leak fix: Drop oldest sample if queue is full
+      if (g_sample_queue.size() >= MAX_SAMPLE_QUEUE_SIZE) {
+        g_sample_queue.pop(); // Drop oldest to prevent unbounded growth
+        LOG_DEBUG("Sample queue full, dropping oldest sample");
+      }
       g_sample_queue.push(std::move(fft_samples));
     }
     g_sample_cv.notify_one();
@@ -438,14 +449,14 @@ auto main(int argc, char *argv[]) -> int {
       }
 
       // === 2. Read samples from async queue (non-blocking) ===
-      // Wait for samples with timeout (16ms = ~60fps max)
+      // Wait for samples with timeout (8ms = ~125fps max, reduced from 16ms)
       std::vector<std::complex<float>> async_samples;
       bool got_samples = false;
       {
         std::unique_lock<std::mutex> lock(g_sample_mutex);
         if (g_sample_queue.empty()) {
           // Wait for samples with timeout
-          if (g_sample_cv.wait_for(lock, std::chrono::milliseconds(16), 
+          if (g_sample_cv.wait_for(lock, std::chrono::milliseconds(8), 
                   []{ return !g_sample_queue.empty() || !g_running.load(); })) {
             if (!g_sample_queue.empty()) {
               async_samples = std::move(g_sample_queue.front());
@@ -460,8 +471,19 @@ auto main(int argc, char *argv[]) -> int {
         }
       }
 
+      // === 2.1. Update displays and render even if no new samples ===
+      // This fixes keyboard input freeze: overlays (status bar, peak, IQ status)
+      // are rendered as part of the main render call, so we must render even
+      // when no samples arrive, otherwise keyboard changes aren't visible
       if (!got_samples) {
-        // No samples available - skip this frame
+        // No new samples - just re-render current display with fresh overlays
+        // The overlays (status bar, peak, IQ status) were updated above
+        // and will be rendered by the call to renderer.render()
+        bool render_ok = renderer.render(combined_pixels);
+        if (!render_ok) {
+          LOG_ERROR("Render failed");
+          break;
+        }
         continue;
       }
 
