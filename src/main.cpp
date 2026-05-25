@@ -16,11 +16,14 @@
 #include <atomic>
 #include <chrono>
 #include <complex>
+#include <condition_variable>
 #include <csignal>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
 #include <memory>
+#include <mutex>
+#include <queue>
 #include <string>
 #include <vector>
 
@@ -31,10 +34,82 @@ using namespace openspectrum;
 
 static std::atomic<bool> g_running{true};
 
+// Async sample processing - thread-safe queue for async RTL-SDR callbacks
+static std::queue<std::vector<std::complex<float>>> g_sample_queue;
+static std::mutex g_sample_mutex;
+static std::condition_variable g_sample_cv;
+static size_t g_async_fft_size = 0;
+
+// Accumulator for samples that don't match FFT size exactly
+static std::vector<std::complex<float>> g_sample_accumulator;
+static std::mutex g_accumulator_mutex;
+
+// Global device pointer for signal handler access (needed for cleanup)
+static RtlSdrDevice* g_dev_ptr = nullptr;
+
 static void signal_handler(int signum) {
   if (signum == SIGINT || signum == SIGTERM) {
     LOG_INFO("Shutdown signal received, stopping gracefully...");
     g_running = false;
+    g_sample_cv.notify_all(); // Wake up main loop if waiting for samples
+    
+    // Stop async streaming if device pointer is available
+    if (g_dev_ptr != nullptr) {
+      try {
+        g_dev_ptr->stop_streaming();
+      } catch (...) {
+        // Ignore errors during shutdown
+      }
+    }
+  }
+}
+
+// Async callback for RTL-SDR samples
+// Accumulates samples until we have exactly g_async_fft_size
+static void async_sample_callback(std::vector<std::complex<float>> samples) {
+  if (g_async_fft_size == 0) {
+    // FFT size not set yet, skip
+    return;
+  }
+  
+  std::unique_lock<std::mutex> acc_lock(g_accumulator_mutex);
+  
+  // Add new samples to accumulator
+  g_sample_accumulator.insert(g_sample_accumulator.end(),
+                              samples.begin(), samples.end());
+  
+  // Log first few callbacks to verify samples are arriving
+  static size_t callback_count = 0;
+  if (callback_count++ < 5) {
+    LOG_INFO("Async callback: received " + std::to_string(samples.size()) + 
+              " samples, total accumulated: " + 
+              std::to_string(g_sample_accumulator.size()));
+  }
+  
+  // Process complete FFT chunks
+  while (g_sample_accumulator.size() >= g_async_fft_size) {
+    std::vector<std::complex<float>> fft_samples(g_async_fft_size);
+    std::copy_n(g_sample_accumulator.begin(), g_async_fft_size,
+                fft_samples.begin());
+    
+    // Remove processed samples from accumulator
+    g_sample_accumulator.erase(g_sample_accumulator.begin(),
+                                g_sample_accumulator.begin() + g_async_fft_size);
+    
+    // Unlock accumulator, queue the sample, then re-lock
+    acc_lock.unlock();
+    {
+      std::lock_guard<std::mutex> queue_lock(g_sample_mutex);
+      g_sample_queue.push(std::move(fft_samples));
+    }
+    g_sample_cv.notify_one();
+    acc_lock.lock();
+  }
+  
+  // If we have too many accumulated samples, trim to avoid memory issues
+  if (g_sample_accumulator.size() > g_async_fft_size * 2) {
+    g_sample_accumulator.erase(g_sample_accumulator.begin(),
+                                g_sample_accumulator.end() - g_async_fft_size);
   }
 }
 
@@ -139,8 +214,10 @@ auto main(int argc, char *argv[]) -> int {
     // 2. Initialize hardware
     LOG_INFO("Initializing RTL-SDR device...");
     RtlSdrDevice dev;
+    g_dev_ptr = &dev; // Set global pointer for signal handler
     if (!dev.open()) {
       LOG_ERROR("Failed to open RTL-SDR device");
+      g_dev_ptr = nullptr;
       return 1;
     }
 
@@ -148,8 +225,17 @@ auto main(int argc, char *argv[]) -> int {
     dev.set_frequency(control_state.get_frequency());
     dev.set_gain(control_state.get_gain());
 
-    // CRITICAL: flush USB buffer before first read
+    // CRITICAL: flush USB buffer before starting
     dev.reset_buffer();
+    
+    // Set up async callback and start streaming
+    // Note: FFT_SIZE is used here, will be updated if FFT size changes dynamically
+    g_async_fft_size = FFT_SIZE;
+    dev.set_callback(async_sample_callback);
+    dev.start_streaming(8); // Use 8 buffers for async mode
+    LOG_INFO("RTL-SDR async streaming started with 8 buffers, FFT size: " + 
+             std::to_string(FFT_SIZE));
+    
     LOGS_INFO << "RTL-SDR initialized: freq="
               << static_cast<int>(config.center_freq_hz)
               << "Hz, rate=" << static_cast<int>(config.sample_rate_hz)
@@ -225,6 +311,27 @@ auto main(int argc, char *argv[]) -> int {
 
         // Reinitialize FFT-dependent components
         current_fft_size = new_fft_size;
+        
+        // Stop async streaming while reconfiguring
+        dev.stop_streaming();
+        
+        // Clear the sample queue and accumulator
+        {
+          std::lock_guard<std::mutex> lock(g_sample_mutex);
+          while (!g_sample_queue.empty()) {
+            g_sample_queue.pop();
+          }
+        }
+        {
+          std::lock_guard<std::mutex> lock(g_accumulator_mutex);
+          g_sample_accumulator.clear();
+        }
+        
+        // Update async FFT size and restart streaming
+        g_async_fft_size = current_fft_size;
+        dev.set_callback(async_sample_callback);
+        dev.start_streaming(8);
+        
         samples.resize(current_fft_size);
         fft_output.resize(current_fft_size);
 
@@ -330,13 +437,37 @@ auto main(int argc, char *argv[]) -> int {
         renderer.render_peak_indicator(peak_db);
       }
 
-      // === 2. Read samples from hardware ===
-      try {
-        samples = dev.read_samples(current_fft_size);
-      } catch (const std::exception &e) {
-        LOG_ERROR("Read error: " + std::string(e.what()));
-        break;
+      // === 2. Read samples from async queue (non-blocking) ===
+      // Wait for samples with timeout (16ms = ~60fps max)
+      std::vector<std::complex<float>> async_samples;
+      bool got_samples = false;
+      {
+        std::unique_lock<std::mutex> lock(g_sample_mutex);
+        if (g_sample_queue.empty()) {
+          // Wait for samples with timeout
+          if (g_sample_cv.wait_for(lock, std::chrono::milliseconds(16), 
+                  []{ return !g_sample_queue.empty() || !g_running.load(); })) {
+            if (!g_sample_queue.empty()) {
+              async_samples = std::move(g_sample_queue.front());
+              g_sample_queue.pop();
+              got_samples = true;
+            }
+          }
+        } else {
+          async_samples = std::move(g_sample_queue.front());
+          g_sample_queue.pop();
+          got_samples = true;
+        }
       }
+
+      if (!got_samples) {
+        // No samples available - skip this frame
+        continue;
+      }
+
+      // async_samples is now guaranteed to be exactly current_fft_size
+      // (accumulated in callback to match FFT size)
+      samples = std::move(async_samples);
 
       // === 2.5. IQ logging (if enabled) ===
       if (iq_capturing) {
@@ -434,6 +565,9 @@ auto main(int argc, char *argv[]) -> int {
       }
     }
 
+    // Stop async streaming before cleanup
+    dev.stop_streaming();
+    
     // Stop IQ capture if still running
     if (iq_capturing) {
       iq_logger.stop_capture();
@@ -442,6 +576,7 @@ auto main(int argc, char *argv[]) -> int {
     LOG_INFO("Main loop exited cleanly");
   } catch (const std::exception &e) {
     LOG_ERROR("Fatal error: " + std::string(e.what()));
+    // Device will be cleaned up by destructor (calls stop_streaming())
     return 1;
   }
 

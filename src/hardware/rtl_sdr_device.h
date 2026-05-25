@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+#include <atomic>
 #include <complex>
 #include <cstdint>
 #include <functional>
+#include <thread>
 #include <rtl-sdr.h>
 #include <vector>
 
@@ -25,14 +27,14 @@ public:
   std::vector<std::complex<float>> read_samples(size_t count);
 
   // Async callback
-  static void start_streaming(size_t buffer_count = 8);
-  static void stop_streaming();
+  void start_streaming(size_t buffer_count = 8);
+  void stop_streaming();
   using SampleCallback = std::function<void(std::vector<std::complex<float>>)>;
   void set_callback(SampleCallback cb);
 
 private:
-  static void static_callback(const uint8_t *buf, uint32_t len, void *ctx);
-  void process_callback(const uint8_t *buf, uint32_t len);
+  static void static_callback(unsigned char *buf, uint32_t len, void *ctx);
+  void process_callback(unsigned char *buf, uint32_t len);
 
   rtlsdr_dev_t *m_dev = nullptr;
   uint32_t m_index = 0;
@@ -41,4 +43,11 @@ private:
   float m_gain = 29.0f;               // dB
   SampleCallback m_callback;          // std::function, not a raw pointer
   bool m_streaming = false;
+  
+  // Async thread support
+  std::thread m_async_thread;
+  std::atomic<bool> m_thread_running{false};
+  
+  // Check if streaming mode is active
+  bool is_streaming() const { return m_streaming; }
 };
