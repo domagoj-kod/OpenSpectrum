@@ -17,7 +17,8 @@ class TextRenderer;
 class SdlRenderer {
 public:
   SdlRenderer(size_t width, size_t height,
-              const std::string &title = "OpenSpectrum SDR");
+              const std::string &title = "OpenSpectrum SDR",
+              bool enable_vsync = false);
   ~SdlRenderer();
 
   // Non-copyable, non-movable (SDL resources)
@@ -72,8 +73,23 @@ private:
   SDL_Renderer *m_renderer = nullptr;
   SDL_Texture *m_texture = nullptr;
 
+  // VSYNC control
+  bool m_enable_vsync = false;
+
   // Text rendering for status bar
   std::unique_ptr<TextRenderer> m_text_renderer;
+
+  // Texture cache to avoid recreating textures every frame
+  struct CachedTexture {
+    SDL_Texture* texture = nullptr;
+    std::string content;
+    SDL_Color color;
+    bool valid = false;
+  };
+
+  CachedTexture m_status_cache;
+  CachedTexture m_peak_cache;
+  CachedTexture m_iq_cache;
   SDL_Texture *m_status_texture = nullptr;
   std::string m_current_status;
   bool m_status_dirty = true;

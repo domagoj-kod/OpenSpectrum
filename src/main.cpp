@@ -80,7 +80,8 @@ auto main(int argc, char *argv[]) -> int {
 
   try {
     // 1. Initialize SDL2 renderer FIRST (before hardware)
-    SdlRenderer renderer(DISPLAY_WIDTH, DISPLAY_HEIGHT, "OpenSpectrum SDR");
+    // VSYNC disabled by default for performance (can cause tearing but much faster)
+    SdlRenderer renderer(DISPLAY_WIDTH, DISPLAY_HEIGHT, "OpenSpectrum SDR", false);
     if (!renderer.is_valid()) {
       LOG_ERROR("Failed to initialize SDL2 renderer");
       return 1;
