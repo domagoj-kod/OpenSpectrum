@@ -11,7 +11,10 @@
 #include <utility>
 #include <vector>
 
-RtlSdrDevice::RtlSdrDevice(uint32_t index) : m_index(index) {}
+RtlSdrDevice::RtlSdrDevice(uint32_t index, size_t pool_capacity)
+    : m_index(index), m_fft_size(pool_capacity) {
+  m_frame_pool = std::make_unique<openspectrum::FramePool>(m_fft_size, 16);
+}
 
 auto RtlSdrDevice::open() -> bool {
   if (m_dev != nullptr) {
@@ -37,8 +40,8 @@ void RtlSdrDevice::close() {
 }
 
 RtlSdrDevice::~RtlSdrDevice() {
-    stop_streaming(); // Stop async thread before closing device
-    close();
+  stop_streaming(); // Stop async thread before closing device
+  close();
 }
 
 void RtlSdrDevice::reset_buffer() {
@@ -69,6 +72,24 @@ void RtlSdrDevice::set_gain(float gain_db) {
   }
 }
 
+void RtlSdrDevice::set_fft_size(size_t fft_size) {
+  if (m_fft_size != fft_size) {
+    m_fft_size = fft_size;
+    // Recreate pool with new size
+    m_frame_pool = std::make_unique<openspectrum::FramePool>(m_fft_size, 16);
+  }
+}
+
+void RtlSdrDevice::set_callback(SampleCallback cb) {
+  m_callback = std::move(cb);
+  m_use_frame_callback = false;
+}
+
+void RtlSdrDevice::set_frame_callback(FrameCallback cb) {
+  m_frame_callback = std::move(cb);
+  m_use_frame_callback = true;
+}
+
 auto RtlSdrDevice::read_samples(size_t count)
     -> std::vector<std::complex<float>> {
   std::vector<uint8_t> buf(count * 2); // I + Q = 2 bytes per sample
@@ -89,10 +110,6 @@ auto RtlSdrDevice::read_samples(size_t count)
   return samples;
 }
 
-void RtlSdrDevice::set_callback(SampleCallback cb) {
-  m_callback = std::move(cb);
-}
-
 // Async streaming control
 // NOTE: rtlsdr_read_async() BLOCKS the calling thread until canceled.
 // We must run it in a separate thread to avoid freezing the main thread.
@@ -100,18 +117,19 @@ void RtlSdrDevice::start_streaming(size_t buffer_count) {
   if (m_dev == nullptr || m_streaming) {
     return;
   }
-  
+
   // Reset buffer before starting
   rtlsdr_reset_buffer(m_dev);
-  
+
   // Start async reading in a separate thread
-  // rtlsdr_read_async BLOCKS until canceled, so we can't call it from main thread
+  // rtlsdr_read_async BLOCKS until canceled, so we can't call it from main
+  // thread
   m_thread_running = true;
   m_async_thread = std::thread([this, buffer_count]() {
     uint32_t buf_len = 0; // 0 = use default buffer length
     LOG_INFO("Starting RTL-SDR async thread...");
-    int ret = rtlsdr_read_async(m_dev, static_callback, this, 
-                                  static_cast<uint32_t>(buffer_count), buf_len);
+    int ret = rtlsdr_read_async(m_dev, static_callback, this,
+                                static_cast<uint32_t>(buffer_count), buf_len);
     if (ret < 0) {
       LOG_ERROR("Async streaming error: " + std::to_string(ret));
     }
@@ -126,13 +144,13 @@ void RtlSdrDevice::stop_streaming() {
   if (m_dev == nullptr || !m_streaming) {
     return;
   }
-  
+
   LOG_INFO("Stopping RTL-SDR async streaming...");
   m_thread_running = false;
-  
+
   // Cancel async mode - this will cause rtlsdr_read_async to return
   rtlsdr_cancel_async(m_dev);
-  
+
   // Wait for the async thread to finish
   if (m_async_thread.joinable()) {
     m_async_thread.join();
@@ -148,6 +166,11 @@ void RtlSdrDevice::static_callback(unsigned char *buf, uint32_t len,
 }
 
 void RtlSdrDevice::process_callback(unsigned char *buf, uint32_t len) {
+  if (m_use_frame_callback && m_frame_callback) {
+    process_callback_with_pool(buf, len);
+    return;
+  }
+
   if (!m_callback) {
     return;
   }
@@ -159,4 +182,41 @@ void RtlSdrDevice::process_callback(unsigned char *buf, uint32_t len) {
         (static_cast<float>(buf[(i * 2) + 1]) - 127.5F) / 127.5F);
   }
   m_callback(std::move(samples));
+}
+
+void RtlSdrDevice::process_callback_with_pool(unsigned char *buf,
+                                              uint32_t len) {
+  if (!m_frame_callback || !m_frame_pool) {
+    return;
+  }
+
+  size_t const count = len / 2;
+
+  // Acquire frame from pool
+  openspectrum::FrameHandle frame_handle = m_frame_pool->acquire();
+  if (!frame_handle) {
+    // Pool exhausted, fall back to allocation
+    std::vector<std::complex<float>> samples(count);
+    for (size_t i = 0; i < count; ++i) {
+      samples[i] = std::complex<float>(
+          (static_cast<float>(buf[i * 2]) - 127.5F) / 127.5F,
+          (static_cast<float>(buf[(i * 2) + 1]) - 127.5F) / 127.5F);
+    }
+    // Convert to frame handle (will leak but prevents crash)
+    return;
+  }
+
+  // Fill frame with samples
+  // Use min to prevent overflow if buffer is larger than frame capacity
+  size_t const actual_count = std::min(count, frame_handle.capacity());
+  frame_handle.resize(actual_count);
+
+  for (size_t i = 0; i < actual_count; ++i) {
+    frame_handle[i] = std::complex<float>(
+        (static_cast<float>(buf[i * 2]) - 127.5F) / 127.5F,
+        (static_cast<float>(buf[(i * 2) + 1]) - 127.5F) / 127.5F);
+  }
+
+  // Pass to callback - handle will be returned to pool automatically
+  m_frame_callback(std::move(frame_handle));
 }
