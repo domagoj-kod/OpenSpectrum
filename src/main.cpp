@@ -414,15 +414,20 @@ auto main(int argc, char *argv[]) -> int {
         {
           std::lock_guard<std::mutex> lock(g_sample_mutex);
           while (!g_sample_queue.empty()) {
+            // Explicitly release FrameHandle to return frame to old pool before
+            // destruction, then pop it from the queue
+            g_sample_queue.front() = FrameHandle(nullptr);
             g_sample_queue.pop();
           }
         }
         {
+          // Explicitly release accumulator frame to return to old pool before
+          // destruction
           std::lock_guard<std::mutex> lock(g_accumulator_mutex);
-          g_sample_accumulator_frame.reset();
+          g_sample_accumulator_frame = FrameHandle(nullptr);
         }
 
-        // Recreate frame pool with new FFT size
+        // Now safe to destroy old pools and create new ones
         g_frame_pool = std::make_unique<FramePool>(current_fft_size, 32);
         dev.set_fft_size(current_fft_size);
 
