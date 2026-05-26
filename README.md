@@ -162,8 +162,8 @@ Options:
   -r, --rate HZ       Sample rate in Hz (default: 2048000)
   -g, --gain DB       Gain in dB (default: 10.0)
   -s, --fft-size N    FFT size (power of 2, default: 4096)
-  -w, --width N       Display width in pixels (default: 800)
-  -H, --height N      Display height in pixels (default: 480)
+  -w, --width N       Display width in pixels (default: 1050)
+  -H, --height N      Display height in pixels (default: 576)
   -W, --window NAME   Window function: rectangle, hann, hamming,
                       blackman, blackman-harris, flat-top
                       (default: blackman-harris)
