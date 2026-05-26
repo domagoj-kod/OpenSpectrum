@@ -463,9 +463,9 @@ auto main(int argc, char *argv[]) -> int {
           iq_capturing = false;
           LOG_INFO("IQ logging stopped");
         } else {
-          iq_logger.start_capture(static_cast<uint32_t>(config.center_freq_hz),
+          iq_logger.start_capture(control_state.get_frequency(),
                                   static_cast<uint32_t>(config.sample_rate_hz),
-                                  config.gain_db, current_fft_size,
+                                  control_state.get_gain(), current_fft_size,
                                   SignalProcessor::window_function_to_string(
                                       control_state.get_window()),
                                   "Manual capture");
