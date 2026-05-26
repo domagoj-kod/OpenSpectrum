@@ -17,7 +17,8 @@ class TextRenderer;
 class SdlRenderer {
 public:
   SdlRenderer(size_t width, size_t height,
-              const std::string &title = "OpenSpectrum SDR");
+              const std::string &title = "OpenSpectrum SDR",
+              bool enable_vsync = false);
   ~SdlRenderer();
 
   // Non-copyable, non-movable (SDL resources)
@@ -27,6 +28,14 @@ public:
   // Render RGBA pixel buffer (width * height * 4 bytes)
   // Returns true on success, false on error
   bool render(const std::vector<uint8_t> &pixels, size_t pitch = 0);
+
+  // Render with dirty regions for incremental updates
+  // Only updates specified rectangles in the texture
+  // Returns true on success, false on error
+  bool render_with_dirty_regions(
+      const std::vector<uint8_t> &pixels,
+      size_t pitch,
+      const std::vector<SDL_Rect> &dirty_rects);
 
   // Process events. Returns true if should continue, false if quit requested
   // If state is provided, handle keyboard input for control state
@@ -54,14 +63,33 @@ public:
   SDL_Renderer *get_sdl_renderer() const noexcept { return m_renderer; }
 
 private:
+  // Render overlays (status bar, peak indicator, IQ status)
+  // Called after rendering the main texture
+  void render_overlays();
+
   size_t m_width;
   size_t m_height;
   SDL_Window *m_window = nullptr;
   SDL_Renderer *m_renderer = nullptr;
   SDL_Texture *m_texture = nullptr;
 
+  // VSYNC control
+  bool m_enable_vsync = false;
+
   // Text rendering for status bar
   std::unique_ptr<TextRenderer> m_text_renderer;
+
+  // Texture cache to avoid recreating textures every frame
+  struct CachedTexture {
+    SDL_Texture* texture = nullptr;
+    std::string content;
+    SDL_Color color;
+    bool valid = false;
+  };
+
+  CachedTexture m_status_cache;
+  CachedTexture m_peak_cache;
+  CachedTexture m_iq_cache;
   SDL_Texture *m_status_texture = nullptr;
   std::string m_current_status;
   bool m_status_dirty = true;

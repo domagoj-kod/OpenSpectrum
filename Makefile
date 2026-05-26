@@ -14,38 +14,57 @@ ifeq ($(OS),Windows_NT)
     # Windows (MinGW/MSYS2)
     TARGET := openspectrum.exe
 
-    CFLAGS := -O2 -g -D_FORTIFY_SOURCE=2 -fstack-protector-strong
-    CXXFLAGS := -std=c++20 -Wall -Wextra -Wpedantic \
-                -Wshadow -Wconversion \
-                -Wformat=2 -Wformat-security \
-                -Wformat-nonliteral \
-                -D_FORTIFY_SOURCE=2 \
-                -fstack-protector-strong \
-                -static-libgcc -static-libstdc++
+    BASE_CFLAGS := -g -D_FORTIFY_SOURCE=2 -fstack-protector-strong
+    BASE_CXXFLAGS := -std=c++20 -Wall -Wextra -Wpedantic \
+                    -Wshadow -Wconversion \
+                    -Wformat=2 -Wformat-security \
+                    -Wformat-nonliteral \
+                    -D_FORTIFY_SOURCE=2 \
+                    -fstack-protector-strong \
+                    -static-libgcc -static-libstdc++
 
-    LDFLAGS := -lrtlsdr $(SDL2_LDFLAGS) -static-libgcc -static-libstdc++
+    BASE_LDFLAGS := -lrtlsdr $(SDL2_LDFLAGS) -static-libgcc -static-libstdc++
 else
     # Linux and other Unix-like systems
     TARGET := openspectrum
 
-    CFLAGS := -O2 -g -D_FORTIFY_SOURCE=2 -fstack-protector-strong -fPIE
-    CXXFLAGS := -std=c++20 -Wall -Wextra -Wpedantic \
-                -Wshadow -Wconversion \
-                -Wformat=2 -Wformat-security \
-                -Wformat-nonliteral \
-                -D_FORTIFY_SOURCE=2 \
-                -fstack-protector-strong -fPIE
+    BASE_CFLAGS := -g -D_FORTIFY_SOURCE=2 -fstack-protector-strong -fPIE
+    BASE_CXXFLAGS := -std=c++20 -Wall -Wextra -Wpedantic \
+                    -Wshadow -Wconversion \
+                    -Wformat=2 -Wformat-security \
+                    -Wformat-nonliteral \
+                    -D_FORTIFY_SOURCE=2 \
+                    -fstack-protector-strong -fPIE
 
-    LDFLAGS := -lrtlsdr -lpthread -lm $(SDL2_LDFLAGS) \
-               -Wl,-z,now \
-               -Wl,-z,relro \
-               -Wl,-z,noexecstack
+    BASE_LDFLAGS := -lrtlsdr -lpthread -lm $(SDL2_LDFLAGS) \
+                   -Wl,-z,now \
+                   -Wl,-z,relro \
+                   -Wl,-z,noexecstack
 endif
 
-# Additional security flags for Release builds
-# Uncomment for release: -flto (Link-Time Optimization)
-# CXXFLAGS += -flto
-# LDFLAGS += -flto
+# Default to debug build (safe default)
+.DEFAULT_GOAL := all
+CFLAGS   := $(BASE_CFLAGS) -O0 -DOPENSPECTRUM_DEBUG
+CXXFLAGS := $(BASE_CXXFLAGS) -O0 -DOPENSPECTRUM_DEBUG
+LDFLAGS  := $(BASE_LDFLAGS)
+
+# Release target overrides
+release:
+	$(MAKE) CFLAGS="$(BASE_CFLAGS) -O3 -DNDEBUG -flto -march=nehalem" \
+	       CXXFLAGS="$(BASE_CXXFLAGS) -O3 -DNDEBUG -flto -march=nehalem" \
+	       LDFLAGS="$(BASE_LDFLAGS) -flto -march=nehalem" \
+	       all
+
+# Profile target overrides
+profile:
+	$(MAKE) CFLAGS="$(BASE_CFLAGS) -O2 -pg" \
+	       CXXFLAGS="$(BASE_CXXFLAGS) -O2 -pg" \
+	       LDFLAGS="$(BASE_LDFLAGS) -pg" \
+	       all
+
+# Debug target (already set as default)
+debug:
+	$(MAKE) all
 
 # Directories
 SRC_DIR := src
@@ -135,19 +154,3 @@ clean:
 
 # Phony targets
 .PHONY: all clean
-
-# Debug target (with symbols and no optimization)
-debug: CXXFLAGS += -O0 -DDEBUG
-debug: CFLAGS += -O0 -DDEBUG
-debug: all
-
-# Release target (optimized, no debug symbols)
-release: CXXFLAGS := -O3 -DNDEBUG -D_FORTIFY_SOURCE=2 -fstack-protector-strong
-release: CFLAGS := -O3 -DNDEBUG -D_FORTIFY_SOURCE=2 -fstack-protector-strong
-release: all
-
-# Profile target (with instrumentation)
-profile: CXXFLAGS += -O2 -pg
-profile: CFLAGS += -O2 -pg
-profile: LDFLAGS += -pg
-profile: all

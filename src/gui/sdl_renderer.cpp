@@ -25,11 +25,13 @@
 #include <SDL2/SDL_scancode.h>
 #include <SDL2/SDL_stdinc.h>
 #include <SDL2/SDL_video.h>
+#include <logger.h>
 
 namespace openspectrum {
 
-SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title)
-    : m_width(width), m_height(height) {
+SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title,
+                         bool enable_vsync)
+    : m_width(width), m_height(height), m_enable_vsync(enable_vsync) {
   if (SDL_Init(SDL_INIT_VIDEO) < 0) {
     throw std::runtime_error("SDL_Init failed: " + std::string(SDL_GetError()));
   }
@@ -47,16 +49,50 @@ SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title)
   }
 
   // Try for hardware acceleration, fall back to software
-  m_renderer = SDL_CreateRenderer(
-      m_window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+  // VSYNC disabled by default for performance (can be enabled via constructor flag)
+  int renderer_flags = SDL_RENDERER_ACCELERATED;
+  if (m_enable_vsync) {
+    renderer_flags |= SDL_RENDERER_PRESENTVSYNC;
+  }
+
+  m_renderer = SDL_CreateRenderer(m_window, -1, renderer_flags);
+
+  SDL_RendererInfo info;
+  if (SDL_GetRendererInfo(m_renderer, &info) == 0) {
+    const char *renderer_name = info.name;
+    bool is_software = (strstr(renderer_name, "llvmpipe") != nullptr) ||
+                       (strstr(renderer_name, "swrast") != nullptr) ||
+                       (info.flags & SDL_RENDERER_SOFTWARE);
+
+    std::string vsync_str = (info.flags & SDL_RENDERER_PRESENTVSYNC) ? "ON" : "OFF";
+    std::string accel_str = (info.flags & SDL_RENDERER_ACCELERATED) ? "YES" : "NO";
+    LOG_INFO("Renderer: " + std::string(renderer_name) +
+             ", VSYNC: " + vsync_str +
+             ", Accelerated: " + accel_str);
+
+    if (is_software) {
+      LOG_ERROR("WARNING: Software rendering detected! Renderer: " +
+                std::string(renderer_name) + " - NO GPU ACCELERATION");
+    }
+  }
 
   if (m_renderer == nullptr) {
-    m_renderer = SDL_CreateRenderer(m_window, -1, SDL_RENDERER_SOFTWARE);
+    LOG_WARNING("Hardware acceleration failed: " + std::string(SDL_GetError()) +
+                ". Falling back to software renderer.");
+    renderer_flags = SDL_RENDERER_SOFTWARE;
+    if (m_enable_vsync) {
+      renderer_flags |= SDL_RENDERER_PRESENTVSYNC;
+    }
+    m_renderer = SDL_CreateRenderer(m_window, -1, renderer_flags);
     if (m_renderer == nullptr) {
       SDL_DestroyWindow(m_window);
       SDL_Quit();
       throw std::runtime_error("SDL_CreateRenderer failed: " +
                                std::string(SDL_GetError()));
+    }
+    // Re-log after fallback
+    if (SDL_GetRendererInfo(m_renderer, &info) == 0) {
+      LOG_WARNING("Fallback renderer: " + std::string(info.name));
     }
   }
 
@@ -83,6 +119,17 @@ SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title)
 }
 
 SdlRenderer::~SdlRenderer() {
+  // Clean up cached textures (only if they differ from current textures)
+  if (m_status_cache.texture != nullptr && m_status_cache.texture != m_status_texture) {
+    SDL_DestroyTexture(m_status_cache.texture);
+  }
+  if (m_peak_cache.texture != nullptr && m_peak_cache.texture != m_peak_texture) {
+    SDL_DestroyTexture(m_peak_cache.texture);
+  }
+  if (m_iq_cache.texture != nullptr && m_iq_cache.texture != m_iq_texture) {
+    SDL_DestroyTexture(m_iq_cache.texture);
+  }
+
   if (m_iq_texture != nullptr) {
     SDL_DestroyTexture(m_iq_texture);
   }
@@ -104,38 +151,7 @@ SdlRenderer::~SdlRenderer() {
   SDL_Quit();
 }
 
-auto SdlRenderer::render(const std::vector<uint8_t> &pixels, size_t pitch)
-    -> bool {
-  if ((m_texture == nullptr) || pixels.size() < m_width * m_height * 4) {
-    return false;
-  }
-
-  // Lock texture for direct pixel access
-  void *texture_pixels = nullptr;
-  int texture_pitch = 0;
-  if (SDL_LockTexture(m_texture, nullptr, &texture_pixels, &texture_pitch) !=
-      0) {
-    std::cerr << "SDL_LockTexture failed: " << SDL_GetError() << '\n';
-    return false;
-  }
-
-  // Copy pixels (respecting pitch if provided)
-  size_t const src_pitch = pitch > 0 ? pitch : m_width * 4;
-  for (size_t y = 0; y < m_height; ++y) {
-    const uint8_t *src_row = pixels.data() + (y * src_pitch);
-    uint8_t *dst_row =
-        static_cast<uint8_t *>(texture_pixels) + (y * texture_pitch);
-    std::copy(src_row,
-              src_row + std::min(src_pitch, static_cast<size_t>(texture_pitch)),
-              dst_row);
-  }
-
-  SDL_UnlockTexture(m_texture);
-
-  // Clear and render
-  SDL_RenderClear(m_renderer);
-  SDL_RenderCopy(m_renderer, m_texture, nullptr, nullptr);
-
+void SdlRenderer::render_overlays() {
   // Render status bar on top
   if (m_status_texture != nullptr) {
     int text_width = 0;
@@ -154,12 +170,14 @@ auto SdlRenderer::render(const std::vector<uint8_t> &pixels, size_t pitch)
   if (m_iq_texture != nullptr) {
     int text_width = 0;
     int text_height = 0;
-    m_text_renderer->get_text_size(m_current_iq_status, &text_width, &text_height);
+    m_text_renderer->get_text_size(m_current_iq_status, &text_width,
+                                   &text_height);
 
     // Position below PEAK indicator (which is at y=6 with background padding)
     // PEAK background height: text_height + 10 (5px padding each side)
     int peak_text_height = 0;
-    m_text_renderer->get_text_size("PEAK: -00.0 dB", nullptr, &peak_text_height);
+    m_text_renderer->get_text_size("PEAK: -00.0 dB", nullptr,
+                                   &peak_text_height);
     int const peak_bg_height = peak_text_height + 10;
 
     SDL_Rect const iq_dest_rect = {
@@ -204,6 +222,73 @@ auto SdlRenderer::render(const std::vector<uint8_t> &pixels, size_t pitch)
     // Restore draw color
     SDL_SetRenderDrawColor(m_renderer, r, g, b, a);
   }
+}
+
+auto SdlRenderer::render(const std::vector<uint8_t> &pixels, size_t pitch)
+    -> bool {
+  if ((m_texture == nullptr) || pixels.size() < m_width * m_height * 4) {
+    return false;
+  }
+
+  // Full screen dirty rect (fallback to full update)
+  SDL_Rect full_rect = {0, 0, static_cast<int>(m_width),
+                        static_cast<int>(m_height)};
+  return render_with_dirty_regions(pixels, pitch, {full_rect});
+}
+
+auto SdlRenderer::render_with_dirty_regions(
+    const std::vector<uint8_t> &pixels, size_t pitch,
+    const std::vector<SDL_Rect> &dirty_rects) -> bool {
+  if (m_texture == nullptr || pixels.size() < m_width * m_height * 4) {
+    return false;
+  }
+
+  // If no dirty rects provided, do full render
+  if (dirty_rects.empty()) {
+    return render(pixels, pitch);
+  }
+
+  // Lock texture for direct pixel access
+  void *texture_pixels = nullptr;
+  int texture_pitch = 0;
+  if (SDL_LockTexture(m_texture, nullptr, &texture_pixels, &texture_pitch) !=
+      0) {
+    std::cerr << "SDL_LockTexture failed: " << SDL_GetError() << '\n';
+    return false;
+  }
+
+  const size_t src_pitch = pitch > 0 ? pitch : m_width * 4;
+
+  // Copy only dirty regions
+  for (const auto &rect : dirty_rects) {
+    // Clamp rect to texture bounds
+    int clamped_x = std::max(0, rect.x);
+    int clamped_y = std::max(0, rect.y);
+    int clamped_w = std::min(rect.w, static_cast<int>(m_width) - clamped_x);
+    int clamped_h = std::min(rect.h, static_cast<int>(m_height) - clamped_y);
+
+    if (clamped_w <= 0 || clamped_h <= 0)
+      continue;
+
+    for (int y = clamped_y; y < clamped_y + clamped_h; ++y) {
+      const uint8_t *src_row =
+          pixels.data() + (y * src_pitch) + (clamped_x * 4);
+      uint8_t *dst_row = static_cast<uint8_t *>(texture_pixels) +
+                         (y * texture_pitch) + (clamped_x * 4);
+
+      size_t copy_size = static_cast<size_t>(clamped_w) * 4;
+      std::copy(src_row, src_row + copy_size, dst_row);
+    }
+  }
+
+  SDL_UnlockTexture(m_texture);
+
+  // Clear and render
+  SDL_RenderClear(m_renderer);
+  SDL_RenderCopy(m_renderer, m_texture, nullptr, nullptr);
+
+  // Render overlays on top
+  render_overlays();
 
   SDL_RenderPresent(m_renderer);
 
@@ -262,16 +347,34 @@ void SdlRenderer::render_status_bar(const std::string &status_text) {
   m_current_status = status_text;
   m_status_dirty = false;
 
+  // Use cached texture if available and content hasn't changed
+  if (m_status_cache.valid && m_status_cache.content == status_text) {
+    m_status_texture = m_status_cache.texture;
+    return;
+  }
+
   // Destroy old texture
   if (m_status_texture != nullptr) {
     SDL_DestroyTexture(m_status_texture);
     m_status_texture = nullptr;
   }
 
+  // Destroy old cache texture if different
+  if (m_status_cache.texture != nullptr && m_status_cache.texture != m_status_texture) {
+    SDL_DestroyTexture(m_status_cache.texture);
+    m_status_cache.texture = nullptr;
+  }
+
   // Render new status text
   if (!status_text.empty()) {
     SDL_Color const text_color = {255, 255, 255, 255}; // White
     m_status_texture = m_text_renderer->render_text(status_text, text_color);
+
+    // Update cache
+    m_status_cache.texture = m_status_texture;
+    m_status_cache.content = status_text;
+    m_status_cache.color = text_color;
+    m_status_cache.valid = true;
   }
 }
 
@@ -282,20 +385,45 @@ void SdlRenderer::render_peak_indicator(float peak_db) {
       SDL_DestroyTexture(m_peak_texture);
       m_peak_texture = nullptr;
     }
+    // Clear cache
+    if (m_peak_cache.texture != nullptr) {
+      SDL_DestroyTexture(m_peak_cache.texture);
+      m_peak_cache.texture = nullptr;
+    }
+    m_peak_cache.valid = false;
     return;
   }
 
   char buf[32];
   snprintf(buf, sizeof(buf), "PEAK: %.1f dB", peak_db);
 
+  // Use cached texture if content hasn't changed
+  if (m_peak_cache.valid && m_peak_cache.content == buf) {
+    m_peak_texture = m_peak_cache.texture;
+    return;
+  }
+
   // Destroy old texture
   if (m_peak_texture != nullptr) {
     SDL_DestroyTexture(m_peak_texture);
+    m_peak_texture = nullptr;
+  }
+
+  // Destroy old cache texture if different
+  if (m_peak_cache.texture != nullptr && m_peak_cache.texture != m_peak_texture) {
+    SDL_DestroyTexture(m_peak_cache.texture);
+    m_peak_cache.texture = nullptr;
   }
 
   // Render new text
   SDL_Color const text_color = {255, 255, 255, 255}; // White
   m_peak_texture = m_text_renderer->render_text(buf, text_color);
+
+  // Update cache
+  m_peak_cache.texture = m_peak_texture;
+  m_peak_cache.content = buf;
+  m_peak_cache.color = text_color;
+  m_peak_cache.valid = true;
 }
 
 void SdlRenderer::render_iq_status(const std::string &iq_text) {
@@ -305,16 +433,34 @@ void SdlRenderer::render_iq_status(const std::string &iq_text) {
   }
   m_current_iq_status = iq_text;
 
+  // Use cached texture if available and content hasn't changed
+  if (m_iq_cache.valid && m_iq_cache.content == iq_text) {
+    m_iq_texture = m_iq_cache.texture;
+    return;
+  }
+
   // Destroy old texture
   if (m_iq_texture != nullptr) {
     SDL_DestroyTexture(m_iq_texture);
     m_iq_texture = nullptr;
   }
 
+  // Destroy old cache texture if different
+  if (m_iq_cache.texture != nullptr && m_iq_cache.texture != m_iq_texture) {
+    SDL_DestroyTexture(m_iq_cache.texture);
+    m_iq_cache.texture = nullptr;
+  }
+
   // Render new text if not empty
   if (!iq_text.empty()) {
     SDL_Color const text_color = {255, 255, 255, 255}; // White
     m_iq_texture = m_text_renderer->render_text(iq_text, text_color);
+
+    // Update cache
+    m_iq_cache.texture = m_iq_texture;
+    m_iq_cache.content = iq_text;
+    m_iq_cache.color = text_color;
+    m_iq_cache.valid = true;
   }
 }
 

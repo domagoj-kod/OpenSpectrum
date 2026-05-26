@@ -4,6 +4,7 @@
 #include "gui/sdl_renderer.h"
 #include "hardware/rtl_sdr_device.h"
 #include "openspectrum/control_state.h"
+#include "openspectrum/frame_pool.h"
 #include "openspectrum/iq_logger.h"
 #include "openspectrum/spectrogram_exporter.h"
 #include "signal/signal_processor.h"
@@ -16,11 +17,14 @@
 #include <atomic>
 #include <chrono>
 #include <complex>
+#include <condition_variable>
 #include <csignal>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
 #include <memory>
+#include <mutex>
+#include <queue>
 #include <string>
 #include <vector>
 
@@ -31,10 +35,162 @@ using namespace openspectrum;
 
 static std::atomic<bool> g_running{true};
 
+// Async sample processing - thread-safe queue for async RTL-SDR callbacks
+// OLD: static std::queue<std::vector<std::complex<float>>> g_sample_queue;
+// NEW: Use FrameHandle queue for zero-allocation
+static std::queue<FrameHandle> g_sample_queue;
+static std::mutex g_sample_mutex;
+static std::condition_variable g_sample_cv;
+static size_t g_async_fft_size = 0;
+
+// Accumulator for samples that don't match FFT size exactly
+// OLD: static std::vector<std::complex<float>> g_sample_accumulator;
+// NEW: Use FrameHandle for accumulator
+static FrameHandle g_sample_accumulator_frame;
+static std::mutex g_accumulator_mutex;
+
+// Frame pool for sample buffers (shared across callbacks)
+static std::unique_ptr<FramePool> g_frame_pool;
+
+// Memory leak fix: Maximum queue size to prevent unbounded growth
+// At 8ms timeout and typical sample rates, 32 buffers is ~256ms of data
+// Each buffer at FFT 4096 = 4096 * 8 bytes = 32KB
+// 32 * 32KB = 1MB max queue memory (was growing to 1GB+)
+static const size_t MAX_SAMPLE_QUEUE_SIZE = 32;
+
+// Global device pointer for signal handler access (needed for cleanup)
+static RtlSdrDevice *g_dev_ptr = nullptr;
+
 static void signal_handler(int signum) {
   if (signum == SIGINT || signum == SIGTERM) {
     LOG_INFO("Shutdown signal received, stopping gracefully...");
     g_running = false;
+    g_sample_cv.notify_all(); // Wake up main loop if waiting for samples
+
+    // Stop async streaming if device pointer is available
+    if (g_dev_ptr != nullptr) {
+      try {
+        g_dev_ptr->stop_streaming();
+      } catch (...) {
+        // Ignore errors during shutdown
+      }
+    }
+  }
+}
+
+// Async callback for RTL-SDR samples using FrameHandle
+// Accumulates samples until we have exactly g_async_fft_size
+static void async_sample_callback(FrameHandle samples_frame) {
+  if (g_async_fft_size == 0 || !samples_frame) {
+    // FFT size not set yet, skip
+    return;
+  }
+
+  std::unique_lock<std::mutex> acc_lock(g_accumulator_mutex);
+
+  // If we don't have an accumulator frame, get one from pool
+  if (!g_sample_accumulator_frame) {
+    if (g_frame_pool) {
+      g_sample_accumulator_frame = g_frame_pool->acquire();
+    }
+    if (!g_sample_accumulator_frame) {
+      // Pool not ready, skip
+      return;
+    }
+    g_sample_accumulator_frame.reset();
+  }
+
+  // Add new samples to accumulator
+  size_t const samples_count = samples_frame.size();
+  size_t const current_accum_size = g_sample_accumulator_frame.size();
+  size_t const new_total = current_accum_size + samples_count;
+
+  // Ensure accumulator has enough capacity
+  if (new_total > g_sample_accumulator_frame.capacity()) {
+    // Need to reallocate - get a larger frame
+    FrameHandle new_accum =
+        g_frame_pool ? g_frame_pool->acquire() : FrameHandle(nullptr);
+    if (!new_accum) {
+      return; // Pool exhausted
+    }
+    new_accum.resize(std::max(new_total, g_async_fft_size));
+
+    // Copy existing data to new accumulator
+    if (current_accum_size > 0) {
+      std::copy_n(g_sample_accumulator_frame.data(), current_accum_size,
+                  new_accum.data());
+    }
+
+    // Add new samples
+    std::copy_n(samples_frame.data(), samples_count,
+                new_accum.data() + current_accum_size);
+    new_accum.resize(current_accum_size + samples_count);
+
+    // Replace old accumulator (old will be returned to pool)
+    g_sample_accumulator_frame = std::move(new_accum);
+  } else {
+    // Copy samples to accumulator
+    std::copy_n(samples_frame.data(), samples_count,
+                g_sample_accumulator_frame.data() + current_accum_size);
+    g_sample_accumulator_frame.resize(new_total);
+  }
+
+  // Log first few callbacks to verify samples are arriving
+  static size_t callback_count = 0;
+  if (callback_count++ < 5) {
+    LOG_INFO("Async callback: received " + std::to_string(samples_count) +
+             " samples, total accumulated: " +
+             std::to_string(g_sample_accumulator_frame.size()));
+  }
+
+  // Process complete FFT chunks
+  while (g_sample_accumulator_frame.size() >= g_async_fft_size) {
+    // Get a frame for the FFT samples
+    FrameHandle fft_samples_frame =
+        g_frame_pool ? g_frame_pool->acquire() : FrameHandle(nullptr);
+    if (!fft_samples_frame) {
+      break; // Pool exhausted
+    }
+
+    fft_samples_frame.resize(g_async_fft_size);
+
+    // Copy FFT-sized chunk from accumulator
+    std::copy_n(g_sample_accumulator_frame.data(), g_async_fft_size,
+                fft_samples_frame.data());
+
+    // Remove processed samples from accumulator
+    size_t const remaining =
+        g_sample_accumulator_frame.size() - g_async_fft_size;
+    if (remaining > 0) {
+      // Shift remaining samples to front
+      std::copy_n(g_sample_accumulator_frame.data() + g_async_fft_size,
+                  remaining, g_sample_accumulator_frame.data());
+    }
+    g_sample_accumulator_frame.resize(remaining);
+
+    // Unlock accumulator, queue the sample, then re-lock
+    acc_lock.unlock();
+    {
+      std::lock_guard<std::mutex> queue_lock(g_sample_mutex);
+      // Memory leak fix: Drop oldest sample if queue is full
+      if (g_sample_queue.size() >= MAX_SAMPLE_QUEUE_SIZE) {
+        g_sample_queue.pop(); // Drop oldest to prevent unbounded growth
+        LOG_DEBUG("Sample queue full, dropping oldest sample");
+      }
+      g_sample_queue.push(std::move(fft_samples_frame));
+    }
+    g_sample_cv.notify_one();
+    acc_lock.lock();
+  }
+
+  // If we have too many accumulated samples, trim to avoid memory issues
+  if (g_sample_accumulator_frame.size() > g_async_fft_size * 2) {
+    size_t const trim_to = g_sample_accumulator_frame.size() - g_async_fft_size;
+    if (trim_to > 0) {
+      std::copy_n(g_sample_accumulator_frame.data() + g_async_fft_size, trim_to,
+                  g_sample_accumulator_frame.data());
+    }
+    g_sample_accumulator_frame.resize(trim_to);
   }
 }
 
@@ -80,7 +236,10 @@ auto main(int argc, char *argv[]) -> int {
 
   try {
     // 1. Initialize SDL2 renderer FIRST (before hardware)
-    SdlRenderer renderer(DISPLAY_WIDTH, DISPLAY_HEIGHT, "OpenSpectrum SDR");
+    // VSYNC disabled by default for performance (can cause tearing but much
+    // faster)
+    SdlRenderer renderer(DISPLAY_WIDTH, DISPLAY_HEIGHT, "OpenSpectrum SDR",
+                         false);
     if (!renderer.is_valid()) {
       LOG_ERROR("Failed to initialize SDL2 renderer");
       return 1;
@@ -135,20 +294,43 @@ auto main(int argc, char *argv[]) -> int {
     SpectrogramExporter spectrogram_exporter(exp_config);
     LOG_INFO("Spectrogram exporter initialized");
 
+    // 2. Initialize frame pool for zero-allocation sample processing
+    g_frame_pool = std::make_unique<FramePool>(FFT_SIZE, 32);
+    LOG_INFO("FramePool initialized for FFT size: " + std::to_string(FFT_SIZE));
+
     // 2. Initialize hardware
     LOG_INFO("Initializing RTL-SDR device...");
     RtlSdrDevice dev;
+    g_dev_ptr = &dev; // Set global pointer for signal handler
     if (!dev.open()) {
       LOG_ERROR("Failed to open RTL-SDR device");
+      g_dev_ptr = nullptr;
       return 1;
     }
 
     dev.set_sample_rate(static_cast<uint32_t>(config.sample_rate_hz));
     dev.set_frequency(control_state.get_frequency());
     dev.set_gain(control_state.get_gain());
+    dev.set_fft_size(FFT_SIZE); // Set FFT size for frame pool
 
-    // CRITICAL: flush USB buffer before first read
+    // CRITICAL: flush USB buffer before starting
     dev.reset_buffer();
+
+    // Set up async callback and start streaming
+    // Note: FFT_SIZE is used here, will be updated if FFT size changes
+    // dynamically
+    g_async_fft_size = FFT_SIZE;
+
+    // Use frame-based callback for zero-allocation
+    // The callback receives FrameHandle which automatically returns to pool
+    auto frame_callback = [](FrameHandle samples) {
+      async_sample_callback(std::move(samples));
+    };
+    dev.set_frame_callback(frame_callback);
+    dev.start_streaming(8); // Use 8 buffers for async mode
+    LOG_INFO("RTL-SDR async streaming started with 8 buffers, FFT size: " +
+             std::to_string(FFT_SIZE));
+
     LOGS_INFO << "RTL-SDR initialized: freq="
               << static_cast<int>(config.center_freq_hz)
               << "Hz, rate=" << static_cast<int>(config.sample_rate_hz)
@@ -224,6 +406,41 @@ auto main(int argc, char *argv[]) -> int {
 
         // Reinitialize FFT-dependent components
         current_fft_size = new_fft_size;
+
+        // Stop async streaming while reconfiguring
+        dev.stop_streaming();
+
+        // Clear the sample queue and accumulator
+        {
+          std::lock_guard<std::mutex> lock(g_sample_mutex);
+          while (!g_sample_queue.empty()) {
+            // Explicitly release FrameHandle to return frame to old pool before
+            // destruction, then pop it from the queue
+            g_sample_queue.front() = FrameHandle(nullptr);
+            g_sample_queue.pop();
+          }
+        }
+        {
+          // Explicitly release accumulator frame to return to old pool before
+          // destruction
+          std::lock_guard<std::mutex> lock(g_accumulator_mutex);
+          g_sample_accumulator_frame = FrameHandle(nullptr);
+        }
+
+        // Now safe to destroy old pools and create new ones
+        g_frame_pool = std::make_unique<FramePool>(current_fft_size, 32);
+        dev.set_fft_size(current_fft_size);
+
+        // Update async FFT size and restart streaming
+        g_async_fft_size = current_fft_size;
+
+        // Use frame-based callback
+        auto frame_callback = [](FrameHandle samples) {
+          async_sample_callback(std::move(samples));
+        };
+        dev.set_frame_callback(frame_callback);
+        dev.start_streaming(8);
+
         samples.resize(current_fft_size);
         fft_output.resize(current_fft_size);
 
@@ -251,9 +468,9 @@ auto main(int argc, char *argv[]) -> int {
           iq_capturing = false;
           LOG_INFO("IQ logging stopped");
         } else {
-          iq_logger.start_capture(static_cast<uint32_t>(config.center_freq_hz),
+          iq_logger.start_capture(control_state.get_frequency(),
                                   static_cast<uint32_t>(config.sample_rate_hz),
-                                  config.gain_db, current_fft_size,
+                                  control_state.get_gain(), current_fft_size,
                                   SignalProcessor::window_function_to_string(
                                       control_state.get_window()),
                                   "Manual capture");
@@ -329,17 +546,67 @@ auto main(int argc, char *argv[]) -> int {
         renderer.render_peak_indicator(peak_db);
       }
 
-      // === 2. Read samples from hardware ===
-      try {
-        samples = dev.read_samples(current_fft_size);
-      } catch (const std::exception &e) {
-        LOG_ERROR("Read error: " + std::string(e.what()));
-        break;
+      // === 2. Read samples from async queue (non-blocking) ===
+      // Wait for samples with timeout (8ms = ~125fps max, reduced from 16ms)
+      FrameHandle async_samples_frame;
+      bool got_samples = false;
+      {
+        std::unique_lock<std::mutex> lock(g_sample_mutex);
+        if (g_sample_queue.empty()) {
+          // Wait for samples with timeout
+          if (g_sample_cv.wait_for(lock, std::chrono::milliseconds(8), [] {
+                return !g_sample_queue.empty() || !g_running.load();
+              })) {
+            if (!g_sample_queue.empty()) {
+              async_samples_frame = std::move(g_sample_queue.front());
+              g_sample_queue.pop();
+              got_samples = true;
+            }
+          }
+        } else {
+          async_samples_frame = std::move(g_sample_queue.front());
+          g_sample_queue.pop();
+          got_samples = true;
+        }
       }
+
+      // === 2.1. Update displays and render even if no new samples ===
+      // This fixes keyboard input freeze: overlays (status bar, peak, IQ
+      // status) are rendered as part of the main render call, so we must render
+      // even when no samples arrive, otherwise keyboard changes aren't visible
+      if (!got_samples) {
+        // No new samples - just re-render current display with fresh overlays
+        // The overlays (status bar, peak, IQ status) were updated above
+        // and will be rendered by the call to renderer.render()
+        bool render_ok = renderer.render(combined_pixels);
+        if (!render_ok) {
+          LOG_ERROR("Render failed");
+          break;
+        }
+        continue;
+      }
+
+      // async_samples_frame is now guaranteed to be exactly current_fft_size
+      // (accumulated in callback to match FFT size)
+
+      // Copy frame data to samples vector for FFT processing
+      // This is a temporary copy - in future we can modify FFT to use
+      // FrameHandle directly
+      if (samples.size() < current_fft_size) {
+        samples.resize(current_fft_size);
+      }
+      std::copy_n(async_samples_frame.data(), current_fft_size,
+                  samples.begin());
+
+      // async_samples_frame will be automatically returned to pool when it goes
+      // out of scope
 
       // === 2.5. IQ logging (if enabled) ===
       if (iq_capturing) {
-        iq_logger.write_samples(samples);
+        // Convert to vector for IQ logger (it expects vector)
+        std::vector<std::complex<float>> iq_samples(
+            samples.begin(), samples.begin() + current_fft_size);
+        iq_logger.write_samples(iq_samples);
       }
 
       // === 3. Signal processing ===
@@ -381,7 +648,40 @@ auto main(int argc, char *argv[]) -> int {
                   combined_pixels.data() + half_size);
 
       // === 8. Render to window ===
-      if (!renderer.render(combined_pixels)) {
+      // Collect dirty rectangles from both displays
+      const auto &spec_dirty_rects = spectrum_display.get_dirty_rects();
+      const auto &wf_dirty_rects = waterfall_display.get_dirty_rects();
+
+      std::vector<SDL_Rect> all_dirty_rects;
+      all_dirty_rects.reserve(spec_dirty_rects.size() + wf_dirty_rects.size());
+
+      // Spectrum is in top half - no offset needed
+      for (const auto &rect : spec_dirty_rects) {
+        all_dirty_rects.push_back(rect);
+      }
+
+      // Waterfall is in bottom half - offset y by half height
+      size_t wf_y_offset = DISPLAY_HEIGHT / 2;
+      for (const auto &rect : wf_dirty_rects) {
+        SDL_Rect offset_rect = rect;
+        offset_rect.y += static_cast<int>(wf_y_offset);
+        all_dirty_rects.push_back(offset_rect);
+      }
+
+      // Use incremental rendering if there are dirty rects, otherwise full
+      // render
+      bool render_ok;
+      if (!all_dirty_rects.empty()) {
+        render_ok = renderer.render_with_dirty_regions(combined_pixels, 0,
+                                                       all_dirty_rects);
+        // Clear dirty flags after rendering
+        spectrum_display.clear_dirty_rects();
+        waterfall_display.clear_dirty_rects();
+      } else {
+        render_ok = renderer.render(combined_pixels);
+      }
+
+      if (!render_ok) {
         LOG_ERROR("Render failed");
         break;
       }
@@ -401,6 +701,9 @@ auto main(int argc, char *argv[]) -> int {
       }
     }
 
+    // Stop async streaming before cleanup
+    dev.stop_streaming();
+
     // Stop IQ capture if still running
     if (iq_capturing) {
       iq_logger.stop_capture();
@@ -409,6 +712,7 @@ auto main(int argc, char *argv[]) -> int {
     LOG_INFO("Main loop exited cleanly");
   } catch (const std::exception &e) {
     LOG_ERROR("Fatal error: " + std::string(e.what()));
+    // Device will be cleaned up by destructor (calls stop_streaming())
     return 1;
   }
 

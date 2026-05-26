@@ -8,6 +8,8 @@
 #include <cstdint>
 #include <vector>
 
+#include <SDL2/SDL.h>
+
 namespace openspectrum {
 
 // --- SpectrumPalette Implementation ---
@@ -209,6 +211,9 @@ void SpectrumDisplay::update_spectrum(const std::vector<float> &db_values,
   }
 
   render();
+  
+  // Mark entire spectrum as dirty (simplified for now)
+  m_dirty_rects.push_back({0, 0, static_cast<int>(m_width), static_cast<int>(m_height)});
 }
 
 void SpectrumDisplay::render() {
