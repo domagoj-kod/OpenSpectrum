@@ -524,7 +524,23 @@ auto main(int argc, char *argv[]) -> int {
       }
 
       // === 1.3. Apply control state changes to device (batch update) ===
-      control_state.apply_to_device(dev);
+      {
+        static uint32_t s_last_freq = 0;
+        uint32_t const now_freq = control_state.get_frequency();
+        control_state.apply_to_device(dev);
+        if (s_last_freq != 0 && s_last_freq != now_freq) {
+          // Frequency tuned — discard buffered samples from the old channel.
+          // Scale label updates immediately (render_frequency_scale sees new freq);
+          // dropping the queue makes the spectrum snap in sync rather than lagging
+          // behind by up to MAX_SAMPLE_QUEUE_SIZE × FFT frames.
+          std::lock_guard<std::mutex> lock(g_sample_mutex);
+          while (!g_sample_queue.empty()) {
+            g_sample_queue.front() = FrameHandle(nullptr); // return to pool
+            g_sample_queue.pop();
+          }
+        }
+        s_last_freq = now_freq;
+      }
 
       // Update status bar (without PEAK - now shown separately)
       if (control_state.status_changed()) {
@@ -644,11 +660,25 @@ auto main(int argc, char *argv[]) -> int {
 
       bool render_ok;
       if (!spec_dirty_rects.empty() || !wf_dirty_rects.empty()) {
-        render_ok = renderer.render_displays(
-            spectrum_display.pixel_data(),
-            waterfall_display.get_pixels().data(),
-            spectrum_display.height(),
-            spec_dirty_rects, wf_dirty_rects);
+        if (waterfall_display.needs_full_render()) {
+          // First frame after reset or LUT rebuild: full CPU→GPU upload.
+          // Also seeds the GPU scroll texture for subsequent scroll frames.
+          render_ok = renderer.render_displays(
+              spectrum_display.pixel_data(),
+              waterfall_display.get_pixels().data(),
+              spectrum_display.height(),
+              spec_dirty_rects, wf_dirty_rects);
+        } else {
+          // Steady state: GPU shifts existing waterfall texture up by one line
+          // and uploads only the new bottom strip (~5 KB instead of ~1.5 MB).
+          render_ok = renderer.render_displays_scroll(
+              spectrum_display.pixel_data(),
+              waterfall_display.get_new_line_rgba(),
+              spectrum_display.height(),
+              waterfall_display.height(),
+              waterfall_display.get_line_height(),
+              spec_dirty_rects);
+        }
         spectrum_display.clear_dirty_rects();
         waterfall_display.clear_dirty_rects();
       } else {

@@ -156,11 +156,10 @@ SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title,
 }
 
 SdlRenderer::~SdlRenderer() {
-  // Clean up frequency scale tick textures
-  for (auto &tick : m_freq_ticks) {
-    if (tick.label != nullptr) SDL_DestroyTexture(tick.label);
-  }
-  m_freq_ticks.clear();
+  if (m_wf_line_tex    != nullptr) SDL_DestroyTexture(m_wf_line_tex);
+  if (m_wf_scroll_aux  != nullptr) SDL_DestroyTexture(m_wf_scroll_aux);
+  if (m_wf_scroll_tex  != nullptr) SDL_DestroyTexture(m_wf_scroll_tex);
+  if (m_freq_scale_texture != nullptr) SDL_DestroyTexture(m_freq_scale_texture);
 
   // Clean up cached textures (only if they differ from current textures)
   if (m_status_cache.texture != nullptr && m_status_cache.texture != m_status_texture) {
@@ -266,38 +265,13 @@ void SdlRenderer::render_overlays() {
     SDL_SetRenderDrawColor(m_renderer, r, g, b, a);
   }
 
-  // Render frequency scale at the bottom edge of the spectrum area
-  if (!m_freq_ticks.empty() && m_freq_scale_spectrum_height >= 22) {
+  // Frequency scale — one copy of the pre-baked target texture per frame.
+  // No state changes, no per-tick draw calls, no blend-mode save/restore.
+  if (m_freq_scale_texture != nullptr && m_freq_scale_spectrum_height >= 22) {
     const int scale_h = 22;
     const int scale_y = static_cast<int>(m_freq_scale_spectrum_height) - scale_h;
-
-    Uint8 dr, dg, db, da;
-    SDL_GetRenderDrawColor(m_renderer, &dr, &dg, &db, &da);
-    SDL_BlendMode prev_blend;
-    SDL_GetRenderDrawBlendMode(m_renderer, &prev_blend);
-
-    // Semi-transparent dark background spanning full width
-    SDL_SetRenderDrawBlendMode(m_renderer, SDL_BLENDMODE_BLEND);
-    SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 180);
-    SDL_Rect const scale_bg = {0, scale_y, static_cast<int>(m_width), scale_h};
-    SDL_RenderFillRect(m_renderer, &scale_bg);
-
-    // Tick marks (1px wide, 4px tall at top of bar)
-    SDL_SetRenderDrawColor(m_renderer, 180, 180, 180, 255);
-    for (const auto &tick : m_freq_ticks) {
-      SDL_Rect const tick_line = {tick.x, scale_y, 1, 4};
-      SDL_RenderFillRect(m_renderer, &tick_line);
-
-      if (tick.label != nullptr && tick.label_w > 0) {
-        int lx = tick.x - tick.label_w / 2;
-        lx = std::max(0, std::min(lx, static_cast<int>(m_width) - tick.label_w));
-        SDL_Rect const label_rect = {lx, scale_y + 5, tick.label_w, 16};
-        SDL_RenderCopy(m_renderer, tick.label, nullptr, &label_rect);
-      }
-    }
-
-    SDL_SetRenderDrawColor(m_renderer, dr, dg, db, da);
-    SDL_SetRenderDrawBlendMode(m_renderer, prev_blend);
+    SDL_Rect const dst = {0, scale_y, static_cast<int>(m_width), scale_h};
+    SDL_RenderCopy(m_renderer, m_freq_scale_texture, nullptr, &dst);
   }
 }
 
@@ -417,6 +391,21 @@ auto SdlRenderer::render_displays(const uint8_t *spectrum_data,
   }
 
   SDL_UnlockTexture(m_texture);
+
+  // Seed the GPU scroll texture from the main texture's waterfall region so
+  // the first render_displays_scroll() frame is visually continuous.
+  if (m_wf_scroll_tex != nullptr) {
+    int wf_h = static_cast<int>(m_height) - static_cast<int>(spectrum_height);
+    if (wf_h > 0) {
+      SDL_Rect const wf_src = {0, static_cast<int>(spectrum_height),
+                               static_cast<int>(m_width), wf_h};
+      SDL_SetRenderTarget(m_renderer, m_wf_scroll_tex);
+      SDL_RenderCopy(m_renderer, m_texture, &wf_src, nullptr);
+      SDL_SetRenderTarget(m_renderer, nullptr);
+      m_wf_scroll_valid = true;
+    }
+  }
+
   SDL_RenderClear(m_renderer);
   SDL_RenderCopy(m_renderer, m_texture, nullptr, nullptr);
   render_overlays();
@@ -600,38 +589,191 @@ void SdlRenderer::render_iq_status(const std::string &iq_text) {
   }
 }
 
-void SdlRenderer::rebuild_freq_scale_ticks() {
-  for (auto &tick : m_freq_ticks) {
-    if (tick.label != nullptr) SDL_DestroyTexture(tick.label);
+bool SdlRenderer::ensure_wf_scroll_textures(size_t wf_height, size_t line_height) {
+  bool rebuild = (m_wf_scroll_tex == nullptr);
+  // Recreate if line_height changed (FFT size switch)
+  if (!rebuild && m_wf_scroll_line_height != line_height) {
+    SDL_DestroyTexture(m_wf_scroll_tex);  m_wf_scroll_tex = nullptr;
+    SDL_DestroyTexture(m_wf_scroll_aux);  m_wf_scroll_aux = nullptr;
+    SDL_DestroyTexture(m_wf_line_tex);    m_wf_line_tex   = nullptr;
+    m_wf_scroll_valid = false;
+    rebuild = true;
   }
-  m_freq_ticks.clear();
+  if (!rebuild) return true;
 
-  if (m_freq_scale_sample_rate_hz == 0 || m_freq_scale_spectrum_height < 22) return;
+  const int w = static_cast<int>(m_width);
+  const int h = static_cast<int>(wf_height);
+  const int lh = static_cast<int>(line_height);
 
+  m_wf_scroll_tex = SDL_CreateTexture(m_renderer, SDL_PIXELFORMAT_RGBA32,
+                                       SDL_TEXTUREACCESS_TARGET, w, h);
+  m_wf_scroll_aux = SDL_CreateTexture(m_renderer, SDL_PIXELFORMAT_RGBA32,
+                                       SDL_TEXTUREACCESS_TARGET, w, h);
+  m_wf_line_tex   = SDL_CreateTexture(m_renderer, SDL_PIXELFORMAT_RGBA32,
+                                       SDL_TEXTUREACCESS_STREAMING, w, lh);
+
+  if (m_wf_scroll_tex == nullptr || m_wf_scroll_aux == nullptr || m_wf_line_tex == nullptr) {
+    return false;
+  }
+
+  m_wf_scroll_line_height = line_height;
+  return true;
+}
+
+bool SdlRenderer::render_displays_scroll(const uint8_t *spectrum_data,
+                                          const uint8_t *new_wf_line_rgba,
+                                          size_t spectrum_height,
+                                          size_t wf_height,
+                                          size_t line_height,
+                                          const std::vector<SDL_Rect> &spec_dirty_rects) {
+  if (m_texture == nullptr) return false;
+  if (!ensure_wf_scroll_textures(wf_height, line_height)) return false;
+
+  // --- Spectrum upload (dirty regions only, top half of m_texture) ---
+  if (!spec_dirty_rects.empty()) {
+    void *tex_pixels = nullptr; int tex_pitch = 0;
+    if (SDL_LockTexture(m_texture, nullptr, &tex_pixels, &tex_pitch) == 0) {
+      uint8_t *tex = static_cast<uint8_t *>(tex_pixels);
+      const size_t src_pitch = m_width * 4;
+      for (const auto &r : spec_dirty_rects) {
+        int x0 = std::max(0, r.x);
+        int y0 = std::max(0, r.y);
+        int x1 = std::min(r.x + r.w, static_cast<int>(m_width));
+        int y1 = std::min(r.y + r.h, static_cast<int>(spectrum_height));
+        if (x1 <= x0 || y1 <= y0) continue;
+        size_t bytes = static_cast<size_t>(x1 - x0) * 4;
+        for (int y = y0; y < y1; ++y) {
+          memcpy(tex + y * tex_pitch + x0 * 4,
+                 spectrum_data + y * src_pitch + x0 * 4, bytes);
+        }
+      }
+      SDL_UnlockTexture(m_texture);
+    }
+  }
+
+  // --- GPU waterfall scroll ---
+  // Upload the new line (~5 KB) to the narrow streaming texture
+  {
+    void *lp = nullptr; int lpitch = 0;
+    if (SDL_LockTexture(m_wf_line_tex, nullptr, &lp, &lpitch) == 0) {
+      const size_t src_row = m_width * 4;
+      for (size_t y = 0; y < line_height; ++y) {
+        memcpy(static_cast<uint8_t*>(lp) + y * lpitch,
+               new_wf_line_rgba + y * src_row, src_row);
+      }
+      SDL_UnlockTexture(m_wf_line_tex);
+    }
+  }
+
+  // Render into the aux texture:
+  //   1. Blit existing waterfall shifted up by line_height (GPU-to-GPU copy)
+  //   2. Place new line at the bottom
+  SDL_SetRenderTarget(m_renderer, m_wf_scroll_aux);
+  if (m_wf_scroll_valid) {
+    int const shift_h = static_cast<int>(wf_height) - static_cast<int>(line_height);
+    if (shift_h > 0) {
+      SDL_Rect const src_r = {0, static_cast<int>(line_height),
+                               static_cast<int>(m_width), shift_h};
+      SDL_Rect const dst_r = {0, 0, static_cast<int>(m_width), shift_h};
+      SDL_RenderCopy(m_renderer, m_wf_scroll_tex, &src_r, &dst_r);
+    }
+  } else {
+    // First scroll frame — clear to black
+    SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 255);
+    SDL_RenderClear(m_renderer);
+  }
+  // Paste new line at the bottom
+  SDL_Rect const line_dst = {0, static_cast<int>(wf_height - line_height),
+                              static_cast<int>(m_width), static_cast<int>(line_height)};
+  SDL_RenderCopy(m_renderer, m_wf_line_tex, nullptr, &line_dst);
+  SDL_SetRenderTarget(m_renderer, nullptr);
+
+  // Swap active/aux
+  std::swap(m_wf_scroll_tex, m_wf_scroll_aux);
+  m_wf_scroll_valid = true;
+
+  // --- Compose final frame ---
+  SDL_RenderClear(m_renderer);
+  // Spectrum (top)
+  SDL_Rect const spec_src = {0, 0, static_cast<int>(m_width),
+                              static_cast<int>(spectrum_height)};
+  SDL_Rect const spec_dst = spec_src;
+  SDL_RenderCopy(m_renderer, m_texture, &spec_src, &spec_dst);
+  // Waterfall (bottom) — entire scroll texture maps to the bottom half
+  SDL_Rect const wf_dst = {0, static_cast<int>(spectrum_height),
+                            static_cast<int>(m_width), static_cast<int>(wf_height)};
+  SDL_RenderCopy(m_renderer, m_wf_scroll_tex, nullptr, &wf_dst);
+
+  render_overlays();
+  SDL_RenderPresent(m_renderer);
+  return true;
+}
+
+void SdlRenderer::rebuild_freq_scale_ticks() {
+  if (m_freq_scale_texture != nullptr) {
+    SDL_DestroyTexture(m_freq_scale_texture);
+    m_freq_scale_texture = nullptr;
+  }
+
+  if (m_freq_scale_sample_rate_hz == 0 || m_freq_scale_spectrum_height < 22
+      || m_text_renderer == nullptr) return;
+
+  constexpr int SCALE_H = 22;
+
+  // Bake the entire scale bar into a single render-target texture.
+  // render_overlays() does one SDL_RenderCopy per frame — no state churn.
+  m_freq_scale_texture = SDL_CreateTexture(
+      m_renderer, SDL_PIXELFORMAT_RGBA32,
+      SDL_TEXTUREACCESS_TARGET,
+      static_cast<int>(m_width), SCALE_H);
+  if (m_freq_scale_texture == nullptr) return;
+
+  SDL_SetTextureBlendMode(m_freq_scale_texture, SDL_BLENDMODE_BLEND);
+
+  SDL_SetRenderTarget(m_renderer, m_freq_scale_texture);
+
+  // Semi-transparent dark background (SDL_RenderClear writes alpha directly)
+  SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 180);
+  SDL_RenderClear(m_renderer);
+
+  // Compute tick positions
   uint32_t const interval = nice_tick_interval(m_freq_scale_sample_rate_hz);
   int64_t const start_hz = static_cast<int64_t>(m_freq_scale_center_hz)
                          - static_cast<int64_t>(m_freq_scale_sample_rate_hz) / 2;
   int64_t const end_hz   = start_hz + static_cast<int64_t>(m_freq_scale_sample_rate_hz);
-
   int64_t const first_tick = ((start_hz + static_cast<int64_t>(interval) - 1)
                                / static_cast<int64_t>(interval))
                              * static_cast<int64_t>(interval);
 
+  SDL_SetRenderDrawColor(m_renderer, 180, 180, 180, 255);
   SDL_Color const label_color = {200, 200, 200, 255};
+
   for (int64_t freq = first_tick; freq < end_hz; freq += static_cast<int64_t>(interval)) {
     if (freq < 0) continue;
     float const x_frac = static_cast<float>(freq - start_hz)
                        / static_cast<float>(m_freq_scale_sample_rate_hz);
     int const x = static_cast<int>(x_frac * static_cast<float>(m_width));
 
+    // Tick line
+    SDL_Rect const tick_line = {x, 0, 1, 4};
+    SDL_RenderFillRect(m_renderer, &tick_line);
+
+    // Label — temporary texture, composited onto scale texture then freed
     std::string const label = format_freq_label(freq);
-    SDL_Texture *tex = m_text_renderer->render_text(label, label_color);
-
-    int lw = 0;
-    m_text_renderer->get_text_size(label, &lw, nullptr);
-
-    m_freq_ticks.push_back({tex, x, lw});
+    SDL_Texture *label_tex  = m_text_renderer->render_text(label, label_color);
+    if (label_tex != nullptr) {
+      SDL_SetTextureBlendMode(label_tex, SDL_BLENDMODE_BLEND);
+      int lw = 0;
+      m_text_renderer->get_text_size(label, &lw, nullptr);
+      int lx = x - lw / 2;
+      lx = std::max(0, std::min(lx, static_cast<int>(m_width) - lw));
+      SDL_Rect const lrect = {lx, 5, lw, 16};
+      SDL_RenderCopy(m_renderer, label_tex, nullptr, &lrect);
+      SDL_DestroyTexture(label_tex);
+    }
   }
+
+  SDL_SetRenderTarget(m_renderer, nullptr);
 }
 
 void SdlRenderer::render_frequency_scale(uint32_t center_hz, uint32_t sample_rate_hz,

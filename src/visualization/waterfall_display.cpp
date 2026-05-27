@@ -22,7 +22,8 @@ WaterfallDisplay::WaterfallDisplay(size_t width, size_t height,
     : m_width(width), m_height(height),
       m_history_lines(std::min(history_lines, height)),
       m_pixels(width * height * 4),
-      m_history(history_lines) {
+      m_history(history_lines),
+      m_new_line(width * std::max<size_t>(1UL, height / history_lines) * 4) {
   rebuild_rgba_lut();
 }
 
@@ -39,6 +40,7 @@ void WaterfallDisplay::set_db_range(float min_db, float max_db) {
 }
 
 void WaterfallDisplay::rebuild_rgba_lut() {
+  m_needs_full_render = true; // existing GPU texture is stale after a LUT change
   for (size_t q = 0; q < 256; ++q) {
     float const db = dequantize_db(static_cast<uint8_t>(q));
     RgbColor const color = m_palette.get_color(db);
@@ -101,10 +103,8 @@ void WaterfallDisplay::reset() {
   m_history.clear();
   m_global_min = m_min_db;
   m_global_max = m_max_db;
-  // Update palette with reset range
   m_palette.set_db_range(m_global_min, m_global_max);
-  
-  // Mark entire waterfall as dirty
+  m_needs_full_render = true; // GPU scroll texture must be re-seeded
   m_dirty_rects.push_back({0, 0, static_cast<int>(m_width), static_cast<int>(m_height)});
 }
 
@@ -195,10 +195,38 @@ void WaterfallDisplay::add_spectrum_line(const std::vector<float> &db_values) {
   render();
 }
 
+// Render one quantized history line into a raw RGBA destination buffer.
+// dst must have at least m_width * rows * 4 bytes capacity.
+void WaterfallDisplay::render_line_into(const std::vector<uint8_t>& hist_line,
+                                         uint8_t* dst_base,
+                                         size_t rows) const {
+  const size_t row_stride = m_width * 4;
+  const uint8_t *line_ptr = hist_line.data();
+  for (size_t y = 0; y < rows; ++y) {
+    uint8_t *dst = dst_base + y * row_stride;
+#ifdef __AVX2__
+    const int *lut = reinterpret_cast<const int *>(m_rgba_lut);
+    size_t x = 0;
+    for (; x + 8 <= m_width; x += 8, dst += 32) {
+      __m128i idx8   = _mm_loadl_epi64(reinterpret_cast<const __m128i *>(line_ptr + x));
+      __m256i idx32  = _mm256_cvtepu8_epi32(idx8);
+      __m256i colors = _mm256_i32gather_epi32(lut, idx32, 4);
+      _mm256_storeu_si256(reinterpret_cast<__m256i *>(dst), colors);
+    }
+    for (; x < m_width; ++x, dst += 4) {
+      memcpy(dst, &m_rgba_lut[line_ptr[x]], 4);
+    }
+#else
+    for (size_t x = 0; x < m_width; ++x, dst += 4) {
+      memcpy(dst, &m_rgba_lut[line_ptr[x]], 4);
+    }
+#endif
+  }
+}
+
 void WaterfallDisplay::render() {
   if (m_history.empty()) {
     m_pixels.clear();
-    // Mark entire display as needing update
     m_dirty_rects.push_back({0, 0, static_cast<int>(m_width), static_cast<int>(m_height)});
     return;
   }
@@ -210,60 +238,32 @@ void WaterfallDisplay::render() {
     return;
   }
 
-  // Fix for white horizontal lines: Clear entire pixel buffer to background
-  // (black) before rendering. When history is not full, the top portion
-  // would otherwise contain stale pixel data from previous renders.
-  // This happens especially at large FFT sizes where processing is slower.
+  const size_t line_height = std::max<size_t>(1UL, m_height / m_history.capacity());
+
+  // Steady-state scroll path: render only the newest line into m_new_line.
+  // SdlRenderer::render_displays_scroll() shifts the GPU texture and uploads
+  // just this strip — ~5 KB instead of ~1.5 MB per frame.
+  if (!m_needs_full_render && m_history.full()) {
+    render_line_into(m_history.back(), m_new_line.data(), line_height);
+    return; // no dirty rects — caller uses render_displays_scroll()
+  }
+
+  // Full render: rebuild m_pixels from all history lines.
+  // Needed after reset(), rebuild_rgba_lut(), or on the very first frame.
   std::memset(m_pixels.data(), 0, m_pixels.size());
-
-  // Phase 3: Precompute row stride in bytes (4 bytes per pixel)
   const size_t row_stride = m_width * 4;
-
-  // Render history lines from bottom to top (oldest at bottom, newest at top)
   size_t y_offset = 0;
-  const size_t line_height =
-      std::max<size_t>(1UL, m_height / m_history.capacity());
 
   for (size_t i = 0; i < m_history.size(); ++i) {
-    if (y_offset >= m_height) {
-      break;
-    }
-
-    const auto& line = m_history[i];
-    size_t const actual_line_height = (y_offset + line_height <= m_height)
-                                          ? line_height
-                                          : (m_height - y_offset);
-
-    for (size_t y = 0; y < actual_line_height; ++y) {
-      size_t const pixel_row = y_offset + y;
-
-      // Phase 3: Precompute row start pointer
-      uint8_t *row_ptr = m_pixels.data() + (pixel_row * row_stride);
-
-      const uint8_t *line_ptr = line.data();
-      uint8_t *dst = row_ptr;
-
-#ifdef __AVX2__
-      const int *lut = reinterpret_cast<const int *>(m_rgba_lut);
-      size_t x = 0;
-      for (; x + 8 <= m_width; x += 8, dst += 32) {
-        __m128i idx8   = _mm_loadl_epi64(reinterpret_cast<const __m128i *>(line_ptr + x));
-        __m256i idx32  = _mm256_cvtepu8_epi32(idx8);
-        __m256i colors = _mm256_i32gather_epi32(lut, idx32, 4);
-        _mm256_storeu_si256(reinterpret_cast<__m256i *>(dst), colors);
-      }
-      for (; x < m_width; ++x, dst += 4) {
-        memcpy(dst, &m_rgba_lut[line_ptr[x]], 4);
-      }
-#else
-      for (size_t x = 0; x < m_width; ++x, dst += 4) {
-        memcpy(dst, &m_rgba_lut[line_ptr[x]], 4);
-      }
-#endif
-    }
-    
+    if (y_offset >= m_height) break;
+    size_t const actual_lh = (y_offset + line_height <= m_height)
+                                 ? line_height : (m_height - y_offset);
+    render_line_into(m_history[i], m_pixels.data() + y_offset * row_stride, actual_lh);
     y_offset += line_height;
   }
+
+  m_needs_full_render = false;
+  m_dirty_rects.push_back({0, 0, static_cast<int>(m_width), static_cast<int>(m_height)});
 }
 
 } // namespace openspectrum
