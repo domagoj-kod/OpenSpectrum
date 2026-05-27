@@ -12,6 +12,7 @@
 #include <mutex>
 #include <queue>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #ifdef _WIN32
@@ -85,7 +86,7 @@ struct alignas(64) FFTFrame {
     assert(new_size <= capacity);
     size = new_size;
   }
-  bool can_hold(size_t requested) const { return requested <= capacity; }
+  [[nodiscard]] bool can_hold(size_t requested) const { return requested <= capacity; }
 };
 
 // Lightweight frame handle with RAII for automatic pool return
@@ -95,7 +96,7 @@ public:
 
   FrameHandle() = default;
   explicit FrameHandle(FFTFrame *frame, ReturnFunc return_func = nullptr)
-      : m_frame(frame), m_return_func(return_func) {}
+      : m_frame(frame), m_return_func(std::move(return_func)) {}
 
   ~FrameHandle() {
     if (m_frame && m_return_func) {
@@ -128,7 +129,7 @@ public:
     return *this;
   }
 
-  FFTFrame *get() const { return m_frame; }
+  [[nodiscard]] FFTFrame *get() const { return m_frame; }
   FFTFrame *release() {
     auto *f = m_frame;
     m_frame = nullptr;
@@ -138,11 +139,11 @@ public:
   explicit operator bool() const { return m_frame != nullptr; }
 
   std::complex<float> *data() { return m_frame ? m_frame->data : nullptr; }
-  const std::complex<float> *data() const {
+  [[nodiscard]] const std::complex<float> *data() const {
     return m_frame ? m_frame->data : nullptr;
   }
-  size_t size() const { return m_frame ? m_frame->size : 0; }
-  size_t capacity() const { return m_frame ? m_frame->capacity : 0; }
+  [[nodiscard]] size_t size() const { return m_frame ? m_frame->size : 0; }
+  [[nodiscard]] size_t capacity() const { return m_frame ? m_frame->capacity : 0; }
 
   void reset() {
     if (m_frame)

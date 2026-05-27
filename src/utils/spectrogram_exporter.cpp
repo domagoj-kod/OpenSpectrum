@@ -211,29 +211,29 @@ void SpectrogramExporter::write_metadata(
 
   ss << "{\n";
   ss << "  \"version\": \"1.0\",\n";
-  ss << "  \"export_timestamp_iso8601\": \"" << get_iso8601_timestamp()
+  ss << R"(  "export_timestamp_iso8601": ")" << get_iso8601_timestamp()
      << "\",\n";
   ss << "  \"export_timestamp_unix\": " << timestamp << ",\n";
 
   // Capture parameters
   ss << "  \"capture\": {\n";
   ss << "    \"center_frequency_hz\": " << center_freq_hz << ",\n";
-  ss << "    \"center_frequency_formatted\": \""
+  ss << R"(    "center_frequency_formatted": ")"
      << escape_json_string(format_frequency(center_freq_hz)) << "\",\n";
   ss << "    \"sample_rate_hz\": " << sample_rate_hz << ",\n";
   ss << "    \"gain_db\": " << gain_db << ",\n";
   ss << "    \"fft_size\": " << fft_size << ",\n";
-  ss << "    \"window_function\": \"" << escape_json_string(window_function)
+  ss << R"(    "window_function": ")" << escape_json_string(window_function)
      << "\"\n";
   ss << "  },\n";
 
   // Image parameters
   ss << "  \"image\": {\n";
-  ss << "    \"type\": \"" << image_type << "\",\n";
+  ss << R"(    "type": ")" << image_type << "\",\n";
   ss << "    \"width\": " << image_width << ",\n";
   ss << "    \"height\": " << image_height << ",\n";
   ss << "    \"format\": \"PNG\",\n";
-  ss << "    \"color_map\": \"" << escape_json_string(color_map) << "\",\n";
+  ss << R"(    "color_map": ")" << escape_json_string(color_map) << "\",\n";
   ss << "    \"compression_level\": " << m_config.png_compression_level << "\n";
   ss << "  },\n";
 
@@ -252,7 +252,7 @@ void SpectrogramExporter::write_metadata(
 
   // Notes
   if (!notes.empty()) {
-    ss << "  \"notes\": \"" << escape_json_string(notes) << "\"\n";
+    ss << R"(  "notes": ")" << escape_json_string(notes) << "\"\n";
   }
 
   ss << "}";

@@ -79,16 +79,16 @@ public:
                                size_t spectrum_height);
 
   // Get dimensions
-  size_t width() const noexcept { return m_width; }
-  size_t height() const noexcept { return m_height; }
+  [[nodiscard]] size_t width() const noexcept { return m_width; }
+  [[nodiscard]] size_t height() const noexcept { return m_height; }
 
   // Check if initialized
-  bool is_valid() const noexcept {
+  [[nodiscard]] bool is_valid() const noexcept {
     return m_window != nullptr && m_renderer != nullptr;
   }
 
   // Get the SDL renderer (for text rendering)
-  SDL_Renderer *get_sdl_renderer() const noexcept { return m_renderer; }
+  [[nodiscard]] SDL_Renderer *get_sdl_renderer() const noexcept { return m_renderer; }
 
 private:
   // Render overlays (status bar, peak indicator, IQ status, freq scale)

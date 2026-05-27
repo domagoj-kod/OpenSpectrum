@@ -67,8 +67,8 @@ public:
 
   // Direct pointer access (no bounds checking)
   uint8_t *data() noexcept { return m_data; }
-  const uint8_t *data() const noexcept { return m_data; }
-  size_t size() const noexcept { return m_size; }
+  [[nodiscard]] const uint8_t *data() const noexcept { return m_data; }
+  [[nodiscard]] size_t size() const noexcept { return m_size; }
 
   // Subscript operator (for compatibility, but prefer direct pointer access)
   uint8_t &operator[](size_t index) noexcept { return m_data[index]; }
@@ -85,7 +85,7 @@ public:
   uint8_t *pixel_ptr(size_t x, size_t y, size_t width) noexcept {
     return m_data + (y * width + x) * 4;
   }
-  const uint8_t *pixel_ptr(size_t x, size_t y, size_t width) const noexcept {
+  [[nodiscard]] const uint8_t *pixel_ptr(size_t x, size_t y, size_t width) const noexcept {
     return m_data + (y * width + x) * 4;
   }
 
@@ -117,10 +117,10 @@ public:
   void set_db_range(float min_db, float max_db);
 
   // Get color for a dB value (uses precomputed range for efficiency)
-  RgbColor get_color(float db_value) const;
+  [[nodiscard]] RgbColor get_color(float db_value) const;
 
   // Legacy version with inline range parameters (slower, keeps backward compat)
-  RgbColor get_color(float db_value, float min_db, float max_db) const;
+  [[nodiscard]] RgbColor get_color(float db_value, float min_db, float max_db) const;
 
   // Color map presets
   enum class ColorMap { JET, VIRIDIS, HOT, GRAyscale, BLUE_RED };

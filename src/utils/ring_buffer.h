@@ -140,7 +140,7 @@ public:
     /// @brief Const safe access with bounds checking
     /// @param index Index to access
     /// @return Pointer to element, or nullptr if out of range
-    const T* get(size_t index) const noexcept {
+    [[nodiscard]] const T* get(size_t index) const noexcept {
         if (index >= m_size) return nullptr;
         size_t actual_index = (m_head - m_size + index + m_capacity) % m_capacity;
         return &m_data[actual_index];
@@ -158,7 +158,7 @@ public:
     /// @brief Get the newest element (const)
     /// @return Const reference to newest element
     /// @throws std::out_of_range if buffer is empty
-    const T& back() const {
+    [[nodiscard]] const T& back() const {
         if (m_size == 0) throw std::out_of_range("RingBuffer is empty");
         size_t idx = (m_head + m_capacity - 1) % m_capacity;
         return m_data[idx];
@@ -176,23 +176,23 @@ public:
     /// @brief Get the oldest element (const)
     /// @return Const reference to oldest element
     /// @throws std::out_of_range if buffer is empty
-    const T& front() const {
+    [[nodiscard]] const T& front() const {
         if (m_size == 0) throw std::out_of_range("RingBuffer is empty");
         size_t idx = (m_head - m_size + m_capacity) % m_capacity;
         return m_data[idx];
     }
 
     /// @brief Check if buffer is empty
-    bool empty() const noexcept { return m_size == 0; }
+    [[nodiscard]] bool empty() const noexcept { return m_size == 0; }
 
     /// @brief Check if buffer is full
-    bool full() const noexcept { return m_size == m_capacity; }
+    [[nodiscard]] bool full() const noexcept { return m_size == m_capacity; }
 
     /// @brief Get current number of elements
-    size_t size() const noexcept { return m_size; }
+    [[nodiscard]] size_t size() const noexcept { return m_size; }
 
     /// @brief Get maximum capacity
-    size_t capacity() const noexcept { return m_capacity; }
+    [[nodiscard]] size_t capacity() const noexcept { return m_capacity; }
 
     /// @brief Clear all elements (keep capacity)
     void clear() noexcept {
@@ -287,18 +287,18 @@ public:
 
     Iterator begin() { return Iterator(this, 0); }
     Iterator end() { return Iterator(this, m_size); }
-    ConstIterator begin() const { return ConstIterator(this, 0); }
-    ConstIterator end() const { return ConstIterator(this, m_size); }
-    ConstIterator cbegin() const { return ConstIterator(this, 0); }
-    ConstIterator cend() const { return ConstIterator(this, m_size); }
+    [[nodiscard]] ConstIterator begin() const { return ConstIterator(this, 0); }
+    [[nodiscard]] ConstIterator end() const { return ConstIterator(this, m_size); }
+    [[nodiscard]] ConstIterator cbegin() const { return ConstIterator(this, 0); }
+    [[nodiscard]] ConstIterator cend() const { return ConstIterator(this, m_size); }
 
     /// @brief Reverse iterator support
     std::reverse_iterator<Iterator> rbegin() { return std::reverse_iterator<Iterator>(end()); }
     std::reverse_iterator<Iterator> rend() { return std::reverse_iterator<Iterator>(begin()); }
-    std::reverse_iterator<ConstIterator> rbegin() const { return std::reverse_iterator<ConstIterator>(cend()); }
-    std::reverse_iterator<ConstIterator> rend() const { return std::reverse_iterator<ConstIterator>(cbegin()); }
-    std::reverse_iterator<ConstIterator> crbegin() const { return rbegin(); }
-    std::reverse_iterator<ConstIterator> crend() const { return rend(); }
+    [[nodiscard]] std::reverse_iterator<ConstIterator> rbegin() const { return std::reverse_iterator<ConstIterator>(cend()); }
+    [[nodiscard]] std::reverse_iterator<ConstIterator> rend() const { return std::reverse_iterator<ConstIterator>(cbegin()); }
+    [[nodiscard]] std::reverse_iterator<ConstIterator> crbegin() const { return rbegin(); }
+    [[nodiscard]] std::reverse_iterator<ConstIterator> crend() const { return rend(); }
 
 private:
     std::vector<T> m_data;
