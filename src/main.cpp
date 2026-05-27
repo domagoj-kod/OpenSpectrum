@@ -329,8 +329,9 @@ auto main(int argc, char *argv[]) -> int {
       async_sample_callback(std::move(samples));
     };
     dev.set_frame_callback(frame_callback);
-    dev.start_streaming(STREAM_BUFF); // Use 8 buffers for async mode
-    LOG_INFO("RTL-SDR async streaming started with 8 buffers, FFT size: " +
+    dev.start_streaming(STREAM_BUFF);
+    LOG_INFO("RTL-SDR async streaming started with " +
+             std::to_string(STREAM_BUFF) + " buffers, FFT size: " +
              std::to_string(FFT_SIZE));
 
     LOGS_INFO << "RTL-SDR initialized: freq="
@@ -356,9 +357,6 @@ auto main(int argc, char *argv[]) -> int {
 
     spectrum_display.set_db_range(-120.0F, 0.0F);
     waterfall_display.set_db_range(-120.0F, 0.0F);
-
-    // Create combined display buffer (spectrum on top, waterfall on bottom)
-    std::vector<uint8_t> combined_pixels(DISPLAY_WIDTH * DISPLAY_HEIGHT * 4, 0);
 
     LOG_INFO("Display initialized: spectrum and waterfall");
 
@@ -577,14 +575,8 @@ auto main(int argc, char *argv[]) -> int {
       // status) are rendered as part of the main render call, so we must render
       // even when no samples arrive, otherwise keyboard changes aren't visible
       if (!got_samples) {
-        // No new samples - just re-render current display with fresh overlays
-        // The overlays (status bar, peak, IQ status) were updated above
-        // and will be rendered by the call to renderer.render()
-        bool render_ok = renderer.render(combined_pixels);
-        if (!render_ok) {
-          LOG_ERROR("Render failed");
-          break;
-        }
+        // No new pixel data — re-present the last texture with updated overlays.
+        renderer.present_frame();
         continue;
       }
 
@@ -633,54 +625,22 @@ auto main(int argc, char *argv[]) -> int {
 
       waterfall_display.add_spectrum_line(db_spectrum);
 
-      // === 7. Combine display buffers ===
-      const auto &spec_pixels = spectrum_display.get_pixels();
-      const auto &wf_pixels = waterfall_display.get_pixels();
-
-      // Copy spectrum to top half
-      size_t const spec_size = spec_pixels.size();
-      size_t const wf_size = wf_pixels.size();
-      size_t const half_size = DISPLAY_WIDTH * (DISPLAY_HEIGHT / 2) * 4;
-
-      std::copy_n(spec_pixels.data(), std::min(spec_size, half_size),
-                  combined_pixels.data());
-
-      // Copy waterfall to bottom half
-      std::copy_n(wf_pixels.data(), std::min(wf_size, half_size),
-                  combined_pixels.data() + half_size);
-
-      // === 8. Render to window ===
-      // Collect dirty rectangles from both displays
+      // === 7. Render directly into SDL texture (no combined_pixels buffer) ===
       const auto &spec_dirty_rects = spectrum_display.get_dirty_rects();
       const auto &wf_dirty_rects = waterfall_display.get_dirty_rects();
 
-      std::vector<SDL_Rect> all_dirty_rects;
-      all_dirty_rects.reserve(spec_dirty_rects.size() + wf_dirty_rects.size());
-
-      // Spectrum is in top half - no offset needed
-      for (const auto &rect : spec_dirty_rects) {
-        all_dirty_rects.push_back(rect);
-      }
-
-      // Waterfall is in bottom half - offset y by half height
-      size_t wf_y_offset = DISPLAY_HEIGHT / 2;
-      for (const auto &rect : wf_dirty_rects) {
-        SDL_Rect offset_rect = rect;
-        offset_rect.y += static_cast<int>(wf_y_offset);
-        all_dirty_rects.push_back(offset_rect);
-      }
-
-      // Use incremental rendering if there are dirty rects, otherwise full
-      // render
       bool render_ok;
-      if (!all_dirty_rects.empty()) {
-        render_ok = renderer.render_with_dirty_regions(combined_pixels, 0,
-                                                       all_dirty_rects);
-        // Clear dirty flags after rendering
+      if (!spec_dirty_rects.empty() || !wf_dirty_rects.empty()) {
+        render_ok = renderer.render_displays(
+            spectrum_display.pixel_data(),
+            waterfall_display.get_pixels().data(),
+            spectrum_display.height(),
+            spec_dirty_rects, wf_dirty_rects);
         spectrum_display.clear_dirty_rects();
         waterfall_display.clear_dirty_rects();
       } else {
-        render_ok = renderer.render(combined_pixels);
+        renderer.present_frame();
+        render_ok = true;
       }
 
       if (!render_ok) {

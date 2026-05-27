@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstring>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -76,7 +77,9 @@ public:
   }
 
   // Clear buffer (set to black/transparent)
-  void clear() { std::fill(m_data, m_data + m_size, 0); }
+  void clear() {
+    if (m_data) memset(m_data, 0, m_size);
+  }
 
   // Get pixel at (x, y) for RGBA format (4 bytes per pixel)
   uint8_t *pixel_ptr(size_t x, size_t y, size_t width) noexcept {
@@ -95,13 +98,6 @@ public:
     for (size_t y = y_start; y <= y_end; ++y) {
       color.copy_to(dst);
       dst += stride;
-    }
-  }
-
-  // Fast memset-style clear
-  void memset_clear() {
-    if (m_data) {
-      std::fill(m_data, m_data + m_size, 0);
     }
   }
 

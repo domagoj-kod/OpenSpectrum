@@ -3,7 +3,6 @@
 #include "waterfall_display.h"
 
 #include <algorithm>
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -31,6 +30,16 @@ void WaterfallDisplay::set_db_range(float min_db, float max_db) {
   m_palette.set_db_range(m_min_db, m_max_db);
 }
 
+uint8_t WaterfallDisplay::quantize_db(float db) noexcept {
+  if (db <= HIST_DB_MIN) return 0;
+  if (db >= HIST_DB_MAX) return 255;
+  return static_cast<uint8_t>((db - HIST_DB_MIN) * (255.0F / HIST_DB_RANGE) + 0.5F);
+}
+
+float WaterfallDisplay::dequantize_db(uint8_t q) noexcept {
+  return HIST_DB_MIN + static_cast<float>(q) * (HIST_DB_RANGE / 255.0F);
+}
+
 void WaterfallDisplay::update_global_range() {
   if (m_history.empty()) {
     m_global_min = m_min_db;
@@ -39,20 +48,21 @@ void WaterfallDisplay::update_global_range() {
     return;
   }
 
-  float new_min = m_history[0][0];
-  float new_max = m_history[0][0];
+  uint8_t q_min = 255;
+  uint8_t q_max = 0;
 
   for (size_t i = 0; i < m_history.size(); ++i) {
-    const auto& line = m_history[i];
-    if (!line.empty()) {
-      float const line_min = *std::ranges::min_element(line);
-      float const line_max = *std::ranges::max_element(line);
-      new_min = std::min(new_min, line_min);
-      new_max = std::max(new_max, line_max);
+    const uint8_t *ptr = m_history[i].data();
+    const size_t n = m_history[i].size();
+    for (size_t j = 0; j < n; ++j) {
+      if (ptr[j] < q_min) q_min = ptr[j];
+      if (ptr[j] > q_max) q_max = ptr[j];
     }
   }
 
-  // Add margin
+  float new_min = dequantize_db(q_min);
+  float new_max = dequantize_db(q_max);
+
   float const range = new_max - new_min;
   if (range > 0) {
     new_min -= range * 0.05F;
@@ -64,8 +74,6 @@ void WaterfallDisplay::update_global_range() {
 
   m_global_min = new_min;
   m_global_max = new_max;
-
-  // Update palette with new global range for optimized get_color()
   m_palette.set_db_range(m_global_min, m_global_max);
 }
 
@@ -136,8 +144,13 @@ void WaterfallDisplay::add_spectrum_line(const std::vector<float> &db_values) {
   bool was_full = m_history.full();
   size_t old_size = m_history.size();
 
-  // Add to history (O(1) with ring buffer - no allocation, no pop_front needed)
-  m_history.push(std::move(line));
+  // Quantize float dB values to uint8 before storing (4:1 memory reduction)
+  std::vector<uint8_t> quantized(m_width);
+  for (size_t i = 0; i < m_width; ++i) {
+    quantized[i] = quantize_db(line[i]);
+  }
+
+  m_history.push(std::move(quantized));
 
   // Mark dirty rectangles
   if (old_size < m_history.capacity()) {
@@ -207,8 +220,9 @@ void WaterfallDisplay::render() {
       // Phase 3: Precompute row start pointer
       uint8_t *row_ptr = m_pixels.data() + (pixel_row * row_stride);
 
+      const uint8_t *line_ptr = line.data();
       for (size_t x = 0; x < m_width && x < line.size(); ++x) {
-        float const db = line[x];
+        float const db = dequantize_db(line_ptr[x]);
         auto color = m_palette.get_color(db);
 
         // Phase 3: Direct pointer access (no bounds check)

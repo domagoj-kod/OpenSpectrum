@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
@@ -276,8 +277,7 @@ auto SdlRenderer::render_with_dirty_regions(
       uint8_t *dst_row = static_cast<uint8_t *>(texture_pixels) +
                          (y * texture_pitch) + (clamped_x * 4);
 
-      size_t copy_size = static_cast<size_t>(clamped_w) * 4;
-      std::copy(src_row, src_row + copy_size, dst_row);
+      memcpy(dst_row, src_row, static_cast<size_t>(clamped_w) * 4);
     }
   }
 
@@ -293,6 +293,66 @@ auto SdlRenderer::render_with_dirty_regions(
   SDL_RenderPresent(m_renderer);
 
   return true;
+}
+
+auto SdlRenderer::render_displays(const uint8_t *spectrum_data,
+                                   const uint8_t *waterfall_data,
+                                   size_t spectrum_height,
+                                   const std::vector<SDL_Rect> &spec_dirty_rects,
+                                   const std::vector<SDL_Rect> &wf_dirty_rects)
+    -> bool {
+  if (m_texture == nullptr) return false;
+
+  void *texture_pixels = nullptr;
+  int texture_pitch = 0;
+  if (SDL_LockTexture(m_texture, nullptr, &texture_pixels, &texture_pitch) != 0) {
+    std::cerr << "SDL_LockTexture failed: " << SDL_GetError() << '\n';
+    return false;
+  }
+
+  uint8_t *tex = static_cast<uint8_t *>(texture_pixels);
+  const size_t src_pitch = m_width * 4;
+  const int wf_height = static_cast<int>(m_height - spectrum_height);
+
+  for (const auto &rect : spec_dirty_rects) {
+    int x0 = std::max(0, rect.x);
+    int y0 = std::max(0, rect.y);
+    int x1 = std::min(rect.x + rect.w, static_cast<int>(m_width));
+    int y1 = std::min(rect.y + rect.h, static_cast<int>(spectrum_height));
+    if (x1 <= x0 || y1 <= y0) continue;
+    size_t copy_bytes = static_cast<size_t>(x1 - x0) * 4;
+    for (int y = y0; y < y1; ++y) {
+      memcpy(tex + y * texture_pitch + x0 * 4,
+             spectrum_data + y * src_pitch + x0 * 4, copy_bytes);
+    }
+  }
+
+  for (const auto &rect : wf_dirty_rects) {
+    int x0 = std::max(0, rect.x);
+    int y0 = std::max(0, rect.y);
+    int x1 = std::min(rect.x + rect.w, static_cast<int>(m_width));
+    int y1 = std::min(rect.y + rect.h, wf_height);
+    if (x1 <= x0 || y1 <= y0) continue;
+    size_t copy_bytes = static_cast<size_t>(x1 - x0) * 4;
+    for (int y = y0; y < y1; ++y) {
+      memcpy(tex + (y + static_cast<int>(spectrum_height)) * texture_pitch + x0 * 4,
+             waterfall_data + y * src_pitch + x0 * 4, copy_bytes);
+    }
+  }
+
+  SDL_UnlockTexture(m_texture);
+  SDL_RenderClear(m_renderer);
+  SDL_RenderCopy(m_renderer, m_texture, nullptr, nullptr);
+  render_overlays();
+  SDL_RenderPresent(m_renderer);
+  return true;
+}
+
+void SdlRenderer::present_frame() {
+  SDL_RenderClear(m_renderer);
+  SDL_RenderCopy(m_renderer, m_texture, nullptr, nullptr);
+  render_overlays();
+  SDL_RenderPresent(m_renderer);
 }
 
 auto SdlRenderer::poll_events(ControlState *state) -> bool {

@@ -57,8 +57,8 @@ private:
   size_t m_history_lines;
   PixelBuffer m_pixels; // Phase 3: RGBA format
 
-  // Ring buffer for history (replaces std::deque for O(1) push)
-  RingBuffer<std::vector<float>> m_history;
+  // Ring buffer for history — stored as uint8 (0.47 dB/step over -120..0 dB)
+  RingBuffer<std::vector<uint8_t>> m_history;
 
   SpectrumPalette m_palette;
 
@@ -70,6 +70,14 @@ private:
 
   // Dirty rectangles for incremental rendering
   mutable std::vector<SDL_Rect> m_dirty_rects;
+
+  // Fixed quantization range: -120..0 dB → 0..255
+  static constexpr float HIST_DB_MIN = -120.0f;
+  static constexpr float HIST_DB_MAX = 0.0f;
+  static constexpr float HIST_DB_RANGE = HIST_DB_MAX - HIST_DB_MIN;
+
+  static uint8_t quantize_db(float db) noexcept;
+  static float dequantize_db(uint8_t q) noexcept;
 
   void render();
   void update_global_range();

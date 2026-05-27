@@ -205,9 +205,15 @@ void SpectrumDisplay::update_spectrum(const std::vector<float> &db_values,
   m_spectrum_data = db_values;
 
   if (m_autoscale && !db_values.empty()) {
-    float const min_val = *std::ranges::min_element(db_values);
-    float const max_val = *std::ranges::max_element(db_values);
-    set_db_range(min_val - 5.0F, max_val + 5.0F); // Add 5dB margin
+    const float *ptr = db_values.data();
+    const size_t n = db_values.size();
+    float min_val = ptr[0];
+    float max_val = ptr[0];
+    for (size_t i = 1; i < n; ++i) {
+      if (ptr[i] < min_val) min_val = ptr[i];
+      if (ptr[i] > max_val) max_val = ptr[i];
+    }
+    set_db_range(min_val - 5.0F, max_val + 5.0F);
   }
 
   render();

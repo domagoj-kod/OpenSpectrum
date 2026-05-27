@@ -37,6 +37,17 @@ public:
       size_t pitch,
       const std::vector<SDL_Rect> &dirty_rects);
 
+  // Zero-copy render: writes spectrum (top) and waterfall (bottom) directly
+  // into the SDL texture, bypassing the combined_pixels intermediate buffer.
+  bool render_displays(const uint8_t *spectrum_data, const uint8_t *waterfall_data,
+                       size_t spectrum_height,
+                       const std::vector<SDL_Rect> &spec_dirty_rects,
+                       const std::vector<SDL_Rect> &wf_dirty_rects);
+
+  // Re-present the last rendered texture with updated overlays (no texture upload).
+  // Use when no new pixel data is available (e.g. waiting for samples).
+  void present_frame();
+
   // Process events. Returns true if should continue, false if quit requested
   // If state is provided, handle keyboard input for control state
   bool poll_events(ControlState *state = nullptr);

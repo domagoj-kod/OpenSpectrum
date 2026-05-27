@@ -38,13 +38,13 @@ std::ranges::min/max_element       : ~3-4%  (iterator overhead)
 
 | Phase | Task | Effort | Savings | Platform Agnostic | Demoscene Spirit | Status |
 |-------|------|--------|---------|------------------|------------------|--------|
-| 1 | Consolidate pixel buffers - render directly to SDL texture | Low | 4.7 MB RAM, 8.9% CPU | ✅ | ✅ (minimal) | ⬜ |
-| 1 | Precomputed color LUT - replace get_color() with table lookup | Low | ~2.5% CPU | ✅ | ✅ (lookup tables) | ⬜ |
-| 1 | Quantize waterfall history - float→uint8 | Low | 0.9 MB RAM | ✅ | ✅ | ⬜ |
-| 1 | `memset` instead of `std::fill` - in PixelBuffer | Low | ~8% CPU | ✅ | ✅ | ⬜ |
-| 2 | Manual min/max loops - replace std::ranges | Medium | ~3% CPU | ✅ | ✅ | ⬜ |
-| 2 | Raw pointers in hot loops - eliminate iterator overhead | Medium | ~2% CPU | ✅ | ✅ | ⬜ |
-| 2 | Real FFT optimization - use kiss_fftr for real signals | Medium | ~40% FFT time | ✅ | ✅ | ⬜ |
+| 1 | Consolidate pixel buffers - render directly to SDL texture | Low | 4.7 MB RAM, 8.9% CPU | ✅ | ✅ (minimal) | ✅ |
+| 1 | Precomputed color LUT - replace get_color() with table lookup | Low | ~2.5% CPU | ✅ | ✅ (lookup tables) | ✅ (256-entry LUT + fma) |
+| 1 | Quantize waterfall history - float→uint8 | Low | 0.9 MB RAM | ✅ | ✅ | ✅ |
+| 1 | `memset` instead of `std::fill` - in PixelBuffer | Low | ~8% CPU | ✅ | ✅ | ✅ |
+| 2 | Manual min/max loops - replace std::ranges | Medium | ~3% CPU | ✅ | ✅ | ✅ |
+| 2 | Raw pointers in hot loops - eliminate iterator overhead | Medium | ~2% CPU | ✅ | ✅ | ✅ (was already done) |
+| 2 | Real FFT optimization - use kiss_fftr for real signals | Medium | N/A | ✅ | ✅ | ❌ N/A (RTL-SDR = complex I/Q) |
 | 2 | Increase async buffers - from 8 to 32 | Medium | Reduces waits | ✅ | ✅ | ✅ |
 | 3 | Zero-copy FFT - accept FrameHandle directly | High | ~5% CPU | ✅ | ✅ | ⬜ |
 | 3 | Batch sample processing - accumulate 2-4 FFTs | Medium | Reduces render calls | ✅ | ✅ | ⬜ |
@@ -1052,14 +1052,14 @@ vtune -collect memory-access -result-dir vtune_memory ./openspectrum
 
 Use this checklist to track progress:
 
-- [ ] 1.1 Consolidate pixel buffers
-- [ ] 1.2 Precomputed color LUT
-- [ ] 1.3 Quantize waterfall history
-- [ ] 1.4 `memset` instead of `std::fill`
-- [ ] 2.1 Manual min/max loops
-- [ ] 2.2 Raw pointers in hot loops
+- [x] 1.1 Consolidate pixel buffers (render_displays + present_frame, removed combined_pixels)
+- [x] 1.2 Precomputed color LUT (was already done: 256-entry m_palette + fma index)
+- [x] 1.3 Quantize waterfall history (float→uint8, 4:1 reduction, fixed -120..0 dB range)
+- [x] 1.4 `memset` instead of `std::fill` (fixed PixelBuffer::clear; removed misnamed memset_clear)
+- [x] 2.1 Manual min/max loops (spectrum_display, waterfall update_global_range, fft get_max_db)
+- [x] 2.2 Raw pointers in hot loops (was already done in both render() methods)
 - [x] 2.3 Increase async buffers to 32
-- [ ] 2.4 Zero-copy FFT
+- [ ] 2.4 Zero-copy FFT (signal processing chain needs intermediate buffer; complex to remove)
 - [ ] 3.1 Batch sample processing
 - [ ] 3.2 SIMD rendering
 - [ ] 3.3 Fixed-point math
