@@ -64,7 +64,6 @@ public:
 private:
   size_t m_width;
   size_t m_height;
-  size_t m_history_lines;
   PixelBuffer m_pixels; // Phase 3: RGBA format
 
   // Ring buffer for history — stored as uint8 (0.47 dB/step over -120..0 dB)
@@ -84,6 +83,10 @@ private:
   // GPU scroll state
   bool m_needs_full_render = true;
   std::vector<uint8_t> m_new_line; // m_width * get_line_height() * 4 bytes
+
+  // Reusable scratch buffers for add_spectrum_line — avoids per-frame heap alloc
+  std::vector<float>   m_line_buf;
+  std::vector<uint8_t> m_quantized_buf;
 
   // Fixed quantization range: -120..0 dB → 0..255
   static constexpr float HIST_DB_MIN = -120.0f;

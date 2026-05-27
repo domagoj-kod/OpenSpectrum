@@ -195,14 +195,7 @@ void RtlSdrDevice::process_callback_with_pool(unsigned char *buf,
   // Acquire frame from pool
   openspectrum::FrameHandle frame_handle = m_frame_pool->acquire();
   if (!frame_handle) {
-    // Pool exhausted, fall back to allocation
-    std::vector<std::complex<float>> samples(count);
-    for (size_t i = 0; i < count; ++i) {
-      samples[i] = std::complex<float>(
-          (static_cast<float>(buf[i * 2]) - 127.5F) / 127.5F,
-          (static_cast<float>(buf[(i * 2) + 1]) - 127.5F) / 127.5F);
-    }
-    // Convert to frame handle (will leak but prevents crash)
+    LOG_DEBUG("process_callback_with_pool: pool exhausted, dropping buffer");
     return;
   }
 

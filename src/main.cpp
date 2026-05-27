@@ -262,7 +262,7 @@ auto main(int argc, char *argv[]) -> int {
     }
     IqLogger iq_logger(iq_logger_config);
     bool iq_capturing = false;
-    double iq_capture_start = 0.0;
+    std::chrono::steady_clock::time_point iq_capture_start;
 
     // Set up callback for when capture completes
     iq_logger.set_complete_callback([](const std::string &filename,
@@ -279,10 +279,7 @@ auto main(int argc, char *argv[]) -> int {
           SignalProcessor::window_function_to_string(config.window_function),
           "Command-line capture");
       iq_capturing = true;
-      iq_capture_start =
-          std::chrono::duration<double>(
-              std::chrono::system_clock::now().time_since_epoch())
-              .count();
+      iq_capture_start = std::chrono::steady_clock::now();
       LOG_INFO("IQ logging enabled: " + iq_logger.get_data_filename());
     }
 
@@ -472,10 +469,7 @@ auto main(int argc, char *argv[]) -> int {
                                       control_state.get_window()),
                                   "Manual capture");
           iq_capturing = true;
-          iq_capture_start =
-              std::chrono::duration<double>(
-                  std::chrono::system_clock::now().time_since_epoch())
-                  .count();
+          iq_capture_start = std::chrono::steady_clock::now();
           LOG_INFO("IQ logging started: " + iq_logger.get_data_filename());
         }
       }
@@ -683,11 +677,9 @@ auto main(int argc, char *argv[]) -> int {
 
       // === 9. Check for IQ capture duration expiry ===
       if (iq_capturing && config.iq_capture_duration > 0.0) {
-        double const current_time =
-            std::chrono::duration<double>(
-                std::chrono::system_clock::now().time_since_epoch())
-                .count();
-        if ((current_time - iq_capture_start) >= config.iq_capture_duration) {
+        double const elapsed = std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - iq_capture_start).count();
+        if (elapsed >= config.iq_capture_duration) {
           iq_logger.stop_capture();
           iq_capturing = false;
           LOG_INFO("IQ capture stopped after duration: " +

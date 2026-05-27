@@ -24,14 +24,6 @@ struct RgbColor {
   constexpr RgbColor() : red(0), green(0), blue(0), alpha(255) {}
   constexpr RgbColor(uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255)
       : red(r), green(g), blue(b), alpha(a) {}
-
-  // Fast copy to pixel buffer (4 bytes: RGBA)
-  inline void copy_to(uint8_t *dst) const {
-    dst[0] = red;
-    dst[1] = green;
-    dst[2] = blue;
-    dst[3] = alpha;
-  }
 };
 
 // Phase 3: Optimized pixel buffer for direct pointer access
@@ -89,18 +81,6 @@ public:
     return m_data + (y * width + x) * 4;
   }
 
-  // Fill a vertical column with a color
-  inline void fill_column(size_t x, size_t y_start, size_t y_end, size_t width,
-                          const RgbColor &color) noexcept {
-    uint8_t *dst = pixel_ptr(x, y_start, width);
-    const size_t stride = width * 4; // bytes per row
-
-    for (size_t y = y_start; y <= y_end; ++y) {
-      color.copy_to(dst);
-      dst += stride;
-    }
-  }
-
 private:
   uint8_t *m_data;
   size_t m_size;
@@ -118,9 +98,6 @@ public:
 
   // Get color for a dB value (uses precomputed range for efficiency)
   [[nodiscard]] RgbColor get_color(float db_value) const;
-
-  // Legacy version with inline range parameters (slower, keeps backward compat)
-  [[nodiscard]] RgbColor get_color(float db_value, float min_db, float max_db) const;
 
   // Color map presets
   enum class ColorMap { JET, VIRIDIS, HOT, GRAyscale, BLUE_RED };

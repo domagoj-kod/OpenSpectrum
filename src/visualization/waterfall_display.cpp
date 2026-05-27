@@ -20,10 +20,11 @@ namespace openspectrum {
 WaterfallDisplay::WaterfallDisplay(size_t width, size_t height,
                                    size_t history_lines)
     : m_width(width), m_height(height),
-      m_history_lines(std::min(history_lines, height)),
       m_pixels(width * height * 4),
       m_history(history_lines),
-      m_new_line(width * std::max<size_t>(1UL, height / history_lines) * 4) {
+      m_new_line(width * std::max<size_t>(1UL, height / history_lines) * 4),
+      m_line_buf(width),
+      m_quantized_buf(width) {
   rebuild_rgba_lut();
 }
 
@@ -138,7 +139,8 @@ void WaterfallDisplay::add_spectrum_line(const std::vector<float> &db_values) {
   }
 
   // Resample if needed to match width
-  std::vector<float> line(m_width, m_min_db);
+  std::vector<float> &line = m_line_buf;
+  std::fill(line.begin(), line.end(), m_min_db);
   if (db_values.size() == m_width) {
     line = db_values;
   } else if (db_values.size() > m_width) {
@@ -172,12 +174,11 @@ void WaterfallDisplay::add_spectrum_line(const std::vector<float> &db_values) {
   size_t old_size = m_history.size();
 
   // Quantize float dB values to uint8 before storing (4:1 memory reduction)
-  std::vector<uint8_t> quantized(m_width);
   for (size_t i = 0; i < m_width; ++i) {
-    quantized[i] = quantize_db(line[i]);
+    m_quantized_buf[i] = quantize_db(line[i]);
   }
 
-  m_history.push(std::move(quantized));
+  m_history.push(m_quantized_buf);
 
   // Mark dirty rectangles
   if (old_size < m_history.capacity()) {

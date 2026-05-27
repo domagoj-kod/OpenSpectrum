@@ -44,9 +44,9 @@ void SpectrumPalette::set_color_map(ColorMap map) {
 void SpectrumPalette::generate_jet_palette() {
   for (size_t i = 0; i < PALETTE_SIZE; ++i) {
     float const t = static_cast<float>(i) / (PALETTE_SIZE - 1);
-    float r = NAN;
-    float g = NAN;
-    float b = NAN;
+    float r = 0.0F;
+    float g = 0.0F;
+    float b = 0.0F;
 
     if (t < 0.125F) {
       r = 0.0F;
@@ -143,33 +143,6 @@ auto SpectrumPalette::get_color(float db_value) const -> RgbColor {
   int index = static_cast<int>(scaled);
 
   // Clamp to [0, PALETTE_SIZE-1]
-  index = std::max(index, 0);
-  if (index >= static_cast<int>(PALETTE_SIZE)) {
-    index = static_cast<int>(PALETTE_SIZE - 1);
-  }
-
-  return m_palette[static_cast<size_t>(index)];
-}
-
-// Legacy version with inline range - uses integer quantization but computes
-// scale factor on the fly (slower than precomputed version)
-auto SpectrumPalette::get_color(float db_value, float min_db,
-                                    float max_db) const -> RgbColor {
-  // Integer quantization: index = (int)((db - min) * scale + 0.5f)
-  float const range = max_db - min_db;
-  if (range <= 0.0F) {
-    return m_palette[0];
-  }
-
-  // Clamp db_value to [min_db, max_db]
-  db_value = std::max(db_value, min_db);
-  db_value = std::min(db_value, max_db);
-
-  // Compute scale and index with rounding
-  float const scale = (static_cast<float>(PALETTE_SIZE - 1)) / (range + 1e-10F);
-  int index = static_cast<int>(std::fma(db_value - min_db, scale, 0.5F));
-
-  // Clamp to valid range
   index = std::max(index, 0);
   if (index >= static_cast<int>(PALETTE_SIZE)) {
     index = static_cast<int>(PALETTE_SIZE - 1);
