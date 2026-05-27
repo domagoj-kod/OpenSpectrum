@@ -77,10 +77,10 @@ private:
   static uint8_t quantize_db(float db) noexcept;
   static float dequantize_db(uint8_t q) noexcept;
 
-  // Precomputed RGBA table: lut[q] = 4 bytes (R,G,B,A) for quantized value q.
-  // Rebuilt whenever palette or dB range changes. Render uses a single memcpy
-  // per pixel instead of dequantize_db() + get_color() (Mode 13h palette trick).
-  uint8_t m_rgba_lut[256][4]{};
+  // Precomputed RGBA table: lut[q] = packed uint32 (R|G<<8|B<<16|A<<24).
+  // Scalar path: memcpy 4 bytes. AVX2 path: _mm256_i32gather_epi32 processes
+  // 8 pixels per instruction. Rebuilt on palette or dB range change.
+  uint32_t m_rgba_lut[256]{};
   void rebuild_rgba_lut();
 
   void render();

@@ -1058,11 +1058,14 @@ Use this checklist to track progress:
 - [x] 1.4 `memset` instead of `std::fill` (fixed PixelBuffer::clear; removed misnamed memset_clear)
 - [x] 2.1 Manual min/max loops (spectrum_display, waterfall update_global_range, fft get_max_db)
 - [x] 2.2 Raw pointers in hot loops (was already done in both render() methods)
-- [x] 2.3 Increase async buffers to 32
+- [x] 2.3 Increase async buffers (STREAM_BUFF + MAX_SAMPLE_QUEUE_SIZE: 32→64)
 - [ ] 2.4 Zero-copy FFT (signal processing chain needs intermediate buffer; complex to remove)
 - [ ] 3.1 Batch sample processing
-- [ ] 3.2 SIMD rendering
+- [x] 3.2 SIMD rendering (AVX2 gather: 8 px/iter with #ifdef __AVX2__ guard + scalar fallback)
 - [ ] 3.3 Fixed-point math
+- [x] Force D3D11 SDL backend on Windows (#ifdef _WIN32, SDL_HINT_RENDER_DRIVER)
+- [x] Waterfall RGBA LUT (Mode 13h palette trick, uint32_t[256] packed for gather)
+- [x] -march=nehalem → -march=haswell (unlocks AVX2, FMA3, BMI1/2; 2013+ baseline)
 
 ---
 

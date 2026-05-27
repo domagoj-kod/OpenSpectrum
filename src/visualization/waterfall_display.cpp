@@ -9,6 +9,10 @@
 #include <utility>
 #include <vector>
 
+#ifdef __AVX2__
+#include <immintrin.h>
+#endif
+
 #include <SDL2/SDL.h>
 
 namespace openspectrum {
@@ -38,10 +42,10 @@ void WaterfallDisplay::rebuild_rgba_lut() {
   for (size_t q = 0; q < 256; ++q) {
     float const db = dequantize_db(static_cast<uint8_t>(q));
     RgbColor const color = m_palette.get_color(db);
-    m_rgba_lut[q][0] = color.red;
-    m_rgba_lut[q][1] = color.green;
-    m_rgba_lut[q][2] = color.blue;
-    m_rgba_lut[q][3] = color.alpha;
+    m_rgba_lut[q] = static_cast<uint32_t>(color.red)
+                  | (static_cast<uint32_t>(color.green) << 8)
+                  | (static_cast<uint32_t>(color.blue)  << 16)
+                  | (static_cast<uint32_t>(color.alpha) << 24);
   }
 }
 
@@ -237,9 +241,25 @@ void WaterfallDisplay::render() {
       uint8_t *row_ptr = m_pixels.data() + (pixel_row * row_stride);
 
       const uint8_t *line_ptr = line.data();
-      for (size_t x = 0; x < m_width; ++x) {
-        memcpy(row_ptr + (x * 4), m_rgba_lut[line_ptr[x]], 4);
+      uint8_t *dst = row_ptr;
+
+#ifdef __AVX2__
+      const int *lut = reinterpret_cast<const int *>(m_rgba_lut);
+      size_t x = 0;
+      for (; x + 8 <= m_width; x += 8, dst += 32) {
+        __m128i idx8   = _mm_loadl_epi64(reinterpret_cast<const __m128i *>(line_ptr + x));
+        __m256i idx32  = _mm256_cvtepu8_epi32(idx8);
+        __m256i colors = _mm256_i32gather_epi32(lut, idx32, 4);
+        _mm256_storeu_si256(reinterpret_cast<__m256i *>(dst), colors);
       }
+      for (; x < m_width; ++x, dst += 4) {
+        memcpy(dst, &m_rgba_lut[line_ptr[x]], 4);
+      }
+#else
+      for (size_t x = 0; x < m_width; ++x, dst += 4) {
+        memcpy(dst, &m_rgba_lut[line_ptr[x]], 4);
+      }
+#endif
     }
     
     y_offset += line_height;

@@ -28,7 +28,7 @@
 #include <string>
 #include <vector>
 
-#define STREAM_BUFF 32
+#define STREAM_BUFF 64
 
 // Security: Use hardened compiler flags (defined in Makefile)
 // -fstack-protector-strong, -D_FORTIFY_SOURCE=2, -O2, -Wall, -Wextra
@@ -58,7 +58,7 @@ static std::unique_ptr<FramePool> g_frame_pool;
 // At 8ms timeout and typical sample rates, 32 buffers is ~256ms of data
 // Each buffer at FFT 4096 = 4096 * 8 bytes = 32KB
 // 32 * 32KB = 1MB max queue memory (was growing to 1GB+)
-static const size_t MAX_SAMPLE_QUEUE_SIZE = 32;
+static const size_t MAX_SAMPLE_QUEUE_SIZE = 64;
 
 // Global device pointer for signal handler access (needed for cleanup)
 static RtlSdrDevice *g_dev_ptr = nullptr;
