@@ -17,17 +17,32 @@ WaterfallDisplay::WaterfallDisplay(size_t width, size_t height,
                                    size_t history_lines)
     : m_width(width), m_height(height),
       m_history_lines(std::min(history_lines, height)),
-      m_pixels(width * height * 4), // Phase 3: RGBA format
-      m_history(history_lines) { // Ring buffer with fixed capacity
-  // Start with empty history - lines will be added via add_spectrum_line()
-  // This ensures proper dirty rect tracking from the first line
+      m_pixels(width * height * 4),
+      m_history(history_lines) {
+  rebuild_rgba_lut();
+}
+
+void WaterfallDisplay::set_color_map(SpectrumPalette::ColorMap map) {
+  m_palette.set_color_map(map);
+  rebuild_rgba_lut();
 }
 
 void WaterfallDisplay::set_db_range(float min_db, float max_db) {
   m_min_db = std::min(min_db, max_db);
   m_max_db = std::max(min_db, max_db);
-  // Update palette range for optimized color lookup
   m_palette.set_db_range(m_min_db, m_max_db);
+  rebuild_rgba_lut();
+}
+
+void WaterfallDisplay::rebuild_rgba_lut() {
+  for (size_t q = 0; q < 256; ++q) {
+    float const db = dequantize_db(static_cast<uint8_t>(q));
+    RgbColor const color = m_palette.get_color(db);
+    m_rgba_lut[q][0] = color.red;
+    m_rgba_lut[q][1] = color.green;
+    m_rgba_lut[q][2] = color.blue;
+    m_rgba_lut[q][3] = color.alpha;
+  }
 }
 
 uint8_t WaterfallDisplay::quantize_db(float db) noexcept {
@@ -75,6 +90,7 @@ void WaterfallDisplay::update_global_range() {
   m_global_min = new_min;
   m_global_max = new_max;
   m_palette.set_db_range(m_global_min, m_global_max);
+  rebuild_rgba_lut();
 }
 
 void WaterfallDisplay::reset() {
@@ -221,16 +237,8 @@ void WaterfallDisplay::render() {
       uint8_t *row_ptr = m_pixels.data() + (pixel_row * row_stride);
 
       const uint8_t *line_ptr = line.data();
-      for (size_t x = 0; x < m_width && x < line.size(); ++x) {
-        float const db = dequantize_db(line_ptr[x]);
-        auto color = m_palette.get_color(db);
-
-        // Phase 3: Direct pointer access (no bounds check)
-        uint8_t *dst = row_ptr + (x * 4);
-        dst[0] = color.red;
-        dst[1] = color.green;
-        dst[2] = color.blue;
-        dst[3] = color.alpha;
+      for (size_t x = 0; x < m_width; ++x) {
+        memcpy(row_ptr + (x * 4), m_rgba_lut[line_ptr[x]], 4);
       }
     }
     

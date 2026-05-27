@@ -34,9 +34,7 @@ public:
   size_t height() const noexcept { return m_height; }
 
   // Configuration
-  void set_color_map(SpectrumPalette::ColorMap map) {
-    m_palette.set_color_map(map);
-  }
+  void set_color_map(SpectrumPalette::ColorMap map);
   void set_db_range(float min_db, float max_db);
   void set_autoscale(bool enabled) { m_autoscale = enabled; }
 
@@ -78,6 +76,12 @@ private:
 
   static uint8_t quantize_db(float db) noexcept;
   static float dequantize_db(uint8_t q) noexcept;
+
+  // Precomputed RGBA table: lut[q] = 4 bytes (R,G,B,A) for quantized value q.
+  // Rebuilt whenever palette or dB range changes. Render uses a single memcpy
+  // per pixel instead of dequantize_db() + get_color() (Mode 13h palette trick).
+  uint8_t m_rgba_lut[256][4]{};
+  void rebuild_rgba_lut();
 
   void render();
   void update_global_range();

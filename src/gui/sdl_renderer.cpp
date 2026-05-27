@@ -37,6 +37,12 @@ SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title,
     throw std::runtime_error("SDL_Init failed: " + std::string(SDL_GetError()));
   }
 
+  // D3D9 LockTexture stalls the CPU-GPU pipeline every frame (requires sync).
+  // D3D11 Map(WRITE_DISCARD) avoids this. Force it before renderer creation.
+#ifdef _WIN32
+  SDL_SetHint(SDL_HINT_RENDER_DRIVER, "direct3d11");
+#endif
+
   // Use SDL_RENDERER_ACCELERATED for GPU, fallback to software
   m_window = SDL_CreateWindow(title.c_str(), SDL_WINDOWPOS_CENTERED,
                               SDL_WINDOWPOS_CENTERED, static_cast<int>(width),

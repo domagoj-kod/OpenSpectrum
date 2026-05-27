@@ -1068,13 +1068,16 @@ Use this checklist to track progress:
 
 ## Performance Targets
 
-| Metric | Baseline | Target | Status |
-|--------|----------|--------|--------|
-| RAM Usage | ~43 MB | <10 MB | ⬜ |
-| CPU Usage | ~0.8% (Windows) | <0.5% | ⬜ |
-| GPU Utilization | ~1.7% | >5% | ⬜ |
-| Instructions Retired | 10.05B | <8B | ⬜ |
-| CPI Rate | 0.678 | <0.6 | ⬜ |
+| Metric | Baseline | After Round 1 | Target | Status |
+|--------|----------|---------------|--------|--------|
+| RAM Usage | ~43 MB | ~49 MB* | <10 MB | ⬜ |
+| IPC | 0.855 | 1.394 | >2.0 | ⬜ |
+| Microarch Usage | 17.9% | 30.6% | >50% | ⬜ |
+| GPU Time | 1.8% | 2.6% | >5% | ⬜ |
+| SleepConditionVariableCS | 37.2% | 13.8% | <5% | ⬜ |
+| D3D9 CPU share | N/A | 71.9% | 0% (→D3D11) | ⬜ |
+
+*49 MB includes ~3 MB extra from RTL-SDR DMA buffer increase (8→32 streaming buffers)
 
 ---
 
