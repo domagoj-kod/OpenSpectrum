@@ -45,7 +45,7 @@ std::ranges::min/max_element       : ~3-4%  (iterator overhead)
 | 2 | Manual min/max loops - replace std::ranges | Medium | ~3% CPU | ✅ | ✅ | ⬜ |
 | 2 | Raw pointers in hot loops - eliminate iterator overhead | Medium | ~2% CPU | ✅ | ✅ | ⬜ |
 | 2 | Real FFT optimization - use kiss_fftr for real signals | Medium | ~40% FFT time | ✅ | ✅ | ⬜ |
-| 2 | Increase async buffers - from 8 to 32 | Medium | Reduces waits | ✅ | ✅ | ⬜ |
+| 2 | Increase async buffers - from 8 to 32 | Medium | Reduces waits | ✅ | ✅ | ✅ |
 | 3 | Zero-copy FFT - accept FrameHandle directly | High | ~5% CPU | ✅ | ✅ | ⬜ |
 | 3 | Batch sample processing - accumulate 2-4 FFTs | Medium | Reduces render calls | ✅ | ✅ | ⬜ |
 | 4 | SIMD rendering - process 4-8 pixels/iter | High | 30-50% render | ✅ | ✅ (hand-optimized) | ⬜ |
@@ -1058,7 +1058,7 @@ Use this checklist to track progress:
 - [ ] 1.4 `memset` instead of `std::fill`
 - [ ] 2.1 Manual min/max loops
 - [ ] 2.2 Raw pointers in hot loops
-- [ ] 2.3 Increase async buffers to 32
+- [x] 2.3 Increase async buffers to 32
 - [ ] 2.4 Zero-copy FFT
 - [ ] 3.1 Batch sample processing
 - [ ] 3.2 SIMD rendering
