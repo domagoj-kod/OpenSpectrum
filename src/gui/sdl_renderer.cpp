@@ -30,6 +30,36 @@
 
 namespace openspectrum {
 
+static uint32_t nice_tick_interval(uint32_t sample_rate_hz) {
+  static const uint32_t NICE[] = {
+      10'000, 20'000, 25'000, 50'000, 100'000, 200'000, 250'000, 500'000,
+      1'000'000, 2'000'000, 2'500'000, 5'000'000, 10'000'000
+  };
+  uint32_t const target = sample_rate_hz / 6;
+  for (uint32_t n : NICE) {
+    if (n >= target) return n;
+  }
+  return NICE[sizeof(NICE) / sizeof(NICE[0]) - 1];
+}
+
+static std::string format_freq_label(int64_t hz) {
+  char buf[32];
+  if (hz >= 1'000'000LL) {
+    if (hz % 1'000'000LL == 0)
+      snprintf(buf, sizeof(buf), "%lld MHz", static_cast<long long>(hz / 1'000'000LL));
+    else if (hz % 100'000LL == 0)
+      snprintf(buf, sizeof(buf), "%.1f MHz", static_cast<double>(hz) / 1e6);
+    else
+      snprintf(buf, sizeof(buf), "%.2f MHz", static_cast<double>(hz) / 1e6);
+  } else {
+    if (hz % 1'000LL == 0)
+      snprintf(buf, sizeof(buf), "%lld kHz", static_cast<long long>(hz / 1'000LL));
+    else
+      snprintf(buf, sizeof(buf), "%.1f kHz", static_cast<double>(hz) / 1e3);
+  }
+  return {buf};
+}
+
 SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title,
                          bool enable_vsync)
     : m_width(width), m_height(height), m_enable_vsync(enable_vsync) {
@@ -126,6 +156,12 @@ SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title,
 }
 
 SdlRenderer::~SdlRenderer() {
+  // Clean up frequency scale tick textures
+  for (auto &tick : m_freq_ticks) {
+    if (tick.label != nullptr) SDL_DestroyTexture(tick.label);
+  }
+  m_freq_ticks.clear();
+
   // Clean up cached textures (only if they differ from current textures)
   if (m_status_cache.texture != nullptr && m_status_cache.texture != m_status_texture) {
     SDL_DestroyTexture(m_status_cache.texture);
@@ -228,6 +264,40 @@ void SdlRenderer::render_overlays() {
 
     // Restore draw color
     SDL_SetRenderDrawColor(m_renderer, r, g, b, a);
+  }
+
+  // Render frequency scale at the bottom edge of the spectrum area
+  if (!m_freq_ticks.empty() && m_freq_scale_spectrum_height >= 22) {
+    const int scale_h = 22;
+    const int scale_y = static_cast<int>(m_freq_scale_spectrum_height) - scale_h;
+
+    Uint8 dr, dg, db, da;
+    SDL_GetRenderDrawColor(m_renderer, &dr, &dg, &db, &da);
+    SDL_BlendMode prev_blend;
+    SDL_GetRenderDrawBlendMode(m_renderer, &prev_blend);
+
+    // Semi-transparent dark background spanning full width
+    SDL_SetRenderDrawBlendMode(m_renderer, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 180);
+    SDL_Rect const scale_bg = {0, scale_y, static_cast<int>(m_width), scale_h};
+    SDL_RenderFillRect(m_renderer, &scale_bg);
+
+    // Tick marks (1px wide, 4px tall at top of bar)
+    SDL_SetRenderDrawColor(m_renderer, 180, 180, 180, 255);
+    for (const auto &tick : m_freq_ticks) {
+      SDL_Rect const tick_line = {tick.x, scale_y, 1, 4};
+      SDL_RenderFillRect(m_renderer, &tick_line);
+
+      if (tick.label != nullptr && tick.label_w > 0) {
+        int lx = tick.x - tick.label_w / 2;
+        lx = std::max(0, std::min(lx, static_cast<int>(m_width) - tick.label_w));
+        SDL_Rect const label_rect = {lx, scale_y + 5, tick.label_w, 16};
+        SDL_RenderCopy(m_renderer, tick.label, nullptr, &label_rect);
+      }
+    }
+
+    SDL_SetRenderDrawColor(m_renderer, dr, dg, db, da);
+    SDL_SetRenderDrawBlendMode(m_renderer, prev_blend);
   }
 }
 
@@ -527,6 +597,52 @@ void SdlRenderer::render_iq_status(const std::string &iq_text) {
     m_iq_cache.content = iq_text;
     m_iq_cache.color = text_color;
     m_iq_cache.valid = true;
+  }
+}
+
+void SdlRenderer::rebuild_freq_scale_ticks() {
+  for (auto &tick : m_freq_ticks) {
+    if (tick.label != nullptr) SDL_DestroyTexture(tick.label);
+  }
+  m_freq_ticks.clear();
+
+  if (m_freq_scale_sample_rate_hz == 0 || m_freq_scale_spectrum_height < 22) return;
+
+  uint32_t const interval = nice_tick_interval(m_freq_scale_sample_rate_hz);
+  int64_t const start_hz = static_cast<int64_t>(m_freq_scale_center_hz)
+                         - static_cast<int64_t>(m_freq_scale_sample_rate_hz) / 2;
+  int64_t const end_hz   = start_hz + static_cast<int64_t>(m_freq_scale_sample_rate_hz);
+
+  int64_t const first_tick = ((start_hz + static_cast<int64_t>(interval) - 1)
+                               / static_cast<int64_t>(interval))
+                             * static_cast<int64_t>(interval);
+
+  SDL_Color const label_color = {200, 200, 200, 255};
+  for (int64_t freq = first_tick; freq < end_hz; freq += static_cast<int64_t>(interval)) {
+    if (freq < 0) continue;
+    float const x_frac = static_cast<float>(freq - start_hz)
+                       / static_cast<float>(m_freq_scale_sample_rate_hz);
+    int const x = static_cast<int>(x_frac * static_cast<float>(m_width));
+
+    std::string const label = format_freq_label(freq);
+    SDL_Texture *tex = m_text_renderer->render_text(label, label_color);
+
+    int lw = 0;
+    m_text_renderer->get_text_size(label, &lw, nullptr);
+
+    m_freq_ticks.push_back({tex, x, lw});
+  }
+}
+
+void SdlRenderer::render_frequency_scale(uint32_t center_hz, uint32_t sample_rate_hz,
+                                          size_t spectrum_height) {
+  if (center_hz      != m_freq_scale_center_hz
+   || sample_rate_hz != m_freq_scale_sample_rate_hz
+   || spectrum_height!= m_freq_scale_spectrum_height) {
+    m_freq_scale_center_hz      = center_hz;
+    m_freq_scale_sample_rate_hz = sample_rate_hz;
+    m_freq_scale_spectrum_height= spectrum_height;
+    rebuild_freq_scale_ticks();
   }
 }
 

@@ -2,6 +2,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -61,6 +62,12 @@ public:
   // Render IQ logging status indicator in bottom-left corner
   void render_iq_status(const std::string &iq_text);
 
+  // Render dynamic frequency scale at the bottom of the spectrum display.
+  // Labels span center_hz ± sample_rate_hz/2. Caches textures; rebuilds only
+  // when center_hz or sample_rate_hz changes.
+  void render_frequency_scale(uint32_t center_hz, uint32_t sample_rate_hz,
+                               size_t spectrum_height);
+
   // Get dimensions
   size_t width() const noexcept { return m_width; }
   size_t height() const noexcept { return m_height; }
@@ -74,9 +81,11 @@ public:
   SDL_Renderer *get_sdl_renderer() const noexcept { return m_renderer; }
 
 private:
-  // Render overlays (status bar, peak indicator, IQ status)
+  // Render overlays (status bar, peak indicator, IQ status, freq scale)
   // Called after rendering the main texture
   void render_overlays();
+
+  void rebuild_freq_scale_ticks();
 
   size_t m_width;
   size_t m_height;
@@ -111,6 +120,17 @@ private:
   // IQ logging status indicator for bottom-left corner
   SDL_Texture *m_iq_texture = nullptr;
   std::string m_current_iq_status;
+
+  // Frequency scale overlay (bottom of spectrum area)
+  struct FreqTick {
+    SDL_Texture *label = nullptr;
+    int x = 0;
+    int label_w = 0;
+  };
+  std::vector<FreqTick> m_freq_ticks;
+  uint32_t m_freq_scale_center_hz = 0;
+  uint32_t m_freq_scale_sample_rate_hz = 0;
+  size_t m_freq_scale_spectrum_height = 0;
 };
 
 } // namespace openspectrum

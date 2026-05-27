@@ -28,7 +28,14 @@
 #include <string>
 #include <vector>
 
+// WinUSB has no DMA buffer limit; Linux usbfs defaults to 16 MB which
+// is exhausted at 128 KB/buf × 64 = 8 MB when other USB overhead is counted.
+// 32 buffers (4 MB) is safe on both platforms.
+#ifdef _WIN32
 #define STREAM_BUFF 64
+#else
+#define STREAM_BUFF 32
+#endif
 
 // Security: Use hardened compiler flags (defined in Makefile)
 // -fstack-protector-strong, -D_FORTIFY_SOURCE=2, -O2, -Wall, -Wextra
@@ -545,6 +552,12 @@ auto main(int argc, char *argv[]) -> int {
       if (peak_db > -140.0F) {
         renderer.render_peak_indicator(peak_db);
       }
+
+      // Update frequency scale (caches rebuild only when center_hz or rate changes)
+      renderer.render_frequency_scale(
+          control_state.get_frequency(),
+          static_cast<uint32_t>(config.sample_rate_hz),
+          spectrum_display.height());
 
       // === 2. Read samples from async queue (non-blocking) ===
       // Wait for samples with timeout (8ms = ~125fps max, reduced from 16ms)
