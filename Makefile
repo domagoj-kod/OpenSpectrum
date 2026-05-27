@@ -50,9 +50,9 @@ LDFLAGS  := $(BASE_LDFLAGS)
 
 # Release target overrides
 release:
-	$(MAKE) CFLAGS="$(BASE_CFLAGS) -O3 -DNDEBUG -flto -march=nehalem" \
-	       CXXFLAGS="$(BASE_CXXFLAGS) -O3 -DNDEBUG -flto -march=nehalem" \
-	       LDFLAGS="$(BASE_LDFLAGS) -flto -march=nehalem" \
+	$(MAKE) CFLAGS="$(BASE_CFLAGS) -O3 -DNDEBUG -flto -march=haswell" \
+	       CXXFLAGS="$(BASE_CXXFLAGS) -O3 -DNDEBUG -flto -march=haswell" \
+	       LDFLAGS="$(BASE_LDFLAGS) -flto -march=haswell" \
 	       all
 
 # Profile target overrides

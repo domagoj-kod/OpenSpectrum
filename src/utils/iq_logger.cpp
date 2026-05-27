@@ -9,6 +9,7 @@
 #include <ctime>
 #include <iomanip>
 #include <sstream>
+#include <utility>
 #include <sys/stat.h>
 #include <sys/types.h>
 
@@ -351,12 +352,12 @@ IqCaptureStats IqLogger::get_stats() const {
 
 void IqLogger::set_progress_callback(IqLoggerProgressCallback cb) {
   std::lock_guard<std::mutex> lock(m_mutex);
-  m_progress_cb = cb;
+  m_progress_cb = std::move(cb);
 }
 
 void IqLogger::set_complete_callback(IqLoggerCompleteCallback cb) {
   std::lock_guard<std::mutex> lock(m_mutex);
-  m_complete_cb = cb;
+  m_complete_cb = std::move(cb);
 }
 
 std::string IqLogger::get_data_filename() const {
@@ -380,7 +381,7 @@ std::string IqLogger::generate_metadata_json() const {
 
   // Capture info
   ss << "  \"capture\": {\n";
-  ss << "    \"timestamp_iso8601\": \"" << get_iso8601_timestamp() << "\",\n";
+  ss << R"(    "timestamp_iso8601": ")" << get_iso8601_timestamp() << "\",\n";
   ss << "    \"timestamp_unix\": " << m_start_time << ",\n";
   ss << "    \"duration_seconds\": " << duration << ",\n";
   ss << "    \"sample_count\": " << m_stats.sample_count << "\n";
@@ -401,7 +402,7 @@ std::string IqLogger::generate_metadata_json() const {
     ss << "    \"fft_size\": " << m_fft_size << ",\n";
   }
   if (!m_window_function.empty()) {
-    ss << "    \"window_function\": \"" << m_window_function << "\"\n";
+    ss << R"(    "window_function": ")" << m_window_function << "\"\n";
   }
   ss << "  },\n";
 
@@ -428,7 +429,7 @@ std::string IqLogger::generate_metadata_json() const {
 
   // Notes
   if (!m_notes.empty()) {
-    ss << "  \"notes\": \"" << escape_json_string(m_notes) << "\"\n";
+    ss << R"(  "notes": ")" << escape_json_string(m_notes) << "\"\n";
   }
 
   ss << "}";

@@ -44,9 +44,9 @@ void SpectrumPalette::set_color_map(ColorMap map) {
 void SpectrumPalette::generate_jet_palette() {
   for (size_t i = 0; i < PALETTE_SIZE; ++i) {
     float const t = static_cast<float>(i) / (PALETTE_SIZE - 1);
-    float r = NAN;
-    float g = NAN;
-    float b = NAN;
+    float r = 0.0F;
+    float g = 0.0F;
+    float b = 0.0F;
 
     if (t < 0.125F) {
       r = 0.0F;
@@ -151,33 +151,6 @@ auto SpectrumPalette::get_color(float db_value) const -> RgbColor {
   return m_palette[static_cast<size_t>(index)];
 }
 
-// Legacy version with inline range - uses integer quantization but computes
-// scale factor on the fly (slower than precomputed version)
-auto SpectrumPalette::get_color(float db_value, float min_db,
-                                    float max_db) const -> RgbColor {
-  // Integer quantization: index = (int)((db - min) * scale + 0.5f)
-  float const range = max_db - min_db;
-  if (range <= 0.0F) {
-    return m_palette[0];
-  }
-
-  // Clamp db_value to [min_db, max_db]
-  db_value = std::max(db_value, min_db);
-  db_value = std::min(db_value, max_db);
-
-  // Compute scale and index with rounding
-  float const scale = (static_cast<float>(PALETTE_SIZE - 1)) / (range + 1e-10F);
-  int index = static_cast<int>(std::fma(db_value - min_db, scale, 0.5F));
-
-  // Clamp to valid range
-  index = std::max(index, 0);
-  if (index >= static_cast<int>(PALETTE_SIZE)) {
-    index = static_cast<int>(PALETTE_SIZE - 1);
-  }
-
-  return m_palette[static_cast<size_t>(index)];
-}
-
 // --- SpectrumDisplay Implementation ---
 
 SpectrumDisplay::SpectrumDisplay(size_t width, size_t height)
@@ -205,9 +178,15 @@ void SpectrumDisplay::update_spectrum(const std::vector<float> &db_values,
   m_spectrum_data = db_values;
 
   if (m_autoscale && !db_values.empty()) {
-    float const min_val = *std::ranges::min_element(db_values);
-    float const max_val = *std::ranges::max_element(db_values);
-    set_db_range(min_val - 5.0F, max_val + 5.0F); // Add 5dB margin
+    const float *ptr = db_values.data();
+    const size_t n = db_values.size();
+    float min_val = ptr[0];
+    float max_val = ptr[0];
+    for (size_t i = 1; i < n; ++i) {
+      if (ptr[i] < min_val) min_val = ptr[i];
+      if (ptr[i] > max_val) max_val = ptr[i];
+    }
+    set_db_range(min_val - 5.0F, max_val + 5.0F);
   }
 
   render();

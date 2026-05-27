@@ -157,11 +157,14 @@ void FftAnalyzer::execute(const std::vector<std::complex<float>> &input) {
 }
 
 auto FftAnalyzer::get_max_db() const -> float {
-  if (m_db_spectrum.empty()) {
-    // Return sentinel value below typical noise floor when no data
-    return -140.0F;
+  if (m_db_spectrum.empty()) return -140.0F;
+  const float *ptr = m_db_spectrum.data();
+  const size_t n = m_db_spectrum.size();
+  float max_val = ptr[0];
+  for (size_t i = 1; i < n; ++i) {
+    if (ptr[i] > max_val) max_val = ptr[i];
   }
-  return *std::ranges::max_element(m_db_spectrum);
+  return max_val;
 }
 
 } // namespace openspectrum

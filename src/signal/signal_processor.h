@@ -37,9 +37,9 @@ public:
   void precompute_window(size_t size);
 
   // Get window coefficient at index
-  float get_window_coeff(size_t index) const;
+  [[nodiscard]] float get_window_coeff(size_t index) const;
 
-  size_t fft_size() const noexcept { return m_fft_size; }
+  [[nodiscard]] size_t fft_size() const noexcept { return m_fft_size; }
 
   // Coherent gain lookup
   static float get_coherent_gain(WindowFunction window) noexcept {

@@ -35,30 +35,30 @@ public:
   void execute(const std::vector<std::complex<float>> &input);
 
   // Get power spectrum (magnitude squared) from last FFT result
-  const std::vector<float> &get_power_spectrum() const {
+  [[nodiscard]] const std::vector<float> &get_power_spectrum() const {
     return m_power_spectrum;
   }
 
   // Get magnitude spectrum (linear) from last FFT result
-  const std::vector<float> &get_magnitude_spectrum() const {
+  [[nodiscard]] const std::vector<float> &get_magnitude_spectrum() const {
     return m_magnitude_spectrum;
   }
 
   // Get magnitude spectrum in dB from last FFT result
-  const std::vector<float> &get_db_spectrum() const { return m_db_spectrum; }
+  [[nodiscard]] const std::vector<float> &get_db_spectrum() const { return m_db_spectrum; }
 
   // Get phase spectrum in radians from last FFT result
-  const std::vector<float> &get_phase_spectrum() const {
+  [[nodiscard]] const std::vector<float> &get_phase_spectrum() const {
     return m_phase_spectrum;
   }
 
   // Get normalized frequency bins (0 to 1, where 1 = sample rate)
-  const std::vector<float> &get_frequency_bins() const { return m_freq_bins; }
+  [[nodiscard]] const std::vector<float> &get_frequency_bins() const { return m_freq_bins; }
 
   // Amplitude analysis: get maximum dB value from last FFT result
-  float get_max_db() const;
+  [[nodiscard]] float get_max_db() const;
 
-  size_t fft_size() const noexcept { return m_fft_size; }
+  [[nodiscard]] size_t fft_size() const noexcept { return m_fft_size; }
 
   // Shift FFT output so DC is centered (for real signals)
   // Apply (-1)^n shift to input before FFT, or shift output after FFT

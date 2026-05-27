@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+#include "openspectrum/frame_pool.h"
+
 #include <atomic>
 #include <complex>
 #include <cstdint>
@@ -10,8 +12,6 @@
 #include <thread>
 #include <vector>
 
-#include "openspectrum/frame_pool.h"
-
 class RtlSdrDevice {
 public:
   explicit RtlSdrDevice(uint32_t index = 0, size_t pool_capacity = 8192);
@@ -20,7 +20,7 @@ public:
   bool open();
   void close();
   void reset_buffer();
-  bool is_open() const { return m_dev != nullptr; }
+  [[nodiscard]] bool is_open() const { return m_dev != nullptr; }
 
   void set_frequency(uint32_t freq_hz);
   void set_sample_rate(uint32_t rate_hz);
@@ -70,5 +70,5 @@ private:
   std::atomic<bool> m_thread_running{false};
 
   // Check if streaming mode is active
-  bool is_streaming() const { return m_streaming; }
+  [[nodiscard]] bool is_streaming() const { return m_streaming; }
 };

@@ -34,9 +34,7 @@ public:
   size_t height() const noexcept { return m_height; }
 
   // Configuration
-  void set_color_map(SpectrumPalette::ColorMap map) {
-    m_palette.set_color_map(map);
-  }
+  void set_color_map(SpectrumPalette::ColorMap map);
   void set_db_range(float min_db, float max_db);
   void set_autoscale(bool enabled) { m_autoscale = enabled; }
 
@@ -51,14 +49,25 @@ public:
   const std::vector<SDL_Rect>& get_dirty_rects() const { return m_dirty_rects; }
   void clear_dirty_rects() { m_dirty_rects.clear(); }
 
+  // GPU scroll support: true after reset/LUT-rebuild (full upload needed once),
+  // false in steady state where only the newest line changes.
+  bool needs_full_render() const noexcept { return m_needs_full_render || !m_history.full(); }
+
+  // Pixel data for just the newest history line (m_width * get_line_height() * 4 bytes).
+  // Valid when needs_full_render() == false.
+  const uint8_t* get_new_line_rgba() const noexcept { return m_new_line.data(); }
+
+  size_t get_line_height() const noexcept {
+    return std::max<size_t>(1UL, m_height / m_history.capacity());
+  }
+
 private:
   size_t m_width;
   size_t m_height;
-  size_t m_history_lines;
   PixelBuffer m_pixels; // Phase 3: RGBA format
 
-  // Ring buffer for history (replaces std::deque for O(1) push)
-  RingBuffer<std::vector<float>> m_history;
+  // Ring buffer for history — stored as uint8 (0.47 dB/step over -120..0 dB)
+  RingBuffer<std::vector<uint8_t>> m_history;
 
   SpectrumPalette m_palette;
 
@@ -71,10 +80,33 @@ private:
   // Dirty rectangles for incremental rendering
   mutable std::vector<SDL_Rect> m_dirty_rects;
 
+  // GPU scroll state
+  bool m_needs_full_render = true;
+  std::vector<uint8_t> m_new_line; // m_width * get_line_height() * 4 bytes
+
+  // Reusable scratch buffers for add_spectrum_line — avoids per-frame heap alloc
+  std::vector<float>   m_line_buf;
+  std::vector<uint8_t> m_quantized_buf;
+
+  // Fixed quantization range: -120..0 dB → 0..255
+  static constexpr float HIST_DB_MIN = -120.0f;
+  static constexpr float HIST_DB_MAX = 0.0f;
+  static constexpr float HIST_DB_RANGE = HIST_DB_MAX - HIST_DB_MIN;
+
+  static uint8_t quantize_db(float db) noexcept;
+  static float dequantize_db(uint8_t q) noexcept;
+
+  // Precomputed RGBA table: lut[q] = packed uint32 (R|G<<8|B<<16|A<<24).
+  // Scalar path: memcpy 4 bytes. AVX2 path: _mm256_i32gather_epi32 processes
+  // 8 pixels per instruction. Rebuilt on palette or dB range change.
+  uint32_t m_rgba_lut[256]{};
+  void rebuild_rgba_lut();
+
   void render();
+  void render_line_into(const std::vector<uint8_t>& hist_line,
+                        uint8_t* dst_base, size_t rows) const;
   void update_global_range();
 
-  // Helper to calculate pixel rect from line index
   SDL_Rect line_to_rect(size_t line_index) const;
 };
 

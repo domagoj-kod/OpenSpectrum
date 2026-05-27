@@ -28,6 +28,15 @@
 #include <string>
 #include <vector>
 
+// WinUSB has no DMA buffer limit; Linux usbfs defaults to 16 MB which
+// is exhausted at 128 KB/buf × 64 = 8 MB when other USB overhead is counted.
+// 32 buffers (4 MB) is safe on both platforms.
+#ifdef _WIN32
+#define STREAM_BUFF 64
+#else
+#define STREAM_BUFF 32
+#endif
+
 // Security: Use hardened compiler flags (defined in Makefile)
 // -fstack-protector-strong, -D_FORTIFY_SOURCE=2, -O2, -Wall, -Wextra
 
@@ -56,25 +65,17 @@ static std::unique_ptr<FramePool> g_frame_pool;
 // At 8ms timeout and typical sample rates, 32 buffers is ~256ms of data
 // Each buffer at FFT 4096 = 4096 * 8 bytes = 32KB
 // 32 * 32KB = 1MB max queue memory (was growing to 1GB+)
-static const size_t MAX_SAMPLE_QUEUE_SIZE = 32;
+static const size_t MAX_SAMPLE_QUEUE_SIZE = 64;
 
-// Global device pointer for signal handler access (needed for cleanup)
-static RtlSdrDevice *g_dev_ptr = nullptr;
 
 static void signal_handler(int signum) {
+  // Only async-signal-safe operations are permitted here.
+  // Setting a lock-free atomic is safe; LOG, condition_variable::notify_all,
+  // and stop_streaming (which joins a thread) are not.
+  // The main loop checks g_running every 8 ms (CV wait_for timeout) and
+  // performs orderly shutdown — including dev.stop_streaming() — on exit.
   if (signum == SIGINT || signum == SIGTERM) {
-    LOG_INFO("Shutdown signal received, stopping gracefully...");
     g_running = false;
-    g_sample_cv.notify_all(); // Wake up main loop if waiting for samples
-
-    // Stop async streaming if device pointer is available
-    if (g_dev_ptr != nullptr) {
-      try {
-        g_dev_ptr->stop_streaming();
-      } catch (...) {
-        // Ignore errors during shutdown
-      }
-    }
   }
 }
 
@@ -261,7 +262,7 @@ auto main(int argc, char *argv[]) -> int {
     }
     IqLogger iq_logger(iq_logger_config);
     bool iq_capturing = false;
-    double iq_capture_start = 0.0;
+    std::chrono::steady_clock::time_point iq_capture_start;
 
     // Set up callback for when capture completes
     iq_logger.set_complete_callback([](const std::string &filename,
@@ -278,10 +279,7 @@ auto main(int argc, char *argv[]) -> int {
           SignalProcessor::window_function_to_string(config.window_function),
           "Command-line capture");
       iq_capturing = true;
-      iq_capture_start =
-          std::chrono::duration<double>(
-              std::chrono::system_clock::now().time_since_epoch())
-              .count();
+      iq_capture_start = std::chrono::steady_clock::now();
       LOG_INFO("IQ logging enabled: " + iq_logger.get_data_filename());
     }
 
@@ -301,10 +299,8 @@ auto main(int argc, char *argv[]) -> int {
     // 2. Initialize hardware
     LOG_INFO("Initializing RTL-SDR device...");
     RtlSdrDevice dev;
-    g_dev_ptr = &dev; // Set global pointer for signal handler
     if (!dev.open()) {
       LOG_ERROR("Failed to open RTL-SDR device");
-      g_dev_ptr = nullptr;
       return 1;
     }
 
@@ -327,8 +323,9 @@ auto main(int argc, char *argv[]) -> int {
       async_sample_callback(std::move(samples));
     };
     dev.set_frame_callback(frame_callback);
-    dev.start_streaming(8); // Use 8 buffers for async mode
-    LOG_INFO("RTL-SDR async streaming started with 8 buffers, FFT size: " +
+    dev.start_streaming(STREAM_BUFF);
+    LOG_INFO("RTL-SDR async streaming started with " +
+             std::to_string(STREAM_BUFF) + " buffers, FFT size: " +
              std::to_string(FFT_SIZE));
 
     LOGS_INFO << "RTL-SDR initialized: freq="
@@ -354,9 +351,6 @@ auto main(int argc, char *argv[]) -> int {
 
     spectrum_display.set_db_range(-120.0F, 0.0F);
     waterfall_display.set_db_range(-120.0F, 0.0F);
-
-    // Create combined display buffer (spectrum on top, waterfall on bottom)
-    std::vector<uint8_t> combined_pixels(DISPLAY_WIDTH * DISPLAY_HEIGHT * 4, 0);
 
     LOG_INFO("Display initialized: spectrum and waterfall");
 
@@ -439,7 +433,7 @@ auto main(int argc, char *argv[]) -> int {
           async_sample_callback(std::move(samples));
         };
         dev.set_frame_callback(frame_callback);
-        dev.start_streaming(8);
+        dev.start_streaming(STREAM_BUFF);
 
         samples.resize(current_fft_size);
         fft_output.resize(current_fft_size);
@@ -475,10 +469,7 @@ auto main(int argc, char *argv[]) -> int {
                                       control_state.get_window()),
                                   "Manual capture");
           iq_capturing = true;
-          iq_capture_start =
-              std::chrono::duration<double>(
-                  std::chrono::system_clock::now().time_since_epoch())
-                  .count();
+          iq_capture_start = std::chrono::steady_clock::now();
           LOG_INFO("IQ logging started: " + iq_logger.get_data_filename());
         }
       }
@@ -517,7 +508,23 @@ auto main(int argc, char *argv[]) -> int {
       }
 
       // === 1.3. Apply control state changes to device (batch update) ===
-      control_state.apply_to_device(dev);
+      {
+        static uint32_t s_last_freq = 0;
+        uint32_t const now_freq = control_state.get_frequency();
+        control_state.apply_to_device(dev);
+        if (s_last_freq != 0 && s_last_freq != now_freq) {
+          // Frequency tuned — discard buffered samples from the old channel.
+          // Scale label updates immediately (render_frequency_scale sees new freq);
+          // dropping the queue makes the spectrum snap in sync rather than lagging
+          // behind by up to MAX_SAMPLE_QUEUE_SIZE × FFT frames.
+          std::lock_guard<std::mutex> lock(g_sample_mutex);
+          while (!g_sample_queue.empty()) {
+            g_sample_queue.front() = FrameHandle(nullptr); // return to pool
+            g_sample_queue.pop();
+          }
+        }
+        s_last_freq = now_freq;
+      }
 
       // Update status bar (without PEAK - now shown separately)
       if (control_state.status_changed()) {
@@ -545,6 +552,12 @@ auto main(int argc, char *argv[]) -> int {
       if (peak_db > -140.0F) {
         renderer.render_peak_indicator(peak_db);
       }
+
+      // Update frequency scale (caches rebuild only when center_hz or rate changes)
+      renderer.render_frequency_scale(
+          control_state.get_frequency(),
+          static_cast<uint32_t>(config.sample_rate_hz),
+          spectrum_display.height());
 
       // === 2. Read samples from async queue (non-blocking) ===
       // Wait for samples with timeout (8ms = ~125fps max, reduced from 16ms)
@@ -575,14 +588,8 @@ auto main(int argc, char *argv[]) -> int {
       // status) are rendered as part of the main render call, so we must render
       // even when no samples arrive, otherwise keyboard changes aren't visible
       if (!got_samples) {
-        // No new samples - just re-render current display with fresh overlays
-        // The overlays (status bar, peak, IQ status) were updated above
-        // and will be rendered by the call to renderer.render()
-        bool render_ok = renderer.render(combined_pixels);
-        if (!render_ok) {
-          LOG_ERROR("Render failed");
-          break;
-        }
+        // No new pixel data — re-present the last texture with updated overlays.
+        renderer.present_frame();
         continue;
       }
 
@@ -631,54 +638,36 @@ auto main(int argc, char *argv[]) -> int {
 
       waterfall_display.add_spectrum_line(db_spectrum);
 
-      // === 7. Combine display buffers ===
-      const auto &spec_pixels = spectrum_display.get_pixels();
-      const auto &wf_pixels = waterfall_display.get_pixels();
-
-      // Copy spectrum to top half
-      size_t const spec_size = spec_pixels.size();
-      size_t const wf_size = wf_pixels.size();
-      size_t const half_size = DISPLAY_WIDTH * (DISPLAY_HEIGHT / 2) * 4;
-
-      std::copy_n(spec_pixels.data(), std::min(spec_size, half_size),
-                  combined_pixels.data());
-
-      // Copy waterfall to bottom half
-      std::copy_n(wf_pixels.data(), std::min(wf_size, half_size),
-                  combined_pixels.data() + half_size);
-
-      // === 8. Render to window ===
-      // Collect dirty rectangles from both displays
+      // === 7. Render directly into SDL texture (no combined_pixels buffer) ===
       const auto &spec_dirty_rects = spectrum_display.get_dirty_rects();
       const auto &wf_dirty_rects = waterfall_display.get_dirty_rects();
 
-      std::vector<SDL_Rect> all_dirty_rects;
-      all_dirty_rects.reserve(spec_dirty_rects.size() + wf_dirty_rects.size());
-
-      // Spectrum is in top half - no offset needed
-      for (const auto &rect : spec_dirty_rects) {
-        all_dirty_rects.push_back(rect);
-      }
-
-      // Waterfall is in bottom half - offset y by half height
-      size_t wf_y_offset = DISPLAY_HEIGHT / 2;
-      for (const auto &rect : wf_dirty_rects) {
-        SDL_Rect offset_rect = rect;
-        offset_rect.y += static_cast<int>(wf_y_offset);
-        all_dirty_rects.push_back(offset_rect);
-      }
-
-      // Use incremental rendering if there are dirty rects, otherwise full
-      // render
       bool render_ok;
-      if (!all_dirty_rects.empty()) {
-        render_ok = renderer.render_with_dirty_regions(combined_pixels, 0,
-                                                       all_dirty_rects);
-        // Clear dirty flags after rendering
+      if (!spec_dirty_rects.empty() || !wf_dirty_rects.empty()) {
+        if (waterfall_display.needs_full_render()) {
+          // First frame after reset or LUT rebuild: full CPU→GPU upload.
+          // Also seeds the GPU scroll texture for subsequent scroll frames.
+          render_ok = renderer.render_displays(
+              spectrum_display.pixel_data(),
+              waterfall_display.get_pixels().data(),
+              spectrum_display.height(),
+              spec_dirty_rects, wf_dirty_rects);
+        } else {
+          // Steady state: GPU shifts existing waterfall texture up by one line
+          // and uploads only the new bottom strip (~5 KB instead of ~1.5 MB).
+          render_ok = renderer.render_displays_scroll(
+              spectrum_display.pixel_data(),
+              waterfall_display.get_new_line_rgba(),
+              spectrum_display.height(),
+              waterfall_display.height(),
+              waterfall_display.get_line_height(),
+              spec_dirty_rects);
+        }
         spectrum_display.clear_dirty_rects();
         waterfall_display.clear_dirty_rects();
       } else {
-        render_ok = renderer.render(combined_pixels);
+        renderer.present_frame();
+        render_ok = true;
       }
 
       if (!render_ok) {
@@ -688,11 +677,9 @@ auto main(int argc, char *argv[]) -> int {
 
       // === 9. Check for IQ capture duration expiry ===
       if (iq_capturing && config.iq_capture_duration > 0.0) {
-        double const current_time =
-            std::chrono::duration<double>(
-                std::chrono::system_clock::now().time_since_epoch())
-                .count();
-        if ((current_time - iq_capture_start) >= config.iq_capture_duration) {
+        double const elapsed = std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - iq_capture_start).count();
+        if (elapsed >= config.iq_capture_duration) {
           iq_logger.stop_capture();
           iq_capturing = false;
           LOG_INFO("IQ capture stopped after duration: " +

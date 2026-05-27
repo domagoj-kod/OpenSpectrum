@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+#include "spectrum_display.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
 #include <string>
-
-#include "spectrum_display.h"
 
 namespace openspectrum {
 

@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstring>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -23,14 +24,6 @@ struct RgbColor {
   constexpr RgbColor() : red(0), green(0), blue(0), alpha(255) {}
   constexpr RgbColor(uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255)
       : red(r), green(g), blue(b), alpha(a) {}
-
-  // Fast copy to pixel buffer (4 bytes: RGBA)
-  inline void copy_to(uint8_t *dst) const {
-    dst[0] = red;
-    dst[1] = green;
-    dst[2] = blue;
-    dst[3] = alpha;
-  }
 };
 
 // Phase 3: Optimized pixel buffer for direct pointer access
@@ -66,8 +59,8 @@ public:
 
   // Direct pointer access (no bounds checking)
   uint8_t *data() noexcept { return m_data; }
-  const uint8_t *data() const noexcept { return m_data; }
-  size_t size() const noexcept { return m_size; }
+  [[nodiscard]] const uint8_t *data() const noexcept { return m_data; }
+  [[nodiscard]] size_t size() const noexcept { return m_size; }
 
   // Subscript operator (for compatibility, but prefer direct pointer access)
   uint8_t &operator[](size_t index) noexcept { return m_data[index]; }
@@ -76,33 +69,16 @@ public:
   }
 
   // Clear buffer (set to black/transparent)
-  void clear() { std::fill(m_data, m_data + m_size, 0); }
+  void clear() {
+    if (m_data) memset(m_data, 0, m_size);
+  }
 
   // Get pixel at (x, y) for RGBA format (4 bytes per pixel)
   uint8_t *pixel_ptr(size_t x, size_t y, size_t width) noexcept {
     return m_data + (y * width + x) * 4;
   }
-  const uint8_t *pixel_ptr(size_t x, size_t y, size_t width) const noexcept {
+  [[nodiscard]] const uint8_t *pixel_ptr(size_t x, size_t y, size_t width) const noexcept {
     return m_data + (y * width + x) * 4;
-  }
-
-  // Fill a vertical column with a color
-  inline void fill_column(size_t x, size_t y_start, size_t y_end, size_t width,
-                          const RgbColor &color) noexcept {
-    uint8_t *dst = pixel_ptr(x, y_start, width);
-    const size_t stride = width * 4; // bytes per row
-
-    for (size_t y = y_start; y <= y_end; ++y) {
-      color.copy_to(dst);
-      dst += stride;
-    }
-  }
-
-  // Fast memset-style clear
-  void memset_clear() {
-    if (m_data) {
-      std::fill(m_data, m_data + m_size, 0);
-    }
   }
 
 private:
@@ -121,10 +97,7 @@ public:
   void set_db_range(float min_db, float max_db);
 
   // Get color for a dB value (uses precomputed range for efficiency)
-  RgbColor get_color(float db_value) const;
-
-  // Legacy version with inline range parameters (slower, keeps backward compat)
-  RgbColor get_color(float db_value, float min_db, float max_db) const;
+  [[nodiscard]] RgbColor get_color(float db_value) const;
 
   // Color map presets
   enum class ColorMap { JET, VIRIDIS, HOT, GRAyscale, BLUE_RED };
