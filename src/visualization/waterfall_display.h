@@ -51,7 +51,7 @@ public:
 
   // GPU scroll support: true after reset/LUT-rebuild (full upload needed once),
   // false in steady state where only the newest line changes.
-  bool needs_full_render() const noexcept { return m_needs_full_render; }
+  bool needs_full_render() const noexcept { return m_needs_full_render || !m_history.full(); }
 
   // Pixel data for just the newest history line (m_width * get_line_height() * 4 bytes).
   // Valid when needs_full_render() == false.
