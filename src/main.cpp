@@ -67,23 +67,15 @@ static std::unique_ptr<FramePool> g_frame_pool;
 // 32 * 32KB = 1MB max queue memory (was growing to 1GB+)
 static const size_t MAX_SAMPLE_QUEUE_SIZE = 64;
 
-// Global device pointer for signal handler access (needed for cleanup)
-static RtlSdrDevice *g_dev_ptr = nullptr;
 
 static void signal_handler(int signum) {
+  // Only async-signal-safe operations are permitted here.
+  // Setting a lock-free atomic is safe; LOG, condition_variable::notify_all,
+  // and stop_streaming (which joins a thread) are not.
+  // The main loop checks g_running every 8 ms (CV wait_for timeout) and
+  // performs orderly shutdown — including dev.stop_streaming() — on exit.
   if (signum == SIGINT || signum == SIGTERM) {
-    LOG_INFO("Shutdown signal received, stopping gracefully...");
     g_running = false;
-    g_sample_cv.notify_all(); // Wake up main loop if waiting for samples
-
-    // Stop async streaming if device pointer is available
-    if (g_dev_ptr != nullptr) {
-      try {
-        g_dev_ptr->stop_streaming();
-      } catch (...) {
-        // Ignore errors during shutdown
-      }
-    }
   }
 }
 
@@ -310,10 +302,8 @@ auto main(int argc, char *argv[]) -> int {
     // 2. Initialize hardware
     LOG_INFO("Initializing RTL-SDR device...");
     RtlSdrDevice dev;
-    g_dev_ptr = &dev; // Set global pointer for signal handler
     if (!dev.open()) {
       LOG_ERROR("Failed to open RTL-SDR device");
-      g_dev_ptr = nullptr;
       return 1;
     }
 

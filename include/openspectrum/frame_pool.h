@@ -209,6 +209,7 @@ public:
     auto return_func = [this](FFTFrame *f) {
       if (f) {
         std::lock_guard<std::mutex> lock(m_mutex);
+        m_allocated_frames.erase(f);
         m_free_queue.push(f);
       }
     };

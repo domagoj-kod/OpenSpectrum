@@ -93,6 +93,13 @@ void WaterfallDisplay::update_global_range() {
     new_max += 5.0F;
   }
 
+  // Only rebuild the LUT (and mark a full re-render) when the range actually
+  // changes. rebuild_rgba_lut() sets m_needs_full_render=true, which defeats
+  // the GPU scroll path if called unconditionally every frame.
+  if (new_min == m_global_min && new_max == m_global_max) {
+    return;
+  }
+
   m_global_min = new_min;
   m_global_max = new_max;
   m_palette.set_db_range(m_global_min, m_global_max);
