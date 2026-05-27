@@ -28,6 +28,8 @@
 #include <string>
 #include <vector>
 
+#define STREAM_BUFF 32
+
 // Security: Use hardened compiler flags (defined in Makefile)
 // -fstack-protector-strong, -D_FORTIFY_SOURCE=2, -O2, -Wall, -Wextra
 
@@ -327,7 +329,7 @@ auto main(int argc, char *argv[]) -> int {
       async_sample_callback(std::move(samples));
     };
     dev.set_frame_callback(frame_callback);
-    dev.start_streaming(8); // Use 8 buffers for async mode
+    dev.start_streaming(STREAM_BUFF); // Use 8 buffers for async mode
     LOG_INFO("RTL-SDR async streaming started with 8 buffers, FFT size: " +
              std::to_string(FFT_SIZE));
 
@@ -439,7 +441,7 @@ auto main(int argc, char *argv[]) -> int {
           async_sample_callback(std::move(samples));
         };
         dev.set_frame_callback(frame_callback);
-        dev.start_streaming(8);
+        dev.start_streaming(STREAM_BUFF);
 
         samples.resize(current_fft_size);
         fft_output.resize(current_fft_size);

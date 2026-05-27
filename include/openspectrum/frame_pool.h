@@ -3,6 +3,7 @@
 
 #include <atomic>
 #include <cassert>
+#include <complex>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>

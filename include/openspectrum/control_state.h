@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+#include "signal_processor.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
-
-#include "signal_processor.h"
 
 // Forward declaration for RtlSdrDevice (defined in global namespace)
 class RtlSdrDevice;

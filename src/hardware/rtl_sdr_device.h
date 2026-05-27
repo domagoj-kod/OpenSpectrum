@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+#include "openspectrum/frame_pool.h"
+
 #include <atomic>
 #include <complex>
 #include <cstdint>
@@ -9,8 +11,6 @@
 #include <rtl-sdr.h>
 #include <thread>
 #include <vector>
-
-#include "openspectrum/frame_pool.h"
 
 class RtlSdrDevice {
 public:
