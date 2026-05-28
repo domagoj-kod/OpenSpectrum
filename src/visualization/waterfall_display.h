@@ -27,11 +27,11 @@ public:
   // Get rendered pixel buffer (RGB32 format)
   // Phase 3: Returns PixelBuffer for direct access; has .data() and .size()
   // methods
-  const PixelBuffer &get_pixels() const { return m_pixels; }
+  [[nodiscard]] const PixelBuffer &get_pixels() const { return m_pixels; }
 
   // Get dimensions
-  size_t width() const noexcept { return m_width; }
-  size_t height() const noexcept { return m_height; }
+  [[nodiscard]] size_t width() const noexcept { return m_width; }
+  [[nodiscard]] size_t height() const noexcept { return m_height; }
 
   // Configuration
   void set_color_map(SpectrumPalette::ColorMap map);
@@ -39,25 +39,25 @@ public:
   void set_autoscale(bool enabled) { m_autoscale = enabled; }
 
   // Get current dB range
-  float min_db() const noexcept { return m_min_db; }
-  float max_db() const noexcept { return m_max_db; }
+  [[nodiscard]] float min_db() const noexcept { return m_min_db; }
+  [[nodiscard]] float max_db() const noexcept { return m_max_db; }
 
   // Reset history (clear waterfall)
   void reset();
 
   // Get dirty rectangles for incremental rendering
-  const std::vector<SDL_Rect>& get_dirty_rects() const { return m_dirty_rects; }
+  [[nodiscard]] const std::vector<SDL_Rect>& get_dirty_rects() const { return m_dirty_rects; }
   void clear_dirty_rects() { m_dirty_rects.clear(); }
 
   // GPU scroll support: true after reset/LUT-rebuild (full upload needed once),
   // false in steady state where only the newest line changes.
-  bool needs_full_render() const noexcept { return m_needs_full_render || !m_history.full(); }
+  [[nodiscard]] bool needs_full_render() const noexcept { return m_needs_full_render || !m_history.full(); }
 
   // Pixel data for just the newest history line (m_width * get_line_height() * 4 bytes).
   // Valid when needs_full_render() == false.
-  const uint8_t* get_new_line_rgba() const noexcept { return m_new_line.data(); }
+  [[nodiscard]] const uint8_t* get_new_line_rgba() const noexcept { return m_new_line.data(); }
 
-  size_t get_line_height() const noexcept {
+  [[nodiscard]] size_t get_line_height() const noexcept {
     return std::max<size_t>(1UL, m_height / m_history.capacity());
   }
 
@@ -107,7 +107,7 @@ private:
                         uint8_t* dst_base, size_t rows) const;
   void update_global_range();
 
-  SDL_Rect line_to_rect(size_t line_index) const;
+  [[nodiscard]] SDL_Rect line_to_rect(size_t line_index) const;
 };
 
 } // namespace openspectrum

@@ -136,13 +136,13 @@ public:
   // Get rendered pixel buffer (RGB32 format: RGBA interleaved)
   // Phase 3: Returns PixelBuffer for direct access; has .data() and .size()
   // methods
-  const PixelBuffer &get_pixels() const { return m_pixels; }
+  [[nodiscard]] const PixelBuffer &get_pixels() const { return m_pixels; }
   uint8_t *pixel_data() { return m_pixels.data(); }
-  const uint8_t *pixel_data() const { return m_pixels.data(); }
+  [[nodiscard]] const uint8_t *pixel_data() const { return m_pixels.data(); }
 
   // Get dimensions
-  size_t width() const noexcept { return m_width; }
-  size_t height() const noexcept { return m_height; }
+  [[nodiscard]] size_t width() const noexcept { return m_width; }
+  [[nodiscard]] size_t height() const noexcept { return m_height; }
 
   // Configuration
   void set_color_map(SpectrumPalette::ColorMap map) {
@@ -152,11 +152,11 @@ public:
   void set_autoscale(bool enabled) { m_autoscale = enabled; }
 
   // Get current dB range
-  float min_db() const noexcept { return m_min_db; }
-  float max_db() const noexcept { return m_max_db; }
+  [[nodiscard]] float min_db() const noexcept { return m_min_db; }
+  [[nodiscard]] float max_db() const noexcept { return m_max_db; }
 
   // Get dirty rectangles for incremental rendering
-  const std::vector<SDL_Rect>& get_dirty_rects() const { return m_dirty_rects; }
+  [[nodiscard]] const std::vector<SDL_Rect>& get_dirty_rects() const { return m_dirty_rects; }
   void clear_dirty_rects() { m_dirty_rects.clear(); }
 
 private:
