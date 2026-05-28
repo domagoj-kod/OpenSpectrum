@@ -7,11 +7,11 @@
 #include <memory>
 #include <vector>
 
-#include "kiss_fft.h"
+#include "pocketfft_wrapper.h"
 
 namespace openspectrum {
 
-// Secure wrapper around kissFFT with RAII and pre-allocated buffers
+// Secure wrapper around PocketFFT with RAII and pre-allocated buffers
 class FftAnalyzer {
 public:
   explicit FftAnalyzer(size_t fft_size, bool inverse = false);
@@ -69,15 +69,11 @@ public:
 
 private:
   size_t m_fft_size;
-  bool m_center_dc = false;
   bool m_inverse;
-  // KissFFT configuration (opaque pointer - managed via RAII)
-  kiss_fft_cfg m_cfg = nullptr;
-  float m_window_coherent_gain = 1.0f; // Default to rectangular window
 
   // Internal buffers for efficiency (avoid repeated allocations)
-  std::vector<kiss_fft_cpx> m_input_buffer;
-  std::vector<kiss_fft_cpx> m_output_buffer;
+  std::vector<pocketfft_cpx> m_input_buffer;
+  std::vector<pocketfft_cpx> m_output_buffer;
 
   // Cached results (updated after each execute)
   std::vector<float> m_power_spectrum;
@@ -85,6 +81,12 @@ private:
   std::vector<float> m_db_spectrum;
   std::vector<float> m_phase_spectrum;
   std::vector<float> m_freq_bins;
+
+  // PocketFFT workspace
+  std::vector<pocketfft_cpx> m_workspace;
+
+  bool m_center_dc;
+  float m_window_coherent_gain; // Default to rectangular window
 
   // Pre-compute frequency bins
   void compute_frequency_bins();
