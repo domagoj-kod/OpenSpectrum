@@ -62,6 +62,31 @@ profile:
 	       LDFLAGS="$(BASE_LDFLAGS) -pg" \
 	       all
 
+# PGO data directory (absolute path; GCC writes .gcda files here at runtime)
+PGO_DIR := $(CURDIR)/pgo-data
+
+# PGO stage 1: build instrumented binary that writes .gcda profile data.
+# Run the resulting binary against a representative workload, then `profile-use`.
+profile-gen:
+	mkdir -p $(PGO_DIR)
+	$(MAKE) CFLAGS="$(BASE_CFLAGS) -O3 -DNDEBUG -march=haswell -fprofile-generate=$(PGO_DIR) -fprofile-update=atomic" \
+	       CXXFLAGS="$(BASE_CXXFLAGS) -O3 -DNDEBUG -march=haswell -fprofile-generate=$(PGO_DIR) -fprofile-update=atomic" \
+	       LDFLAGS="$(BASE_LDFLAGS) -march=haswell -fprofile-generate=$(PGO_DIR)" \
+	       all
+
+# PGO stage 2: rebuild using the collected profile. LTO + PGO together let
+# the linker reorder blocks/functions according to actual hot paths.
+# -fprofile-correction tolerates minor source edits between gen and use.
+profile-use:
+	$(MAKE) CFLAGS="$(BASE_CFLAGS) -O3 -DNDEBUG -flto -march=haswell -fprofile-use=$(PGO_DIR) -fprofile-correction" \
+	       CXXFLAGS="$(BASE_CXXFLAGS) -O3 -DNDEBUG -flto -march=haswell -fprofile-use=$(PGO_DIR) -fprofile-correction" \
+	       LDFLAGS="$(BASE_LDFLAGS) -flto -march=haswell -fprofile-use=$(PGO_DIR) -fprofile-correction" \
+	       all
+
+# Wipe collected profile data (use when source has changed significantly).
+profile-clean:
+	rm -rf $(PGO_DIR)
+
 # Debug target (already set as default)
 debug:
 	$(MAKE) all
@@ -147,4 +172,4 @@ clean:
 	rm -rf $(BUILD_DIR) $(TARGET)
 
 # Phony targets
-.PHONY: all clean
+.PHONY: all clean release profile profile-gen profile-use profile-clean debug
