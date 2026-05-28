@@ -80,7 +80,7 @@ UTILS_DIR := $(SRC_DIR)/utils
 GUI_DIR := $(SRC_DIR)/gui
 
 # Include paths
-INCLUDES := -I$(THIRD_PARTY) -I$(THIRD_PARTY)/pocketfft -I$(THIRD_PARTY)/kissfft -I$(THIRD_PARTY_STB) -I$(HARDWARE_DIR) -I$(INCLUDE_DIR) \
+INCLUDES := -I$(THIRD_PARTY) -I$(THIRD_PARTY)/pocketfft -I$(THIRD_PARTY_STB) -I$(HARDWARE_DIR) -I$(INCLUDE_DIR) \
             -I$(SIGNAL_DIR) -I$(FFT_DIR) -I$(VIS_DIR) -I$(UTILS_DIR) \
             -I$(GUI_DIR) -I$(INCLUDE_DIR)/openspectrum $(SDL2_CFLAGS)
 
@@ -92,12 +92,10 @@ VIS_SRCS := $(wildcard $(VIS_DIR)/*.cpp)
 UTILS_SRCS := $(wildcard $(UTILS_DIR)/*.cpp)
 GUI_SRCS := $(wildcard $(GUI_DIR)/*.cpp)
 CORE_SRCS := $(wildcard $(SRC_DIR)/control_state.cpp)
-KISSFFT_SRCS := $(wildcard $(THIRD_PARTY)/kissfft/*.c)
 MAIN_SRC := $(SRC_DIR)/main.cpp
 
 # All source files
 ALL_SRCS := $(HARDWARE_SRCS) $(SIGNAL_SRCS) $(FFT_SRCS) $(VIS_SRCS) $(UTILS_SRCS) $(GUI_SRCS) $(CORE_SRCS) $(MAIN_SRC)
-ALL_C_SRCS := $(KISSFFT_SRCS)
 
 # Object files
 HARDWARE_OBJS := $(patsubst $(HARDWARE_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(HARDWARE_SRCS))
@@ -107,7 +105,6 @@ VIS_OBJS := $(patsubst $(VIS_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(VIS_SRCS))
 UTILS_OBJS := $(patsubst $(UTILS_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(UTILS_SRCS))
 GUI_OBJS := $(patsubst $(GUI_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(GUI_SRCS))
 CORE_OBJS := $(patsubst $(SRC_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(CORE_SRCS))
-KISSFFT_OBJS := $(patsubst $(THIRD_PARTY)/kissfft/%.c,$(BUILD_DIR)/%.o,$(KISSFFT_SRCS))
 MAIN_OBJ := $(BUILD_DIR)/main.o
 
 all: $(TARGET)
@@ -138,14 +135,11 @@ $(BUILD_DIR)/%.o: $(GUI_DIR)/%.cpp | $(BUILD_DIR)
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 
-$(BUILD_DIR)/%.o: $(THIRD_PARTY)/kissfft/%.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
-
 $(MAIN_OBJ): $(MAIN_SRC) | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 
 # Final target
-$(TARGET): $(HARDWARE_OBJS) $(SIGNAL_OBJS) $(FFT_OBJS) $(VIS_OBJS) $(UTILS_OBJS) $(GUI_OBJS) $(CORE_OBJS) $(KISSFFT_OBJS) $(MAIN_OBJ)
+$(TARGET): $(HARDWARE_OBJS) $(SIGNAL_OBJS) $(FFT_OBJS) $(VIS_OBJS) $(UTILS_OBJS) $(GUI_OBJS) $(CORE_OBJS) $(MAIN_OBJ)
 	$(CXX) $^ -o $@ $(LDFLAGS)
 
 # Clean
