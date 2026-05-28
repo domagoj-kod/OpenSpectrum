@@ -17,7 +17,7 @@ public:
   explicit FftAnalyzer(size_t fft_size, bool inverse = false);
   ~FftAnalyzer();
 
-  // Disable copying (non-copyable due to raw pointer)
+  // Non-copyable: buffers are large and the move ctor is the intended path.
   FftAnalyzer(const FftAnalyzer &) = delete;
   FftAnalyzer &operator=(const FftAnalyzer &) = delete;
 

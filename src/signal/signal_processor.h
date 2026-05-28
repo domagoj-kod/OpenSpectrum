@@ -85,6 +85,9 @@ private:
   size_t m_fft_size;
   WindowFunction m_window = WindowFunction::HANN;
   std::vector<float> m_window_coeffs;
+  // Window coefficients duplicated for complex multiply: [w0,w0,w1,w1,...]
+  // Lets the AVX2 hot path load window weights aligned to interleaved IQ data.
+  std::vector<float> m_window_coeffs_doubled;
 
   void compute_hann();
   void compute_hamming();
