@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-or-later
 // Test to verify hardware-accelerated SDL2 rendering
 
 #include <SDL2/SDL.h>

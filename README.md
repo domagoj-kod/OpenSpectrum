@@ -2,7 +2,7 @@
 
 *Divide et impera — Modular architecture for SDR signal processing*
 
-[![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![GPL v3 License](https://img.shields.io/badge/License-LGPL%20v3-green.svg)](LICENSE)
 
 OpenSpectrum is a **modular Software-Defined Radio (SDR) spectrum analyzer** built with extensibility at its core. Designed with the **divide et impera** (divide and conquer) principle, the project separates concerns into distinct modules — hardware abstraction, signal processing, FFT analysis, visualization, and rendering — enabling seamless integration of future SDR devices, from RTL2832U to proprietary hardware.
 
@@ -340,18 +340,20 @@ OpenSpectrum is compiled with **security-hardened flags** by default:
 
 ## License
 
-This project is licensed under the **MIT License** — see [LICENSE](LICENSE) for details.
+This project is licensed under the **LGPL v3 License** — see [LICENSE](LICENSE) for details.
 
 ```
-MIT License
+                    GNU GENERAL PUBLIC LICENSE
+                       Version 3, 29 June 2007
 
-Copyright (c) 2026 domagoj-kod
+ Copyright (C) 2007 Free Software Foundation, Inc. <https://fsf.org/>
+ Everyone is permitted to copy and distribute verbatim copies
+ of this license document, but changing it is not allowed.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software...
+                            Preamble
+
+  The GNU General Public License is a free, copyleft license for
+software and other kinds of works...
 ```
 
 ---

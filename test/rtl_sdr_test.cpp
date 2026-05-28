@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 #include <hardware/rtl_sdr_device.h>
 #include <iostream>
 

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "openspectrum/control_state.h"
 #include "rtl_sdr_device.h"
