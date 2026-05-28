@@ -9,6 +9,8 @@
 
 #include <SDL2/SDL.h>
 
+#include "openspectrum/attributes.h"
+
 namespace openspectrum {
 
 class ControlState;
@@ -40,24 +42,24 @@ public:
 
   // Zero-copy render: writes spectrum (top) and waterfall (bottom) directly
   // into the SDL texture, bypassing the combined_pixels intermediate buffer.
-  bool render_displays(const uint8_t *spectrum_data, const uint8_t *waterfall_data,
-                       size_t spectrum_height,
-                       const std::vector<SDL_Rect> &spec_dirty_rects,
-                       const std::vector<SDL_Rect> &wf_dirty_rects);
+  OS_HOT bool render_displays(const uint8_t *spectrum_data, const uint8_t *waterfall_data,
+                              size_t spectrum_height,
+                              const std::vector<SDL_Rect> &spec_dirty_rects,
+                              const std::vector<SDL_Rect> &wf_dirty_rects);
 
   // Re-present the last rendered texture with updated overlays (no texture upload).
   // Use when no new pixel data is available (e.g. waiting for samples).
-  void present_frame();
+  OS_HOT void present_frame();
 
   // Steady-state render: GPU-shifts the waterfall texture up by line_height,
   // uploads only new_wf_line_rgba (m_width * line_height * 4 bytes) at the
   // bottom, then composites spectrum + waterfall in one pass.
-  bool render_displays_scroll(const uint8_t *spectrum_data,
-                               const uint8_t *new_wf_line_rgba,
-                               size_t spectrum_height,
-                               size_t wf_height,
-                               size_t line_height,
-                               const std::vector<SDL_Rect> &spec_dirty_rects);
+  OS_HOT bool render_displays_scroll(const uint8_t *spectrum_data,
+                                     const uint8_t *new_wf_line_rgba,
+                                     size_t spectrum_height,
+                                     size_t wf_height,
+                                     size_t line_height,
+                                     const std::vector<SDL_Rect> &spec_dirty_rects);
 
   // Process events. Returns true if should continue, false if quit requested
   // If state is provided, handle keyboard input for control state

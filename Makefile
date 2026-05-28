@@ -48,11 +48,21 @@ CFLAGS   := $(BASE_CFLAGS) -O0 -DOPENSPECTRUM_DEBUG
 CXXFLAGS := $(BASE_CXXFLAGS) -O0 -DOPENSPECTRUM_DEBUG
 LDFLAGS  := $(BASE_LDFLAGS)
 
+# Footprint-trim flags shared by release and PGO targets.
+# - function/data-sections + --gc-sections: drop every symbol the linker can
+#   prove unreachable, shrinking I-cache pressure.
+# - visibility=hidden: only main() (and SDL2 hooks) need external linkage.
+#   Strips export tables, lets LTO be more aggressive.
+# - align-loops/functions=32: hot loops fit in one DSB fetch line.
+TRIM_CFLAGS  := -ffunction-sections -fdata-sections -fvisibility=hidden \
+                -fvisibility-inlines-hidden -falign-functions=32 -falign-loops=32
+TRIM_LDFLAGS := -Wl,--gc-sections
+
 # Release target overrides
 release:
-	$(MAKE) CFLAGS="$(BASE_CFLAGS) -O3 -DNDEBUG -flto -march=haswell" \
-	       CXXFLAGS="$(BASE_CXXFLAGS) -O3 -DNDEBUG -flto -march=haswell" \
-	       LDFLAGS="$(BASE_LDFLAGS) -flto -march=haswell" \
+	$(MAKE) CFLAGS="$(BASE_CFLAGS) -O3 -DNDEBUG -flto -march=haswell $(TRIM_CFLAGS)" \
+	       CXXFLAGS="$(BASE_CXXFLAGS) -O3 -DNDEBUG -flto -march=haswell $(TRIM_CFLAGS)" \
+	       LDFLAGS="$(BASE_LDFLAGS) -flto -march=haswell $(TRIM_CFLAGS) $(TRIM_LDFLAGS)" \
 	       all
 
 # Profile target overrides
@@ -62,13 +72,38 @@ profile:
 	       LDFLAGS="$(BASE_LDFLAGS) -pg" \
 	       all
 
+# PGO data directory (absolute path; GCC writes .gcda files here at runtime)
+PGO_DIR := $(CURDIR)/pgo-data
+
+# PGO stage 1: build instrumented binary that writes .gcda profile data.
+# Run the resulting binary against a representative workload, then `profile-use`.
+profile-gen:
+	mkdir -p $(PGO_DIR)
+	$(MAKE) CFLAGS="$(BASE_CFLAGS) -O3 -DNDEBUG -march=haswell $(TRIM_CFLAGS) -fprofile-generate=$(PGO_DIR) -fprofile-update=atomic" \
+	       CXXFLAGS="$(BASE_CXXFLAGS) -O3 -DNDEBUG -march=haswell $(TRIM_CFLAGS) -fprofile-generate=$(PGO_DIR) -fprofile-update=atomic" \
+	       LDFLAGS="$(BASE_LDFLAGS) -march=haswell $(TRIM_CFLAGS) $(TRIM_LDFLAGS) -fprofile-generate=$(PGO_DIR)" \
+	       all
+
+# PGO stage 2: rebuild using the collected profile. LTO + PGO together let
+# the linker reorder blocks/functions according to actual hot paths.
+# -fprofile-correction tolerates minor source edits between gen and use.
+profile-use:
+	$(MAKE) CFLAGS="$(BASE_CFLAGS) -O3 -DNDEBUG -flto -march=haswell $(TRIM_CFLAGS) -fprofile-use=$(PGO_DIR) -fprofile-correction" \
+	       CXXFLAGS="$(BASE_CXXFLAGS) -O3 -DNDEBUG -flto -march=haswell $(TRIM_CFLAGS) -fprofile-use=$(PGO_DIR) -fprofile-correction" \
+	       LDFLAGS="$(BASE_LDFLAGS) -flto -march=haswell $(TRIM_CFLAGS) $(TRIM_LDFLAGS) -fprofile-use=$(PGO_DIR) -fprofile-correction" \
+	       all
+
+# Wipe collected profile data (use when source has changed significantly).
+profile-clean:
+	rm -rf $(PGO_DIR)
+
 # Debug target (already set as default)
 debug:
 	$(MAKE) all
 
 # Directories
 SRC_DIR := src
-THIRD_PARTY := third_party/kissfft
+THIRD_PARTY := third_party
 THIRD_PARTY_STB := third_party/stb
 INCLUDE_DIR := include
 BUILD_DIR := build
@@ -80,7 +115,7 @@ UTILS_DIR := $(SRC_DIR)/utils
 GUI_DIR := $(SRC_DIR)/gui
 
 # Include paths
-INCLUDES := -I$(THIRD_PARTY) -I$(THIRD_PARTY_STB) -I$(HARDWARE_DIR) -I$(INCLUDE_DIR) \
+INCLUDES := -I$(THIRD_PARTY) -I$(THIRD_PARTY)/pocketfft -I$(THIRD_PARTY_STB) -I$(HARDWARE_DIR) -I$(INCLUDE_DIR) \
             -I$(SIGNAL_DIR) -I$(FFT_DIR) -I$(VIS_DIR) -I$(UTILS_DIR) \
             -I$(GUI_DIR) -I$(INCLUDE_DIR)/openspectrum $(SDL2_CFLAGS)
 
@@ -92,12 +127,10 @@ VIS_SRCS := $(wildcard $(VIS_DIR)/*.cpp)
 UTILS_SRCS := $(wildcard $(UTILS_DIR)/*.cpp)
 GUI_SRCS := $(wildcard $(GUI_DIR)/*.cpp)
 CORE_SRCS := $(wildcard $(SRC_DIR)/control_state.cpp)
-KISSFFT_SRCS := $(wildcard $(THIRD_PARTY)/*.c)
 MAIN_SRC := $(SRC_DIR)/main.cpp
 
 # All source files
 ALL_SRCS := $(HARDWARE_SRCS) $(SIGNAL_SRCS) $(FFT_SRCS) $(VIS_SRCS) $(UTILS_SRCS) $(GUI_SRCS) $(CORE_SRCS) $(MAIN_SRC)
-ALL_C_SRCS := $(KISSFFT_SRCS)
 
 # Object files
 HARDWARE_OBJS := $(patsubst $(HARDWARE_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(HARDWARE_SRCS))
@@ -107,7 +140,6 @@ VIS_OBJS := $(patsubst $(VIS_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(VIS_SRCS))
 UTILS_OBJS := $(patsubst $(UTILS_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(UTILS_SRCS))
 GUI_OBJS := $(patsubst $(GUI_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(GUI_SRCS))
 CORE_OBJS := $(patsubst $(SRC_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(CORE_SRCS))
-KISSFFT_OBJS := $(patsubst $(THIRD_PARTY)/%.c,$(BUILD_DIR)/%.o,$(KISSFFT_SRCS))
 MAIN_OBJ := $(BUILD_DIR)/main.o
 
 all: $(TARGET)
@@ -138,14 +170,11 @@ $(BUILD_DIR)/%.o: $(GUI_DIR)/%.cpp | $(BUILD_DIR)
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 
-$(BUILD_DIR)/%.o: $(THIRD_PARTY)/%.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
-
 $(MAIN_OBJ): $(MAIN_SRC) | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 
 # Final target
-$(TARGET): $(HARDWARE_OBJS) $(SIGNAL_OBJS) $(FFT_OBJS) $(VIS_OBJS) $(UTILS_OBJS) $(GUI_OBJS) $(CORE_OBJS) $(KISSFFT_OBJS) $(MAIN_OBJ)
+$(TARGET): $(HARDWARE_OBJS) $(SIGNAL_OBJS) $(FFT_OBJS) $(VIS_OBJS) $(UTILS_OBJS) $(GUI_OBJS) $(CORE_OBJS) $(MAIN_OBJ)
 	$(CXX) $^ -o $@ $(LDFLAGS)
 
 # Clean
@@ -153,4 +182,4 @@ clean:
 	rm -rf $(BUILD_DIR) $(TARGET)
 
 # Phony targets
-.PHONY: all clean
+.PHONY: all clean release profile profile-gen profile-use profile-clean debug

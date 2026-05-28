@@ -28,6 +28,11 @@
 #include <string>
 #include <vector>
 
+#if defined(__SSE__) || defined(_M_X64) || defined(_M_IX86_FP)
+#include <pmmintrin.h> // _MM_SET_DENORMALS_ZERO_MODE
+#include <xmmintrin.h> // _MM_SET_FLUSH_ZERO_MODE
+#endif
+
 // WinUSB has no DMA buffer limit; Linux usbfs defaults to 16 MB which
 // is exhausted at 128 KB/buf × 64 = 8 MB when other USB overhead is counted.
 // 32 buffers (4 MB) is safe on both platforms.
@@ -67,6 +72,15 @@ static std::unique_ptr<FramePool> g_frame_pool;
 // 32 * 32KB = 1MB max queue memory (was growing to 1GB+)
 static const size_t MAX_SAMPLE_QUEUE_SIZE = 64;
 
+// FTZ + DAZ on the calling thread. Eliminates the ~100-cycle microcode trap
+// every time a denormal float is produced or consumed — common in dB spectra
+// near the noise floor. Per-thread MXCSR, so call from each thread.
+static inline void enable_ftz_daz() noexcept {
+#if defined(__SSE__) || defined(_M_X64) || defined(_M_IX86_FP)
+  _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);
+  _MM_SET_DENORMALS_ZERO_MODE(_MM_DENORMALS_ZERO_ON);
+#endif
+}
 
 static void signal_handler(int signum) {
   // Only async-signal-safe operations are permitted here.
@@ -82,6 +96,13 @@ static void signal_handler(int signum) {
 // Async callback for RTL-SDR samples using FrameHandle
 // Accumulates samples until we have exactly g_async_fft_size
 static void async_sample_callback(FrameHandle samples_frame) {
+  // librtlsdr owns this thread; set FTZ/DAZ once per worker on first entry.
+  thread_local bool ftz_initialized = false;
+  if (!ftz_initialized) {
+    enable_ftz_daz();
+    ftz_initialized = true;
+  }
+
   if (g_async_fft_size == 0 || !samples_frame) {
     // FFT size not set yet, skip
     return;
@@ -196,6 +217,8 @@ static void async_sample_callback(FrameHandle samples_frame) {
 }
 
 auto main(int argc, char *argv[]) -> int {
+  enable_ftz_daz();
+
   // Parse command-line arguments
   AppConfig const config = parse_arguments(argc, argv);
 
@@ -325,8 +348,8 @@ auto main(int argc, char *argv[]) -> int {
     dev.set_frame_callback(frame_callback);
     dev.start_streaming(STREAM_BUFF);
     LOG_INFO("RTL-SDR async streaming started with " +
-             std::to_string(STREAM_BUFF) + " buffers, FFT size: " +
-             std::to_string(FFT_SIZE));
+             std::to_string(STREAM_BUFF) +
+             " buffers, FFT size: " + std::to_string(FFT_SIZE));
 
     LOGS_INFO << "RTL-SDR initialized: freq="
               << static_cast<int>(config.center_freq_hz)
@@ -514,9 +537,9 @@ auto main(int argc, char *argv[]) -> int {
         control_state.apply_to_device(dev);
         if (s_last_freq != 0 && s_last_freq != now_freq) {
           // Frequency tuned — discard buffered samples from the old channel.
-          // Scale label updates immediately (render_frequency_scale sees new freq);
-          // dropping the queue makes the spectrum snap in sync rather than lagging
-          // behind by up to MAX_SAMPLE_QUEUE_SIZE × FFT frames.
+          // Scale label updates immediately (render_frequency_scale sees new
+          // freq); dropping the queue makes the spectrum snap in sync rather
+          // than lagging behind by up to MAX_SAMPLE_QUEUE_SIZE × FFT frames.
           std::lock_guard<std::mutex> lock(g_sample_mutex);
           while (!g_sample_queue.empty()) {
             g_sample_queue.front() = FrameHandle(nullptr); // return to pool
@@ -553,7 +576,8 @@ auto main(int argc, char *argv[]) -> int {
         renderer.render_peak_indicator(peak_db);
       }
 
-      // Update frequency scale (caches rebuild only when center_hz or rate changes)
+      // Update frequency scale (caches rebuild only when center_hz or rate
+      // changes)
       renderer.render_frequency_scale(
           control_state.get_frequency(),
           static_cast<uint32_t>(config.sample_rate_hz),
@@ -581,6 +605,16 @@ auto main(int argc, char *argv[]) -> int {
           g_sample_queue.pop();
           got_samples = true;
         }
+
+        // Throttle: at high sample rates the RTL-SDR callback can produce
+        // frames faster than the render loop consumes them. Drain any backlog
+        // and keep only the newest — older frames represent latency the user
+        // cannot perceive on a 60 Hz display. Each move-assignment releases
+        // the previously held FrameHandle back to the pool.
+        while (got_samples && !g_sample_queue.empty()) {
+          async_samples_frame = std::move(g_sample_queue.front());
+          g_sample_queue.pop();
+        }
       }
 
       // === 2.1. Update displays and render even if no new samples ===
@@ -588,7 +622,8 @@ auto main(int argc, char *argv[]) -> int {
       // status) are rendered as part of the main render call, so we must render
       // even when no samples arrive, otherwise keyboard changes aren't visible
       if (!got_samples) {
-        // No new pixel data — re-present the last texture with updated overlays.
+        // No new pixel data — re-present the last texture with updated
+        // overlays.
         renderer.present_frame();
         continue;
       }
@@ -649,18 +684,15 @@ auto main(int argc, char *argv[]) -> int {
           // Also seeds the GPU scroll texture for subsequent scroll frames.
           render_ok = renderer.render_displays(
               spectrum_display.pixel_data(),
-              waterfall_display.get_pixels().data(),
-              spectrum_display.height(),
+              waterfall_display.get_pixels().data(), spectrum_display.height(),
               spec_dirty_rects, wf_dirty_rects);
         } else {
           // Steady state: GPU shifts existing waterfall texture up by one line
           // and uploads only the new bottom strip (~5 KB instead of ~1.5 MB).
           render_ok = renderer.render_displays_scroll(
               spectrum_display.pixel_data(),
-              waterfall_display.get_new_line_rgba(),
-              spectrum_display.height(),
-              waterfall_display.height(),
-              waterfall_display.get_line_height(),
+              waterfall_display.get_new_line_rgba(), spectrum_display.height(),
+              waterfall_display.height(), waterfall_display.get_line_height(),
               spec_dirty_rects);
         }
         spectrum_display.clear_dirty_rects();
@@ -677,8 +709,10 @@ auto main(int argc, char *argv[]) -> int {
 
       // === 9. Check for IQ capture duration expiry ===
       if (iq_capturing && config.iq_capture_duration > 0.0) {
-        double const elapsed = std::chrono::duration<double>(
-            std::chrono::steady_clock::now() - iq_capture_start).count();
+        double const elapsed =
+            std::chrono::duration<double>(std::chrono::steady_clock::now() -
+                                          iq_capture_start)
+                .count();
         if (elapsed >= config.iq_capture_duration) {
           iq_logger.stop_capture();
           iq_capturing = false;

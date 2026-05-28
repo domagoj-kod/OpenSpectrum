@@ -7,17 +7,18 @@
 #include <memory>
 #include <vector>
 
-#include "kiss_fft.h"
+#include "openspectrum/attributes.h"
+#include "pocketfft_wrapper.h"
 
 namespace openspectrum {
 
-// Secure wrapper around kissFFT with RAII and pre-allocated buffers
+// Secure wrapper around PocketFFT with RAII and pre-allocated buffers
 class FftAnalyzer {
 public:
-  explicit FftAnalyzer(size_t fft_size, bool inverse = false);
+  OS_COLD explicit FftAnalyzer(size_t fft_size, bool inverse = false);
   ~FftAnalyzer();
 
-  // Disable copying (non-copyable due to raw pointer)
+  // Non-copyable: buffers are large and the move ctor is the intended path.
   FftAnalyzer(const FftAnalyzer &) = delete;
   FftAnalyzer &operator=(const FftAnalyzer &) = delete;
 
@@ -28,11 +29,11 @@ public:
   // Execute FFT on input samples, store result in output
   // Input: time-domain complex samples (size = fft_size)
   // Output: frequency-domain complex bins (size = fft_size)
-  void execute(const std::vector<std::complex<float>> &input,
-               std::vector<std::complex<float>> &output);
+  OS_HOT void execute(const std::vector<std::complex<float>> &input,
+                      std::vector<std::complex<float>> &output);
 
   // Execute FFT with pre-allocated internal buffers (zero-copy for output)
-  void execute(const std::vector<std::complex<float>> &input);
+  OS_HOT void execute(const std::vector<std::complex<float>> &input);
 
   // Get power spectrum (magnitude squared) from last FFT result
   [[nodiscard]] const std::vector<float> &get_power_spectrum() const {
@@ -45,7 +46,9 @@ public:
   }
 
   // Get magnitude spectrum in dB from last FFT result
-  [[nodiscard]] const std::vector<float> &get_db_spectrum() const { return m_db_spectrum; }
+  [[nodiscard]] const std::vector<float> &get_db_spectrum() const {
+    return m_db_spectrum;
+  }
 
   // Get phase spectrum in radians from last FFT result
   [[nodiscard]] const std::vector<float> &get_phase_spectrum() const {
@@ -53,7 +56,9 @@ public:
   }
 
   // Get normalized frequency bins (0 to 1, where 1 = sample rate)
-  [[nodiscard]] const std::vector<float> &get_frequency_bins() const { return m_freq_bins; }
+  [[nodiscard]] const std::vector<float> &get_frequency_bins() const {
+    return m_freq_bins;
+  }
 
   // Amplitude analysis: get maximum dB value from last FFT result
   [[nodiscard]] float get_max_db() const;
@@ -67,17 +72,24 @@ public:
   // Window gain setter
   void set_window_coherent_gain(float gain) { m_window_coherent_gain = gain; }
 
+  // Toggle computation of magnitude/power/phase spectra. Defaults off — the
+  // dB spectrum is the only consumed output in the default pipeline. Enable
+  // before calling execute() if you need any of the secondary spectra.
+  // Saves one sqrt + two stores per bin and an entire scalar atan2 pass.
+  void set_extra_spectra_enabled(bool enabled) noexcept {
+    m_extra_spectra_enabled = enabled;
+  }
+  [[nodiscard]] bool extra_spectra_enabled() const noexcept {
+    return m_extra_spectra_enabled;
+  }
+
 private:
   size_t m_fft_size;
-  bool m_center_dc = false;
   bool m_inverse;
-  // KissFFT configuration (opaque pointer - managed via RAII)
-  kiss_fft_cfg m_cfg = nullptr;
-  float m_window_coherent_gain = 1.0f; // Default to rectangular window
 
   // Internal buffers for efficiency (avoid repeated allocations)
-  std::vector<kiss_fft_cpx> m_input_buffer;
-  std::vector<kiss_fft_cpx> m_output_buffer;
+  std::vector<pocketfft_cpx> m_input_buffer;
+  std::vector<pocketfft_cpx> m_output_buffer;
 
   // Cached results (updated after each execute)
   std::vector<float> m_power_spectrum;
@@ -85,6 +97,13 @@ private:
   std::vector<float> m_db_spectrum;
   std::vector<float> m_phase_spectrum;
   std::vector<float> m_freq_bins;
+
+  // PocketFFT workspace
+  std::vector<pocketfft_cpx> m_workspace;
+
+  bool m_center_dc;
+  bool m_extra_spectra_enabled = false;
+  float m_window_coherent_gain; // Default to rectangular window
 
   // Pre-compute frequency bins
   void compute_frequency_bins();

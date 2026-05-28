@@ -669,16 +669,26 @@ bool SdlRenderer::render_displays_scroll(const uint8_t *spectrum_data,
   //   1. Blit existing waterfall shifted up by line_height (GPU-to-GPU copy)
   //   2. Place new line at the bottom
   SDL_SetRenderTarget(m_renderer, m_wf_scroll_aux);
+  int const shift_h = static_cast<int>(wf_height) - static_cast<int>(line_height);
   if (m_wf_scroll_valid) {
-    int const shift_h = static_cast<int>(wf_height) - static_cast<int>(line_height);
     if (shift_h > 0) {
       SDL_Rect const src_r = {0, static_cast<int>(line_height),
                                static_cast<int>(m_width), shift_h};
       SDL_Rect const dst_r = {0, 0, static_cast<int>(m_width), shift_h};
       SDL_RenderCopy(m_renderer, m_wf_scroll_tex, &src_r, &dst_r);
     }
+  } else if (shift_h > 0) {
+    // First scroll frame: the scroll textures were just created so they hold
+    // garbage. Seed from m_texture's waterfall region (filled by the last
+    // full-render pass) shifted up by line_height — produces a continuous
+    // transition instead of a black flash + bottom-up refill.
+    SDL_Rect const src_r = {0,
+                             static_cast<int>(spectrum_height) + static_cast<int>(line_height),
+                             static_cast<int>(m_width), shift_h};
+    SDL_Rect const dst_r = {0, 0, static_cast<int>(m_width), shift_h};
+    SDL_RenderCopy(m_renderer, m_texture, &src_r, &dst_r);
   } else {
-    // First scroll frame — clear to black
+    // Pathological: wf_height <= line_height. Just clear.
     SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 255);
     SDL_RenderClear(m_renderer);
   }
