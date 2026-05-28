@@ -28,6 +28,11 @@
 #include <string>
 #include <vector>
 
+#if defined(__SSE__) || defined(_M_X64) || defined(_M_IX86_FP)
+#include <pmmintrin.h> // _MM_SET_DENORMALS_ZERO_MODE
+#include <xmmintrin.h> // _MM_SET_FLUSH_ZERO_MODE
+#endif
+
 // WinUSB has no DMA buffer limit; Linux usbfs defaults to 16 MB which
 // is exhausted at 128 KB/buf × 64 = 8 MB when other USB overhead is counted.
 // 32 buffers (4 MB) is safe on both platforms.
@@ -67,6 +72,16 @@ static std::unique_ptr<FramePool> g_frame_pool;
 // 32 * 32KB = 1MB max queue memory (was growing to 1GB+)
 static const size_t MAX_SAMPLE_QUEUE_SIZE = 64;
 
+// FTZ + DAZ on the calling thread. Eliminates the ~100-cycle microcode trap
+// every time a denormal float is produced or consumed — common in dB spectra
+// near the noise floor. Per-thread MXCSR, so call from each thread.
+static inline void enable_ftz_daz() noexcept {
+#if defined(__SSE__) || defined(_M_X64) || defined(_M_IX86_FP)
+  _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);
+  _MM_SET_DENORMALS_ZERO_MODE(_MM_DENORMALS_ZERO_ON);
+#endif
+}
+
 static void signal_handler(int signum) {
   // Only async-signal-safe operations are permitted here.
   // Setting a lock-free atomic is safe; LOG, condition_variable::notify_all,
@@ -81,6 +96,13 @@ static void signal_handler(int signum) {
 // Async callback for RTL-SDR samples using FrameHandle
 // Accumulates samples until we have exactly g_async_fft_size
 static void async_sample_callback(FrameHandle samples_frame) {
+  // librtlsdr owns this thread; set FTZ/DAZ once per worker on first entry.
+  thread_local bool ftz_initialized = false;
+  if (!ftz_initialized) {
+    enable_ftz_daz();
+    ftz_initialized = true;
+  }
+
   if (g_async_fft_size == 0 || !samples_frame) {
     // FFT size not set yet, skip
     return;
@@ -195,6 +217,8 @@ static void async_sample_callback(FrameHandle samples_frame) {
 }
 
 auto main(int argc, char *argv[]) -> int {
+  enable_ftz_daz();
+
   // Parse command-line arguments
   AppConfig const config = parse_arguments(argc, argv);
 
