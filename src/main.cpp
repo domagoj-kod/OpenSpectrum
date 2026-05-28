@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "fft/fft_analyzer.h"
 #include "gui/sdl_renderer.h"

@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: GPL-3.0-or-later
 # OpenSpectrum Makefile - Secure Cross-Platform Compilation
 
 # Compiler selection
