@@ -45,7 +45,9 @@ public:
   }
 
   // Get magnitude spectrum in dB from last FFT result
-  [[nodiscard]] const std::vector<float> &get_db_spectrum() const { return m_db_spectrum; }
+  [[nodiscard]] const std::vector<float> &get_db_spectrum() const {
+    return m_db_spectrum;
+  }
 
   // Get phase spectrum in radians from last FFT result
   [[nodiscard]] const std::vector<float> &get_phase_spectrum() const {
@@ -53,7 +55,9 @@ public:
   }
 
   // Get normalized frequency bins (0 to 1, where 1 = sample rate)
-  [[nodiscard]] const std::vector<float> &get_frequency_bins() const { return m_freq_bins; }
+  [[nodiscard]] const std::vector<float> &get_frequency_bins() const {
+    return m_freq_bins;
+  }
 
   // Amplitude analysis: get maximum dB value from last FFT result
   [[nodiscard]] float get_max_db() const;
@@ -66,6 +70,17 @@ public:
 
   // Window gain setter
   void set_window_coherent_gain(float gain) { m_window_coherent_gain = gain; }
+
+  // Toggle computation of magnitude/power/phase spectra. Defaults off — the
+  // dB spectrum is the only consumed output in the default pipeline. Enable
+  // before calling execute() if you need any of the secondary spectra.
+  // Saves one sqrt + two stores per bin and an entire scalar atan2 pass.
+  void set_extra_spectra_enabled(bool enabled) noexcept {
+    m_extra_spectra_enabled = enabled;
+  }
+  [[nodiscard]] bool extra_spectra_enabled() const noexcept {
+    return m_extra_spectra_enabled;
+  }
 
 private:
   size_t m_fft_size;
@@ -86,6 +101,7 @@ private:
   std::vector<pocketfft_cpx> m_workspace;
 
   bool m_center_dc;
+  bool m_extra_spectra_enabled = false;
   float m_window_coherent_gain; // Default to rectangular window
 
   // Pre-compute frequency bins

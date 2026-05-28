@@ -28,9 +28,9 @@ static inline __m256 fast_log10_avx2(__m256 x) {
                         23),
       _mm256_set1_epi32(127));
   __m256 const e = _mm256_cvtepi32_ps(exp_int);
-  __m256 const m = _mm256_castsi256_ps(_mm256_or_si256(
-      _mm256_and_si256(bits, _mm256_set1_epi32(0x007FFFFF)),
-      _mm256_set1_epi32(0x3F800000)));
+  __m256 const m = _mm256_castsi256_ps(
+      _mm256_or_si256(_mm256_and_si256(bits, _mm256_set1_epi32(0x007FFFFF)),
+                      _mm256_set1_epi32(0x3F800000)));
 
   // y = (m - 1) / (m + 1), y in [0, 1/3]
   __m256 const num = _mm256_sub_ps(m, _mm256_set1_ps(1.0F));
@@ -72,6 +72,7 @@ FftAnalyzer::~FftAnalyzer() = default;
 
 FftAnalyzer::FftAnalyzer(FftAnalyzer &&other) noexcept
     : m_fft_size(other.m_fft_size), m_center_dc(other.m_center_dc),
+      m_extra_spectra_enabled(other.m_extra_spectra_enabled),
       m_inverse(other.m_inverse), m_workspace(std::move(other.m_workspace)),
       m_window_coherent_gain(other.m_window_coherent_gain),
       m_input_buffer(std::move(other.m_input_buffer)),
@@ -88,6 +89,7 @@ auto FftAnalyzer::operator=(FftAnalyzer &&other) noexcept -> FftAnalyzer & {
   if (this != &other) {
     m_fft_size = other.m_fft_size;
     m_center_dc = other.m_center_dc;
+    m_extra_spectra_enabled = other.m_extra_spectra_enabled;
     m_inverse = other.m_inverse;
     m_workspace = std::move(other.m_workspace);
     m_input_buffer = std::move(other.m_input_buffer);
@@ -131,8 +133,8 @@ void FftAnalyzer::execute(const std::vector<std::complex<float>> &input,
 #ifdef __AVX2__
     // Sign pattern repeats every 2 complex samples ([+,+,-,-]) and is
     // therefore constant across the 4-complex-wide AVX register.
-    __m256 const sign_vec = _mm256_setr_ps(1.0F, 1.0F, -1.0F, -1.0F,
-                                           1.0F, 1.0F, -1.0F, -1.0F);
+    __m256 const sign_vec =
+        _mm256_setr_ps(1.0F, 1.0F, -1.0F, -1.0F, 1.0F, 1.0F, -1.0F, -1.0F);
     size_t const simd_n = m_fft_size & ~size_t{3};
     for (size_t i = 0; i < simd_n; i += 4) {
       __m256 const s = _mm256_loadu_ps(src + 2 * i);
@@ -140,14 +142,14 @@ void FftAnalyzer::execute(const std::vector<std::complex<float>> &input,
     }
     for (size_t i = simd_n; i < m_fft_size; ++i) {
       float const sign = (i % 2 == 0) ? 1.0F : -1.0F;
-      m_input_buffer[i] = pocketfft_cpx(sign * input[i].real(),
-                                        sign * input[i].imag());
+      m_input_buffer[i] =
+          pocketfft_cpx(sign * input[i].real(), sign * input[i].imag());
     }
 #else
     for (size_t i = 0; i < m_fft_size; ++i) {
       float const sign = (i % 2 == 0) ? 1.0F : -1.0F;
-      m_input_buffer[i] = pocketfft_cpx(sign * input[i].real(),
-                                        sign * input[i].imag());
+      m_input_buffer[i] =
+          pocketfft_cpx(sign * input[i].real(), sign * input[i].imag());
     }
 #endif
   }
@@ -170,44 +172,61 @@ void FftAnalyzer::execute(const std::vector<std::complex<float>> &input,
     }
   }
 
-  // --- 4. Power / magnitude / dB ----------------------------------------
+  // --- 4. Power / dB (no sqrt) -------------------------------------------
+  // dB is computed directly from power: 20·log10(sqrt(p)·c) = 10·log10(p·c²).
+  // Epsilon also squared so the power=0 case matches the prior formula.
   size_t const half_size = (m_fft_size / 2) + 1;
   float const inv_ng =
       1.0F / (static_cast<float>(m_fft_size) * m_window_coherent_gain);
-  float const inv_ng_x2 = 2.0F * inv_ng;
-  float const epsilon = 1e-12F;
+  float const c_sq_x4 = 4.0F * inv_ng * inv_ng; // (scale·inv_ng)² for scale=2
+  float const c_sq_x1 = inv_ng * inv_ng;        // for DC / Nyquist (scale=1)
+  float const eps_sq = 1e-24F;
+  bool const extras = m_extra_spectra_enabled;
 
   size_t simd_bins = 0;
 
 #ifdef __AVX2__
   const auto *out_data =
       reinterpret_cast<const float *>(m_output_buffer.data());
-  __m256 const inv_ng_x2_v = _mm256_set1_ps(inv_ng_x2);
-  __m256 const eps_v = _mm256_set1_ps(epsilon);
-  __m256 const twenty_v = _mm256_set1_ps(20.0F);
+  __m256 const c_sq_v = _mm256_set1_ps(c_sq_x4);
+  __m256 const eps_sq_v = _mm256_set1_ps(eps_sq);
+  __m256 const ten_v = _mm256_set1_ps(10.0F);
 
   // Process 8 bins (16 floats / 2 AVX regs) per iteration.
   // half_size = N/2 + 1; we cover [0, simd_bins) here and patch DC + Nyquist
   // below since they need scale=1 instead of scale=2.
   simd_bins = (half_size / 8) * 8;
-  for (size_t i = 0; i < simd_bins; i += 8) {
-    __m256 const z0 = _mm256_loadu_ps(out_data + 2 * i);
-    __m256 const z1 = _mm256_loadu_ps(out_data + 2 * i + 8);
-    __m256 const zsq0 = _mm256_mul_ps(z0, z0);
-    __m256 const zsq1 = _mm256_mul_ps(z1, z1);
-    // hadd within 128-bit lanes: [p0,p1,p4,p5,p2,p3,p6,p7]
-    __m256 const h = _mm256_hadd_ps(zsq0, zsq1);
-    // Permute 64-bit elements to get [p0,p1,p2,p3,p4,p5,p6,p7]
-    __m256 const power = _mm256_castpd_ps(
-        _mm256_permute4x64_pd(_mm256_castps_pd(h), 0xD8));
-    __m256 const mag = _mm256_sqrt_ps(power);
 
-    _mm256_storeu_ps(&m_power_spectrum[i], power);
-    _mm256_storeu_ps(&m_magnitude_spectrum[i], mag);
-
-    __m256 const db_arg = _mm256_fmadd_ps(mag, inv_ng_x2_v, eps_v);
-    __m256 const db = _mm256_mul_ps(fast_log10_avx2(db_arg), twenty_v);
-    _mm256_storeu_ps(&m_db_spectrum[i], db);
+  // Manually unswitched on `extras` — GCC -O3 did not hoist the branch.
+  // Fast path (default) skips the sqrt and two stores entirely.
+  if (!extras) {
+    for (size_t i = 0; i < simd_bins; i += 8) {
+      __m256 const z0 = _mm256_loadu_ps(out_data + 2 * i);
+      __m256 const z1 = _mm256_loadu_ps(out_data + 2 * i + 8);
+      __m256 const zsq0 = _mm256_mul_ps(z0, z0);
+      __m256 const zsq1 = _mm256_mul_ps(z1, z1);
+      __m256 const h = _mm256_hadd_ps(zsq0, zsq1);
+      __m256 const power =
+          _mm256_castpd_ps(_mm256_permute4x64_pd(_mm256_castps_pd(h), 0xD8));
+      __m256 const db_arg = _mm256_fmadd_ps(power, c_sq_v, eps_sq_v);
+      __m256 const db = _mm256_mul_ps(fast_log10_avx2(db_arg), ten_v);
+      _mm256_storeu_ps(&m_db_spectrum[i], db);
+    }
+  } else {
+    for (size_t i = 0; i < simd_bins; i += 8) {
+      __m256 const z0 = _mm256_loadu_ps(out_data + 2 * i);
+      __m256 const z1 = _mm256_loadu_ps(out_data + 2 * i + 8);
+      __m256 const zsq0 = _mm256_mul_ps(z0, z0);
+      __m256 const zsq1 = _mm256_mul_ps(z1, z1);
+      __m256 const h = _mm256_hadd_ps(zsq0, zsq1);
+      __m256 const power =
+          _mm256_castpd_ps(_mm256_permute4x64_pd(_mm256_castps_pd(h), 0xD8));
+      _mm256_storeu_ps(&m_power_spectrum[i], power);
+      _mm256_storeu_ps(&m_magnitude_spectrum[i], _mm256_sqrt_ps(power));
+      __m256 const db_arg = _mm256_fmadd_ps(power, c_sq_v, eps_sq_v);
+      __m256 const db = _mm256_mul_ps(fast_log10_avx2(db_arg), ten_v);
+      _mm256_storeu_ps(&m_db_spectrum[i], db);
+    }
   }
 #endif
 
@@ -216,29 +235,36 @@ void FftAnalyzer::execute(const std::vector<std::complex<float>> &input,
     float const r = m_output_buffer[i].real();
     float const im = m_output_buffer[i].imag();
     float const power = r * r + im * im;
-    m_power_spectrum[i] = power;
-    float const mag = std::sqrt(power);
-    m_magnitude_spectrum[i] = mag;
-    float const scale = (i != 0 && i != m_fft_size / 2) ? 2.0F : 1.0F;
-    m_db_spectrum[i] = 20.0F * std::log10(mag * scale * inv_ng + epsilon);
-  }
-
-  // Patch DC and Nyquist: bulk SIMD loop assumed scale=2, but these two
-  // single-sided bins use scale=1.
-  if (simd_bins > 0) {
-    m_db_spectrum[0] =
-        20.0F * std::log10(m_magnitude_spectrum[0] * inv_ng + epsilon);
-    size_t const nyq = m_fft_size / 2;
-    if (nyq < simd_bins) {
-      m_db_spectrum[nyq] =
-          20.0F * std::log10(m_magnitude_spectrum[nyq] * inv_ng + epsilon);
+    if (extras) {
+      m_power_spectrum[i] = power;
+      m_magnitude_spectrum[i] = std::sqrt(power);
     }
+    float const c_sq = (i != 0 && i != m_fft_size / 2) ? c_sq_x4 : c_sq_x1;
+    m_db_spectrum[i] = 10.0F * std::log10(power * c_sq + eps_sq);
   }
 
-  // --- 5. Phase (scalar — no consumers in current pipeline) -------------
-  for (size_t i = 0; i < half_size; ++i) {
-    m_phase_spectrum[i] = std::atan2(m_output_buffer[i].imag(),
-                                     m_output_buffer[i].real());
+  // Patch DC and Nyquist dB values: bulk SIMD loop used scale=2; these two
+  // single-sided bins need scale=1. Power/magnitude are scale-independent so
+  // they don't need re-storing.
+  if (simd_bins > 0) {
+    auto patch_db = [&](size_t idx) {
+      float const r = m_output_buffer[idx].real();
+      float const im = m_output_buffer[idx].imag();
+      float const p = r * r + im * im;
+      m_db_spectrum[idx] = 10.0F * std::log10(p * c_sq_x1 + eps_sq);
+    };
+    patch_db(0);
+    size_t const nyq = m_fft_size / 2;
+    if (nyq < simd_bins)
+      patch_db(nyq);
+  }
+
+  // --- 5. Phase (scalar, gated) -----------------------------------------
+  if (extras) {
+    for (size_t i = 0; i < half_size; ++i) {
+      m_phase_spectrum[i] =
+          std::atan2(m_output_buffer[i].imag(), m_output_buffer[i].real());
+    }
   }
 
   // --- 6. Optional output copy (buffer is already rotated) --------------
@@ -254,12 +280,14 @@ void FftAnalyzer::execute(const std::vector<std::complex<float>> &input) {
 }
 
 auto FftAnalyzer::get_max_db() const -> float {
-  if (m_db_spectrum.empty()) return -140.0F;
+  if (m_db_spectrum.empty())
+    return -140.0F;
   const float *ptr = m_db_spectrum.data();
   const size_t n = m_db_spectrum.size();
   float max_val = ptr[0];
   for (size_t i = 1; i < n; ++i) {
-    if (ptr[i] > max_val) max_val = ptr[i];
+    if (ptr[i] > max_val)
+      max_val = ptr[i];
   }
   return max_val;
 }
