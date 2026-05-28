@@ -80,14 +80,8 @@ void RtlSdrDevice::set_fft_size(size_t fft_size) {
   }
 }
 
-void RtlSdrDevice::set_callback(SampleCallback cb) {
-  m_callback = std::move(cb);
-  m_use_frame_callback = false;
-}
-
 void RtlSdrDevice::set_frame_callback(FrameCallback cb) {
   m_frame_callback = std::move(cb);
-  m_use_frame_callback = true;
 }
 
 auto RtlSdrDevice::read_samples(size_t count)
@@ -162,26 +156,7 @@ void RtlSdrDevice::stop_streaming() {
 // Callback signature must match rtlsdr_read_async_cb_t
 void RtlSdrDevice::static_callback(unsigned char *buf, uint32_t len,
                                    void *ctx) {
-  static_cast<RtlSdrDevice *>(ctx)->process_callback(buf, len);
-}
-
-void RtlSdrDevice::process_callback(unsigned char *buf, uint32_t len) {
-  if (m_use_frame_callback && m_frame_callback) {
-    process_callback_with_pool(buf, len);
-    return;
-  }
-
-  if (!m_callback) {
-    return;
-  }
-  size_t const count = len / 2;
-  std::vector<std::complex<float>> samples(count);
-  for (size_t i = 0; i < count; ++i) {
-    samples[i] = std::complex<float>(
-        (static_cast<float>(buf[i * 2]) - 127.5F) / 127.5F,
-        (static_cast<float>(buf[(i * 2) + 1]) - 127.5F) / 127.5F);
-  }
-  m_callback(std::move(samples));
+  static_cast<RtlSdrDevice *>(ctx)->process_callback_with_pool(buf, len);
 }
 
 void RtlSdrDevice::process_callback_with_pool(unsigned char *buf,

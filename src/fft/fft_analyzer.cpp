@@ -59,7 +59,7 @@ FftAnalyzer::FftAnalyzer(size_t fft_size, bool inverse)
       m_output_buffer(fft_size), m_power_spectrum((fft_size / 2) + 1),
       m_magnitude_spectrum((fft_size / 2) + 1),
       m_db_spectrum((fft_size / 2) + 1), m_phase_spectrum((fft_size / 2) + 1),
-      m_freq_bins((fft_size / 2) + 1), m_workspace(fft_size) {
+      m_freq_bins((fft_size / 2) + 1) {
   // Security: validate FFT size is a power of 2
   if (fft_size == 0 || (fft_size & (fft_size - 1)) != 0) {
     throw std::invalid_argument("FFT size must be a power of 2");
@@ -71,17 +71,17 @@ FftAnalyzer::FftAnalyzer(size_t fft_size, bool inverse)
 FftAnalyzer::~FftAnalyzer() = default;
 
 FftAnalyzer::FftAnalyzer(FftAnalyzer &&other) noexcept
-    : m_fft_size(other.m_fft_size), m_center_dc(other.m_center_dc),
-      m_extra_spectra_enabled(other.m_extra_spectra_enabled),
-      m_inverse(other.m_inverse), m_workspace(std::move(other.m_workspace)),
-      m_window_coherent_gain(other.m_window_coherent_gain),
+    : m_fft_size(other.m_fft_size), m_inverse(other.m_inverse),
       m_input_buffer(std::move(other.m_input_buffer)),
       m_output_buffer(std::move(other.m_output_buffer)),
       m_power_spectrum(std::move(other.m_power_spectrum)),
       m_magnitude_spectrum(std::move(other.m_magnitude_spectrum)),
       m_db_spectrum(std::move(other.m_db_spectrum)),
       m_phase_spectrum(std::move(other.m_phase_spectrum)),
-      m_freq_bins(std::move(other.m_freq_bins)) {
+      m_freq_bins(std::move(other.m_freq_bins)),
+      m_center_dc(other.m_center_dc),
+      m_extra_spectra_enabled(other.m_extra_spectra_enabled),
+      m_window_coherent_gain(other.m_window_coherent_gain) {
   other.m_fft_size = 0;
 }
 
@@ -91,7 +91,6 @@ auto FftAnalyzer::operator=(FftAnalyzer &&other) noexcept -> FftAnalyzer & {
     m_center_dc = other.m_center_dc;
     m_extra_spectra_enabled = other.m_extra_spectra_enabled;
     m_inverse = other.m_inverse;
-    m_workspace = std::move(other.m_workspace);
     m_input_buffer = std::move(other.m_input_buffer);
     m_output_buffer = std::move(other.m_output_buffer);
     m_power_spectrum = std::move(other.m_power_spectrum);
@@ -272,11 +271,6 @@ void FftAnalyzer::execute(const std::vector<std::complex<float>> &input,
     std::memcpy(output.data(), m_output_buffer.data(),
                 half_size * sizeof(std::complex<float>));
   }
-}
-
-void FftAnalyzer::execute(const std::vector<std::complex<float>> &input) {
-  std::vector<std::complex<float>> dummy;
-  execute(input, dummy);
 }
 
 auto FftAnalyzer::get_max_db() const -> float {

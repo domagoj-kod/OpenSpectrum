@@ -75,7 +75,9 @@ private:
   // Internal helper methods
   bool create_output_directory();
   std::string generate_filename(const std::string &extension) const;
-  std::string generate_metadata_filename() const;
+  // Derive the metadata filename from an already-generated PNG name so the
+  // pair shares the same timestamp/sequence even if export crosses a second.
+  static std::string metadata_filename_for(const std::string &png_filename);
   ExportResult write_png(const std::string &filename, const uint8_t *data,
                          int width, int height, int stride_bytes);
   void write_metadata(const std::string &filename, int image_width,

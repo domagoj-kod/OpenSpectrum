@@ -291,28 +291,6 @@ void IqLogger::write_samples(const std::vector<std::complex<float>> &samples) {
   }
 }
 
-void IqLogger::write_sample(std::complex<float> sample) {
-  std::lock_guard<std::mutex> lock(m_mutex);
-
-  if (!m_capturing || m_data_file == nullptr) {
-    return;
-  }
-
-  // Write single sample to buffer
-  const uint8_t *data_ptr = reinterpret_cast<const uint8_t *>(&sample);
-  size_t to_copy = sizeof(std::complex<float>);
-
-  if (m_buffer_pos + to_copy > m_config.buffer_size_bytes) {
-    flush_buffer();
-  }
-
-  std::memcpy(&m_buffer[m_buffer_pos], data_ptr, to_copy);
-  m_buffer_pos += to_copy;
-
-  // Update sample count
-  m_stats.sample_count++;
-}
-
 void IqLogger::stop_capture() {
   std::lock_guard<std::mutex> lock(m_mutex);
 
@@ -448,36 +426,23 @@ void IqLogger::write_metadata() {
 }
 
 void IqLogger::update_stats(const std::vector<std::complex<float>> &samples) {
-  // Update sample count
-  m_stats.sample_count += samples.size();
-
-  // Calculate magnitude for each sample and update statistics
+  // Welford-style online mean: increment count per sample so the divisor in
+  // avg += (x - avg) / n is the correct running sample index. The previous
+  // implementation incremented sample_count once for the whole batch, which
+  // made the divisor constant inside the loop and biased the average.
   for (const auto &sample : samples) {
-    float magnitude = std::abs(sample);
-    // Convert to dB: 20 * log10(magnitude)
-    // Use max with small value to avoid log(0)
-    float mag_db =
+    float const magnitude = std::abs(sample);
+    float const mag_db =
         magnitude > 0.00001f ? 20.0f * std::log10(magnitude) : -140.0f;
 
-    if (mag_db > m_stats.peak_db) {
-      m_stats.peak_db = mag_db;
-    }
-    if (mag_db > m_stats.max_db) {
-      m_stats.max_db = mag_db;
-    }
-    if (mag_db < m_stats.min_db) {
-      m_stats.min_db = mag_db;
-    }
+    if (mag_db > m_stats.peak_db) m_stats.peak_db = mag_db;
+    if (mag_db > m_stats.max_db)  m_stats.max_db  = mag_db;
+    if (mag_db < m_stats.min_db)  m_stats.min_db  = mag_db;
 
-    // Simple moving average for average_db
-    // Using incremental update: avg = avg + (new - avg) / count
-    if (m_stats.sample_count == samples.size()) {
-      // First batch
-      m_stats.average_db = mag_db;
-    } else {
-      double alpha = 1.0 / static_cast<double>(m_stats.sample_count);
-      m_stats.average_db = m_stats.average_db * (1.0 - alpha) + mag_db * alpha;
-    }
+    ++m_stats.sample_count;
+    m_stats.average_db +=
+        (static_cast<double>(mag_db) - m_stats.average_db) /
+        static_cast<double>(m_stats.sample_count);
   }
 }
 

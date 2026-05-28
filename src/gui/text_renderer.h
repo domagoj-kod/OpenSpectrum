@@ -3,17 +3,18 @@
 
 #include <cstdint>
 #include <string>
-#include <unordered_map>
 
 #include <SDL2/SDL.h>
 
 namespace openspectrum {
 
-// Simple text renderer that caches glyphs as textures
+// Simple bitmap-font text renderer. Each render_text() call returns a fresh
+// SDL_Texture owned by the caller — there is no glyph cache (call sites cache
+// the rendered string-texture themselves).
 class TextRenderer {
 public:
   TextRenderer(SDL_Renderer *renderer, int font_size = 16);
-  ~TextRenderer();
+  ~TextRenderer() = default;
 
   // Non-copyable, non-movable
   TextRenderer(const TextRenderer &) = delete;
@@ -29,9 +30,6 @@ public:
   // Get dimensions of text without rendering
   void get_text_size(const std::string &text, int *w, int *h) const;
 
-  // Cleanup all cached textures
-  void clear_cache();
-
 private:
   SDL_Renderer *renderer = nullptr;
   int font_size = 16;
@@ -40,14 +38,8 @@ private:
   // Contains ASCII 32-127
   static const uint8_t BITMAP_FONT[96][8];
 
-  // Glyph cache: character -> texture
-  std::unordered_map<char, SDL_Texture *> glyph_cache;
   int glyph_width = 8;
   int glyph_height = 8;
-
-  // Create a texture from bitmap data
-  SDL_Texture *create_texture_from_bitmap(const uint8_t *bitmap,
-                                          SDL_Color color);
 };
 
 } // namespace openspectrum

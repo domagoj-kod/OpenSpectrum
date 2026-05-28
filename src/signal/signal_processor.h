@@ -32,14 +32,17 @@ public:
   // Remove DC offset (mean subtraction)
   OS_HOT static void remove_dc(std::vector<std::complex<float>> &samples);
 
-  // Set window function
-  void set_window(WindowFunction window) noexcept { m_window = window; }
+  // Set window function. Recomputes coefficients so the next apply_window()
+  // uses the new shape; keyboard-driven window changes would otherwise silently
+  // keep applying the previous window.
+  void set_window(WindowFunction window) {
+    if (window == m_window) return;
+    m_window = window;
+    precompute_window(m_fft_size);
+  }
 
   // Pre-compute window coefficients for given size (runs only on size / window changes)
   OS_COLD void precompute_window(size_t size);
-
-  // Get window coefficient at index
-  [[nodiscard]] float get_window_coeff(size_t index) const;
 
   [[nodiscard]] size_t fft_size() const noexcept { return m_fft_size; }
 

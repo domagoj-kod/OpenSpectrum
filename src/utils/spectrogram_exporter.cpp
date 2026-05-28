@@ -11,9 +11,9 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
-#include "stb_image_write.h"
-
-// Define STB_IMAGE_WRITE_IMPLEMENTATION in exactly one compilation unit
+// stb_image_write keeps its implementation block outside the include guard,
+// so one #include with STB_IMAGE_WRITE_IMPLEMENTATION defined is sufficient
+// to get both the declarations and the implementation in this TU.
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
@@ -118,13 +118,13 @@ SpectrogramExporter::generate_filename(const std::string &extension) const {
   return filename;
 }
 
-std::string SpectrogramExporter::generate_metadata_filename() const {
-  std::string base = generate_filename("png");
-  size_t last_dot = base.find_last_of('.');
+std::string SpectrogramExporter::metadata_filename_for(
+    const std::string &png_filename) {
+  size_t const last_dot = png_filename.find_last_of('.');
   if (last_dot != std::string::npos) {
-    return base.substr(0, last_dot) + ".meta.json";
+    return png_filename.substr(0, last_dot) + ".meta.json";
   }
-  return base + ".meta.json";
+  return png_filename + ".meta.json";
 }
 
 // Escape string for JSON output
@@ -325,7 +325,7 @@ ExportResult SpectrogramExporter::export_combined(
                      static_cast<int>(total_height), static_cast<int>(stride));
 
   if (result.success && m_config.include_metadata) {
-    std::string meta_filename = generate_metadata_filename();
+    std::string meta_filename = metadata_filename_for(png_filename);
     write_metadata(meta_filename, static_cast<int>(display_width),
                    static_cast<int>(total_height), "combined", center_freq_hz,
                    sample_rate_hz, gain_db, fft_size, window_function,
@@ -366,7 +366,7 @@ ExportResult SpectrogramExporter::export_spectrum(
                      static_cast<int>(width), static_cast<int>(height), stride);
 
   if (result.success && m_config.include_metadata) {
-    std::string meta_filename = generate_metadata_filename();
+    std::string meta_filename = metadata_filename_for(png_filename);
     write_metadata(meta_filename, static_cast<int>(width),
                    static_cast<int>(height), "spectrum", center_freq_hz,
                    sample_rate_hz, gain_db, fft_size, window_function,
@@ -405,7 +405,7 @@ ExportResult SpectrogramExporter::export_waterfall(
                      static_cast<int>(width), static_cast<int>(height), stride);
 
   if (result.success && m_config.include_metadata) {
-    std::string meta_filename = generate_metadata_filename();
+    std::string meta_filename = metadata_filename_for(png_filename);
     write_metadata(meta_filename, static_cast<int>(width),
                    static_cast<int>(height), "waterfall", center_freq_hz,
                    sample_rate_hz, gain_db, fft_size, window_function,
