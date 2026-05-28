@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
+#include "openspectrum/attributes.h"
 #include "spectrum_display.h"
 #include "ring_buffer.h"
 
@@ -22,7 +23,7 @@ public:
 
   // Update with new spectrum line
   // db_values: dB values for each frequency bin
-  void add_spectrum_line(const std::vector<float> &db_values);
+  OS_HOT void add_spectrum_line(const std::vector<float> &db_values);
 
   // Get rendered pixel buffer (RGB32 format)
   // Phase 3: Returns PixelBuffer for direct access; has .data() and .size()

@@ -7,6 +7,7 @@
 #include <memory>
 #include <vector>
 
+#include "openspectrum/attributes.h"
 #include "pocketfft_wrapper.h"
 
 namespace openspectrum {
@@ -14,7 +15,7 @@ namespace openspectrum {
 // Secure wrapper around PocketFFT with RAII and pre-allocated buffers
 class FftAnalyzer {
 public:
-  explicit FftAnalyzer(size_t fft_size, bool inverse = false);
+  OS_COLD explicit FftAnalyzer(size_t fft_size, bool inverse = false);
   ~FftAnalyzer();
 
   // Non-copyable: buffers are large and the move ctor is the intended path.
@@ -28,11 +29,11 @@ public:
   // Execute FFT on input samples, store result in output
   // Input: time-domain complex samples (size = fft_size)
   // Output: frequency-domain complex bins (size = fft_size)
-  void execute(const std::vector<std::complex<float>> &input,
-               std::vector<std::complex<float>> &output);
+  OS_HOT void execute(const std::vector<std::complex<float>> &input,
+                      std::vector<std::complex<float>> &output);
 
   // Execute FFT with pre-allocated internal buffers (zero-copy for output)
-  void execute(const std::vector<std::complex<float>> &input);
+  OS_HOT void execute(const std::vector<std::complex<float>> &input);
 
   // Get power spectrum (magnitude squared) from last FFT result
   [[nodiscard]] const std::vector<float> &get_power_spectrum() const {

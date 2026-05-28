@@ -48,11 +48,21 @@ CFLAGS   := $(BASE_CFLAGS) -O0 -DOPENSPECTRUM_DEBUG
 CXXFLAGS := $(BASE_CXXFLAGS) -O0 -DOPENSPECTRUM_DEBUG
 LDFLAGS  := $(BASE_LDFLAGS)
 
+# Footprint-trim flags shared by release and PGO targets.
+# - function/data-sections + --gc-sections: drop every symbol the linker can
+#   prove unreachable, shrinking I-cache pressure.
+# - visibility=hidden: only main() (and SDL2 hooks) need external linkage.
+#   Strips export tables, lets LTO be more aggressive.
+# - align-loops/functions=32: hot loops fit in one DSB fetch line.
+TRIM_CFLAGS  := -ffunction-sections -fdata-sections -fvisibility=hidden \
+                -fvisibility-inlines-hidden -falign-functions=32 -falign-loops=32
+TRIM_LDFLAGS := -Wl,--gc-sections
+
 # Release target overrides
 release:
-	$(MAKE) CFLAGS="$(BASE_CFLAGS) -O3 -DNDEBUG -flto -march=haswell" \
-	       CXXFLAGS="$(BASE_CXXFLAGS) -O3 -DNDEBUG -flto -march=haswell" \
-	       LDFLAGS="$(BASE_LDFLAGS) -flto -march=haswell" \
+	$(MAKE) CFLAGS="$(BASE_CFLAGS) -O3 -DNDEBUG -flto -march=haswell $(TRIM_CFLAGS)" \
+	       CXXFLAGS="$(BASE_CXXFLAGS) -O3 -DNDEBUG -flto -march=haswell $(TRIM_CFLAGS)" \
+	       LDFLAGS="$(BASE_LDFLAGS) -flto -march=haswell $(TRIM_CFLAGS) $(TRIM_LDFLAGS)" \
 	       all
 
 # Profile target overrides
@@ -69,18 +79,18 @@ PGO_DIR := $(CURDIR)/pgo-data
 # Run the resulting binary against a representative workload, then `profile-use`.
 profile-gen:
 	mkdir -p $(PGO_DIR)
-	$(MAKE) CFLAGS="$(BASE_CFLAGS) -O3 -DNDEBUG -march=haswell -fprofile-generate=$(PGO_DIR) -fprofile-update=atomic" \
-	       CXXFLAGS="$(BASE_CXXFLAGS) -O3 -DNDEBUG -march=haswell -fprofile-generate=$(PGO_DIR) -fprofile-update=atomic" \
-	       LDFLAGS="$(BASE_LDFLAGS) -march=haswell -fprofile-generate=$(PGO_DIR)" \
+	$(MAKE) CFLAGS="$(BASE_CFLAGS) -O3 -DNDEBUG -march=haswell $(TRIM_CFLAGS) -fprofile-generate=$(PGO_DIR) -fprofile-update=atomic" \
+	       CXXFLAGS="$(BASE_CXXFLAGS) -O3 -DNDEBUG -march=haswell $(TRIM_CFLAGS) -fprofile-generate=$(PGO_DIR) -fprofile-update=atomic" \
+	       LDFLAGS="$(BASE_LDFLAGS) -march=haswell $(TRIM_CFLAGS) $(TRIM_LDFLAGS) -fprofile-generate=$(PGO_DIR)" \
 	       all
 
 # PGO stage 2: rebuild using the collected profile. LTO + PGO together let
 # the linker reorder blocks/functions according to actual hot paths.
 # -fprofile-correction tolerates minor source edits between gen and use.
 profile-use:
-	$(MAKE) CFLAGS="$(BASE_CFLAGS) -O3 -DNDEBUG -flto -march=haswell -fprofile-use=$(PGO_DIR) -fprofile-correction" \
-	       CXXFLAGS="$(BASE_CXXFLAGS) -O3 -DNDEBUG -flto -march=haswell -fprofile-use=$(PGO_DIR) -fprofile-correction" \
-	       LDFLAGS="$(BASE_LDFLAGS) -flto -march=haswell -fprofile-use=$(PGO_DIR) -fprofile-correction" \
+	$(MAKE) CFLAGS="$(BASE_CFLAGS) -O3 -DNDEBUG -flto -march=haswell $(TRIM_CFLAGS) -fprofile-use=$(PGO_DIR) -fprofile-correction" \
+	       CXXFLAGS="$(BASE_CXXFLAGS) -O3 -DNDEBUG -flto -march=haswell $(TRIM_CFLAGS) -fprofile-use=$(PGO_DIR) -fprofile-correction" \
+	       LDFLAGS="$(BASE_LDFLAGS) -flto -march=haswell $(TRIM_CFLAGS) $(TRIM_LDFLAGS) -fprofile-use=$(PGO_DIR) -fprofile-correction" \
 	       all
 
 # Wipe collected profile data (use when source has changed significantly).

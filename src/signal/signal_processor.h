@@ -7,6 +7,8 @@
 #include <cstdint>
 #include <vector>
 
+#include "openspectrum/attributes.h"
+
 namespace openspectrum {
 
 // Supported window functions for spectral leakage reduction
@@ -21,20 +23,20 @@ enum class WindowFunction {
 
 class SignalProcessor {
 public:
-  explicit SignalProcessor(size_t fft_size);
+  OS_COLD explicit SignalProcessor(size_t fft_size);
   ~SignalProcessor() = default;
 
   // Apply selected window function to samples (in-place)
-  void apply_window(std::vector<std::complex<float>> &samples);
+  OS_HOT void apply_window(std::vector<std::complex<float>> &samples);
 
   // Remove DC offset (mean subtraction)
-  static void remove_dc(std::vector<std::complex<float>> &samples);
+  OS_HOT static void remove_dc(std::vector<std::complex<float>> &samples);
 
   // Set window function
   void set_window(WindowFunction window) noexcept { m_window = window; }
 
-  // Pre-compute window coefficients for given size
-  void precompute_window(size_t size);
+  // Pre-compute window coefficients for given size (runs only on size / window changes)
+  OS_COLD void precompute_window(size_t size);
 
   // Get window coefficient at index
   [[nodiscard]] float get_window_coeff(size_t index) const;
@@ -89,11 +91,11 @@ private:
   // Lets the AVX2 hot path load window weights aligned to interleaved IQ data.
   std::vector<float> m_window_coeffs_doubled;
 
-  void compute_hann();
-  void compute_hamming();
-  void compute_blackman();
-  void compute_blackman_harris();
-  void compute_flat_top();
+  OS_COLD void compute_hann();
+  OS_COLD void compute_hamming();
+  OS_COLD void compute_blackman();
+  OS_COLD void compute_blackman_harris();
+  OS_COLD void compute_flat_top();
 };
 
 } // namespace openspectrum

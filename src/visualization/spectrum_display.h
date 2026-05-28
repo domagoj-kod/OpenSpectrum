@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 
+#include "openspectrum/attributes.h"
+
 // Forward declaration for SDL types
 #include <SDL2/SDL.h>
 
@@ -129,9 +131,9 @@ public:
   ~SpectrumDisplay() = default;
 
   // Update spectrum data (frequency bins in dB)
-  void update_spectrum(const std::vector<float> &db_values,
-                       const std::vector<float> & /*freq_bins*/,
-                       float center_freq_hz, float sample_rate_hz);
+  OS_HOT void update_spectrum(const std::vector<float> &db_values,
+                              const std::vector<float> & /*freq_bins*/,
+                              float center_freq_hz, float sample_rate_hz);
 
   // Get rendered pixel buffer (RGB32 format: RGBA interleaved)
   // Phase 3: Returns PixelBuffer for direct access; has .data() and .size()
