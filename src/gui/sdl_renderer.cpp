@@ -5,6 +5,7 @@
 #include "text_renderer.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -138,6 +139,21 @@ SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title,
       LOG_WARNING("Fallback renderer: " + std::string(info.name));
     }
   }
+
+  // Render at a fixed logical resolution. SDL then scales the whole scene to
+  // the actual window and letterboxes the remainder in black on resize /
+  // fullscreen, with no per-resize handling. Without this, a resized window
+  // left the composited content at native size in a corner and the uncleared
+  // remainder flashed arbitrary back-buffer colors every frame (a
+  // photosensitivity hazard), and non-integer waterfall scaling produced a
+  // crawling 1px seam. Logical size == window size in the default case, so the
+  // unresized path is unchanged.
+  SDL_RenderSetLogicalSize(m_renderer, static_cast<int>(width),
+                           static_cast<int>(height));
+  // Keep the clear color black so every SDL_RenderClear (and the letterbox
+  // bars) are black. The only code that changes the draw color (peak indicator,
+  // timing overlay) saves and restores it, so this stays black for all frames.
+  SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 255);
 
   // Create texture for RGBA rendering
   m_texture = SDL_CreateTexture(
@@ -279,6 +295,68 @@ void SdlRenderer::render_overlays() {
     SDL_Rect const dst = {0, scale_y, static_cast<int>(m_width), scale_h};
     SDL_RenderCopy(m_renderer, m_freq_scale_texture, nullptr, &dst);
   }
+
+  // DEBUG: frame-timing overlay (toggled with 'T'), top-left, green on a
+  // semi-transparent backdrop. Text textures are created/destroyed per frame —
+  // acceptable because this path is off by default.
+  if (m_timing_overlay_enabled && m_text_renderer) {
+    char lines[4][32];
+    std::snprintf(lines[0], sizeof(lines[0]), "fps  %.1f", m_timing_fps);
+    std::snprintf(lines[1], sizeof(lines[1]), "cpu  %.2f ms", m_timing_cpu_ms);
+    std::snprintf(lines[2], sizeof(lines[2]), "bld  %.2f ms", m_timing_build_ms);
+    std::snprintf(lines[3], sizeof(lines[3]), "pres %.2f ms", m_timing_present_ms);
+
+    int line_h = 0;
+    int max_w = 0;
+    for (auto &s : lines) {
+      int w = 0;
+      int h = 0;
+      m_text_renderer->get_text_size(s, &w, &h);
+      if (w > max_w) max_w = w;
+      if (h > line_h) line_h = h;
+    }
+
+    const int pad = 5;
+    const int x0 = 8;
+    const int y0 = 8;
+    SDL_Rect const bg = {x0 - pad, y0 - pad, max_w + 2 * pad,
+                         4 * line_h + 2 * pad};
+    Uint8 r;
+    Uint8 g;
+    Uint8 b;
+    Uint8 a;
+    SDL_GetRenderDrawColor(m_renderer, &r, &g, &b, &a);
+    SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 192);
+    SDL_RenderFillRect(m_renderer, &bg);
+    SDL_SetRenderDrawColor(m_renderer, r, g, b, a);
+
+    // White only: TextRenderer::render_text packs RGBA in an order that maps
+    // the input red channel onto alpha (latent byte-order bug), so non-white
+    // text with red==0 renders fully transparent. White is safe.
+    SDL_Color const col = {255, 255, 255, 255};
+    for (int i = 0; i < 4; ++i) {
+      SDL_Texture *t = m_text_renderer->render_text(lines[i], col);
+      if (t != nullptr) {
+        int w = 0;
+        int h = 0;
+        m_text_renderer->get_text_size(lines[i], &w, &h);
+        SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
+        SDL_Rect const d = {x0, y0 + i * line_h, w, h};
+        SDL_RenderCopy(m_renderer, t, nullptr, &d);
+        SDL_DestroyTexture(t);
+      }
+    }
+  }
+}
+
+void SdlRenderer::set_timing_overlay(bool enabled, double fps, double cpu_ms,
+                                     double render_build_ms,
+                                     double present_ms) noexcept {
+  m_timing_overlay_enabled = enabled;
+  m_timing_fps = fps;
+  m_timing_cpu_ms = cpu_ms;
+  m_timing_build_ms = render_build_ms;
+  m_timing_present_ms = present_ms;
 }
 
 auto SdlRenderer::render_displays(const uint8_t *spectrum_data,
@@ -345,7 +423,7 @@ auto SdlRenderer::render_displays(const uint8_t *spectrum_data,
   SDL_RenderClear(m_renderer);
   SDL_RenderCopy(m_renderer, m_texture, nullptr, nullptr);
   render_overlays();
-  SDL_RenderPresent(m_renderer);
+  present_timed();
   return true;
 }
 
@@ -353,7 +431,16 @@ void SdlRenderer::present_frame() {
   SDL_RenderClear(m_renderer);
   SDL_RenderCopy(m_renderer, m_texture, nullptr, nullptr);
   render_overlays();
+  present_timed();
+}
+
+// DEBUG (frame-timing branch): time the present so the main loop can subtract
+// the swap/flush cost from total render time.
+void SdlRenderer::present_timed() {
+  auto t0 = std::chrono::steady_clock::now();
   SDL_RenderPresent(m_renderer);
+  auto t1 = std::chrono::steady_clock::now();
+  m_last_present_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
 }
 
 auto SdlRenderer::poll_events(ControlState *state) -> bool {
@@ -651,7 +738,7 @@ bool SdlRenderer::render_displays_scroll(const uint8_t *spectrum_data,
   SDL_RenderCopy(m_renderer, m_wf_scroll_tex, nullptr, &wf_dst);
 
   render_overlays();
-  SDL_RenderPresent(m_renderer);
+  present_timed();
   return true;
 }
 

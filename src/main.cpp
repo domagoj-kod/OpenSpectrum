@@ -21,6 +21,7 @@
 #include <csignal>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <exception>
 #include <memory>
 #include <mutex>
@@ -262,10 +263,14 @@ auto main(int argc, char *argv[]) -> int {
 
   try {
     // 1. Initialize SDL2 renderer FIRST (before hardware)
-    // VSYNC disabled by default for performance (can cause tearing but much
-    // faster)
+    // VSYNC on: the render loop now does only ~3-6 ms of work per frame and is
+    // sample-delivery bound (~62 lines/s), so there is ample headroom to cap at
+    // the display refresh. Without vsync, presenting ~62 fps into a 60 Hz panel
+    // tears and beats at ~2 Hz — visible as a periodic waterfall "blink" and a
+    // doubled spectrum peak while tuning. (Vsync appeared to do nothing in
+    // earlier tests only because we were then stuck below 60 fps.)
     SdlRenderer renderer(DISPLAY_WIDTH, DISPLAY_HEIGHT, "OpenSpectrum SDR",
-                         false);
+                         true);
     if (!renderer.is_valid()) {
       LOG_ERROR("Failed to initialize SDL2 renderer");
       return 1;
@@ -395,6 +400,44 @@ auto main(int argc, char *argv[]) -> int {
 
     // Track peak amplitude for display
     float peak_db = -140.0F;
+
+    // === Frame-timing instrumentation (debug branch) ===
+    // Splits each rendered frame into three wall-clock phases and logs rolling
+    // per-second averages + maxima, to localize the Linux-vs-Windows throughput
+    // gap. Only full frames (got_samples) are measured, since those are what
+    // advance the waterfall. Promote to a keyboard-toggled on-screen overlay
+    // later if the numbers prove useful.
+    //   cpu          : remove_dc + apply_window + FFT + display updates
+    //   render_build : SDL draw calls + texture upload + render-target switches
+    //   present      : SDL_RenderPresent (swap/flush)
+    using timing_clock = std::chrono::steady_clock;
+    struct PhaseStat {
+      double sum_ms = 0.0;
+      double max_ms = 0.0;
+      void add(double ms) {
+        sum_ms += ms;
+        if (ms > max_ms) {
+          max_ms = ms;
+        }
+      }
+      void reset() {
+        sum_ms = 0.0;
+        max_ms = 0.0;
+      }
+    };
+    PhaseStat ts_cpu;
+    PhaseStat ts_render;
+    PhaseStat ts_present;
+    uint64_t timing_frames = 0;
+    auto timing_window_start = timing_clock::now();
+    auto timing_ms = [](timing_clock::time_point a, timing_clock::time_point b) {
+      return std::chrono::duration<double, std::milli>(b - a).count();
+    };
+    // Latest per-second snapshot, surfaced to the on-screen overlay ('T' key).
+    double ov_fps = 0.0;
+    double ov_cpu = 0.0;
+    double ov_build = 0.0;
+    double ov_present = 0.0;
 
     while (g_running.load(std::memory_order_relaxed)) {
       // === 1. Process SDL2 events (must be first in loop) ===
@@ -582,6 +625,11 @@ auto main(int argc, char *argv[]) -> int {
           static_cast<uint32_t>(config.sample_rate_hz),
           spectrum_display.height());
 
+      // Push the latest timing snapshot so the 'T' overlay is drawn (inside
+      // render_overlays) on whichever present path runs this frame.
+      renderer.set_timing_overlay(control_state.timing_overlay_enabled(), ov_fps,
+                                  ov_cpu, ov_build, ov_present);
+
       // === 2. Read samples from async queue (non-blocking) ===
       // Wait for samples with timeout (8ms = ~125fps max, reduced from 16ms)
       FrameHandle async_samples_frame;
@@ -651,6 +699,7 @@ auto main(int argc, char *argv[]) -> int {
       }
 
       // === 3. Signal processing ===
+      auto t_cpu_start = timing_clock::now();
       openspectrum::SignalProcessor::remove_dc(samples);
       signal_processor.apply_window(samples);
 
@@ -671,11 +720,13 @@ auto main(int argc, char *argv[]) -> int {
           config.sample_rate_hz);
 
       waterfall_display.add_spectrum_line(db_spectrum);
+      auto t_cpu_end = timing_clock::now();
 
       // === 7. Render directly into SDL texture (no combined_pixels buffer) ===
       const auto &spec_dirty_rects = spectrum_display.get_dirty_rects();
       const auto &wf_dirty_rects = waterfall_display.get_dirty_rects();
 
+      auto t_render_start = timing_clock::now();
       bool render_ok;
       if (!spec_dirty_rects.empty() || !wf_dirty_rects.empty()) {
         if (waterfall_display.needs_full_render()) {
@@ -704,6 +755,45 @@ auto main(int argc, char *argv[]) -> int {
       if (!render_ok) {
         LOG_ERROR("Render failed");
         break;
+      }
+      auto t_render_end = timing_clock::now();
+
+      // === 8. Frame-timing accumulation + per-second report (debug branch) ===
+      {
+        double const present_ms = renderer.last_present_ms();
+        double render_build_ms = timing_ms(t_render_start, t_render_end) - present_ms;
+        if (render_build_ms < 0.0) {
+          render_build_ms = 0.0; // clock skew guard
+        }
+        ts_cpu.add(timing_ms(t_cpu_start, t_cpu_end));
+        ts_render.add(render_build_ms);
+        ts_present.add(present_ms);
+        ++timing_frames;
+
+        double const window_s =
+            std::chrono::duration<double>(timing_clock::now() - timing_window_start)
+                .count();
+        if (window_s >= 1.0 && timing_frames > 0) {
+          double const inv = 1.0 / static_cast<double>(timing_frames);
+          ov_fps = static_cast<double>(timing_frames) / window_s;
+          ov_cpu = ts_cpu.sum_ms * inv;
+          ov_build = ts_render.sum_ms * inv;
+          ov_present = ts_present.sum_ms * inv;
+          char line[256];
+          std::snprintf(
+              line, sizeof(line),
+              "FRAME-TIMING fps=%.1f frames=%llu | cpu avg=%.2f max=%.2f | "
+              "render_build avg=%.2f max=%.2f | present avg=%.2f max=%.2f (ms)",
+              ov_fps, static_cast<unsigned long long>(timing_frames),
+              ov_cpu, ts_cpu.max_ms, ov_build, ts_render.max_ms,
+              ov_present, ts_present.max_ms);
+          LOG_INFO(std::string(line));
+          ts_cpu.reset();
+          ts_render.reset();
+          ts_present.reset();
+          timing_frames = 0;
+          timing_window_start = timing_clock::now();
+        }
       }
 
       // === 9. Check for IQ capture duration expiry ===

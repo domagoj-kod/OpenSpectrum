@@ -80,10 +80,26 @@ public:
   // Get the SDL renderer (for text rendering)
   [[nodiscard]] SDL_Renderer *get_sdl_renderer() const noexcept { return m_renderer; }
 
+  // DEBUG (frame-timing branch): wall-clock duration in milliseconds of the
+  // most recent SDL_RenderPresent call. Lets the main loop split the SDL
+  // present/swap/flush cost out of the total render time. One present per
+  // frame, so this is overwritten (not accumulated) each render call.
+  [[nodiscard]] double last_present_ms() const noexcept { return m_last_present_ms; }
+
+  // DEBUG: supply the latest per-second timing snapshot for the on-screen
+  // overlay (toggled with 'T'). When enabled, render_overlays() draws it
+  // top-left. Call once per frame before any render/present.
+  void set_timing_overlay(bool enabled, double fps, double cpu_ms,
+                          double render_build_ms, double present_ms) noexcept;
+
 private:
   // Render overlays (status bar, peak indicator, IQ status, freq scale)
   // Called after rendering the main texture
   void render_overlays();
+
+  // DEBUG (frame-timing branch): SDL_RenderPresent wrapped in a steady-clock
+  // measurement, result stored in m_last_present_ms.
+  void present_timed();
 
   void rebuild_freq_scale_ticks();
 
@@ -95,6 +111,16 @@ private:
 
   // VSYNC control
   bool m_enable_vsync = false;
+
+  // DEBUG (frame-timing branch): duration of the last present, see last_present_ms().
+  double m_last_present_ms = 0.0;
+
+  // DEBUG: latest timing snapshot + visibility for the 'T' overlay.
+  bool   m_timing_overlay_enabled = false;
+  double m_timing_fps = 0.0;
+  double m_timing_cpu_ms = 0.0;
+  double m_timing_build_ms = 0.0;
+  double m_timing_present_ms = 0.0;
 
   // Text rendering for status bar
   std::unique_ptr<TextRenderer> m_text_renderer;

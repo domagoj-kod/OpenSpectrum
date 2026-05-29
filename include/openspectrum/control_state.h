@@ -96,6 +96,10 @@ public:
     m_spectrogram_export_requested = true;
   }
 
+  // Frame-timing overlay toggle (debug; 'T' key). Persistent on/off state.
+  bool timing_overlay_enabled() const noexcept { return m_timing_overlay; }
+  void toggle_timing_overlay() noexcept { m_timing_overlay = !m_timing_overlay; }
+
   // Apply all pending changes to device (batch update)
   void apply_to_device(RtlSdrDevice &dev) const;
 
@@ -126,10 +130,21 @@ private:
   bool window_changed_flag = false;
   bool m_iq_logging_toggle = false;
   bool m_spectrogram_export_requested = false;
+  bool m_timing_overlay = false;
 
   // Status string caching for performance
   mutable std::string m_cached_status;
   mutable bool m_status_dirty = true;
+
+  // Last values actually programmed into the tuner. apply_to_device() is called
+  // every render-loop iteration; without these guards it re-issued blocking USB
+  // control transfers (rtlsdr_set_center_freq + tuner gain-mode/gain writes,
+  // i.e. a full PLL retune) every frame, which dominated the loop wall-time and
+  // throttled the displayed frame rate (worst over high-latency USB paths such
+  // as WSL2 usbipd). Now writes fire only when freq/gain actually change.
+  mutable bool m_device_applied = false;
+  mutable uint32_t m_applied_frequency_hz = 0;
+  mutable float m_applied_gain_db = 0.0f;
 };
 
 } // namespace openspectrum

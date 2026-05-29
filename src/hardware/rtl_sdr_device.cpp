@@ -120,7 +120,14 @@ void RtlSdrDevice::start_streaming(size_t buffer_count) {
   // thread
   m_thread_running = true;
   m_async_thread = std::thread([this, buffer_count]() {
-    uint32_t buf_len = 0; // 0 = use default buffer length
+    // Smaller USB transfer buffer than the librtlsdr default (262144 B). At
+    // 2.048 Msps the default delivers one callback every ~64 ms, which capped
+    // the waterfall line rate at ~15.6 lines/s (one displayed line per buffer,
+    // drain-to-newest). 65536 B = 32768 complex samples => a callback every
+    // ~16 ms => ~62 lines/s, matching a ~60 Hz display. Must stay a multiple of
+    // 512 (USB packet size); going much smaller mainly invites overruns on
+    // high-latency paths (e.g. WSL2 usbipd) for no visible gain.
+    uint32_t buf_len = 65536;
     LOG_INFO("Starting RTL-SDR async thread...");
     int ret = rtlsdr_read_async(m_dev, static_callback, this,
                                 static_cast<uint32_t>(buffer_count), buf_len);
