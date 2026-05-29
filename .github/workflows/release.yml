@@ -1,0 +1,116 @@
+name: Release
+
+# Runs ONLY when you push a version tag (or trigger manually). It never runs on
+# ordinary commits/PRs, so it costs ~25-30 billed minutes per release — a tiny
+# slice of the 2,000 free private-repo minutes/month. (Windows minutes bill x2.)
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Label for a manual test build (e.g. v2.4.1-test). Builds artifacts but does NOT publish a Release."
+        required: false
+        default: "dev"
+
+# Allow the built-in token to create the Release and upload assets.
+permissions:
+  contents: write
+
+# A newer tag/run supersedes an in-flight one (saves minutes).
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Linux AppImage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history + tags so `git describe` and the tag body work
+
+      - name: Install build & packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config \
+            libsdl2-dev librtlsdr-dev libusb-1.0-0-dev \
+            imagemagick file desktop-file-utils zsync curl
+
+      - name: Build AppImage
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            VER="${{ github.ref_name }}"
+          else
+            VER="${{ github.event.inputs.version }}"
+          fi
+          bash packaging/linux-appimage.sh "$VER"
+
+      - name: Upload workflow artifact (always)
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-appimage
+          path: dist/*.AppImage
+
+      # On a real tag push, create/update the Release using the annotated tag
+      # message as the body (matches this project's release-notes convention).
+      - name: Extract tag message for release body
+        if: startsWith(github.ref, 'refs/tags/')
+        run: git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > RELEASE_BODY.md
+
+      - name: Publish to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: RELEASE_BODY.md
+          files: dist/*.AppImage
+          fail_on_unmatched_files: true
+
+  windows:
+    name: Windows zip (MSYS2)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up MSYS2 (MINGW64)
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-pkgconf
+            mingw-w64-x86_64-SDL2
+            mingw-w64-x86_64-rtl-sdr
+            mingw-w64-x86_64-libusb
+            make
+            zip
+
+      - name: Build & bundle zip
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            VER="${{ github.ref_name }}"
+          else
+            VER="${{ github.event.inputs.version }}"
+          fi
+          bash packaging/windows-bundle.sh "$VER"
+
+      - name: Upload workflow artifact (always)
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-zip
+          path: dist/*.zip
+
+      - name: Publish to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
+          fail_on_unmatched_files: true
