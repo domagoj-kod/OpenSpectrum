@@ -2,6 +2,10 @@
 
 #include "openspectrum/iq_logger.h"
 
+#include "format.h"
+#include "logger.h"
+#include "time_utils.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -28,7 +32,8 @@ static std::string get_iso8601_timestamp() {
   auto in_time_t = std::chrono::system_clock::to_time_t(now);
 
   std::stringstream ss;
-  ss << std::put_time(std::gmtime(&in_time_t), "%Y%m%dT%H%M%SZ");
+  std::tm const tm = safe_gmtime(in_time_t);
+  ss << std::put_time(&tm, "%Y%m%dT%H%M%SZ");
   return ss.str();
 }
 
@@ -40,22 +45,6 @@ static double get_unix_timestamp() {
              std::chrono::duration_cast<std::chrono::microseconds>(duration)
                  .count()) /
          1000000.0;
-}
-
-// Helper to format frequency for display
-static std::string format_frequency(uint32_t hz) {
-  if (hz >= 1000000000) {
-    return std::to_string(hz / 1000000000) + "." +
-           std::to_string((hz % 1000000000) / 1000000) + " GHz";
-  }
-  if (hz >= 1000000) {
-    return std::to_string(hz / 1000000) + "." +
-           std::to_string((hz % 1000000) / 1000) + " MHz";
-  }
-  if (hz >= 1000) {
-    return std::to_string(hz / 1000) + "." + std::to_string(hz % 1000) + " kHz";
-  }
-  return std::to_string(hz) + " Hz";
 }
 
 // Helper to escape string for JSON
@@ -228,7 +217,17 @@ void IqLogger::flush_buffer() {
   if (m_buffer_pos > 0 && m_data_file != nullptr) {
     size_t written = std::fwrite(&m_buffer[0], 1, m_buffer_pos, m_data_file);
     if (written < m_buffer_pos) {
-      // Handle partial write
+      // Partial write — almost always out-of-space or a hard I/O error.
+      // Retrying won't help, and silently dropping bytes would corrupt the
+      // interleaved IQ stream (subsequent writes would land at a misaligned
+      // sample boundary, breaking offline parsing). Mark the capture dead,
+      // close the file, and let the operator see the error in the log.
+      LOG_ERROR("IQ flush short write: " + std::to_string(written) + "/" +
+                std::to_string(m_buffer_pos) +
+                " bytes — stopping capture to preserve file integrity");
+      m_capturing = false;
+      std::fclose(m_data_file);
+      m_data_file = nullptr;
     }
     m_buffer_pos = 0;
   }
@@ -265,7 +264,16 @@ void IqLogger::write_samples(const std::vector<std::complex<float>> &samples) {
 
   // Check if we need to rotate files (if max size is set)
   if (m_config.max_file_size_bytes > 0) {
-    size_t current_size = std::ftell(m_data_file) + m_buffer_pos;
+    // ftell() returns long and signals failure with -1; an implicit
+    // conversion to size_t would yield a huge positive value and trip the
+    // rotation branch on every error. Skip rotation when the position is
+    // unavailable — the next successful tell will catch the rollover.
+    long const tell = std::ftell(m_data_file);
+    if (tell < 0) {
+      LOG_WARNING("IQ rotation: ftell() failed, skipping size check");
+      return;
+    }
+    size_t current_size = static_cast<size_t>(tell) + m_buffer_pos;
     if (current_size >= m_config.max_file_size_bytes) {
       // Close current file
       close_files();
@@ -289,28 +297,6 @@ void IqLogger::write_samples(const std::vector<std::complex<float>> &samples) {
       write_metadata();
     }
   }
-}
-
-void IqLogger::write_sample(std::complex<float> sample) {
-  std::lock_guard<std::mutex> lock(m_mutex);
-
-  if (!m_capturing || m_data_file == nullptr) {
-    return;
-  }
-
-  // Write single sample to buffer
-  const uint8_t *data_ptr = reinterpret_cast<const uint8_t *>(&sample);
-  size_t to_copy = sizeof(std::complex<float>);
-
-  if (m_buffer_pos + to_copy > m_config.buffer_size_bytes) {
-    flush_buffer();
-  }
-
-  std::memcpy(&m_buffer[m_buffer_pos], data_ptr, to_copy);
-  m_buffer_pos += to_copy;
-
-  // Update sample count
-  m_stats.sample_count++;
 }
 
 void IqLogger::stop_capture() {
@@ -448,36 +434,23 @@ void IqLogger::write_metadata() {
 }
 
 void IqLogger::update_stats(const std::vector<std::complex<float>> &samples) {
-  // Update sample count
-  m_stats.sample_count += samples.size();
-
-  // Calculate magnitude for each sample and update statistics
+  // Welford-style online mean: increment count per sample so the divisor in
+  // avg += (x - avg) / n is the correct running sample index. The previous
+  // implementation incremented sample_count once for the whole batch, which
+  // made the divisor constant inside the loop and biased the average.
   for (const auto &sample : samples) {
-    float magnitude = std::abs(sample);
-    // Convert to dB: 20 * log10(magnitude)
-    // Use max with small value to avoid log(0)
-    float mag_db =
+    float const magnitude = std::abs(sample);
+    float const mag_db =
         magnitude > 0.00001f ? 20.0f * std::log10(magnitude) : -140.0f;
 
-    if (mag_db > m_stats.peak_db) {
-      m_stats.peak_db = mag_db;
-    }
-    if (mag_db > m_stats.max_db) {
-      m_stats.max_db = mag_db;
-    }
-    if (mag_db < m_stats.min_db) {
-      m_stats.min_db = mag_db;
-    }
+    if (mag_db > m_stats.peak_db) m_stats.peak_db = mag_db;
+    if (mag_db > m_stats.max_db)  m_stats.max_db  = mag_db;
+    if (mag_db < m_stats.min_db)  m_stats.min_db  = mag_db;
 
-    // Simple moving average for average_db
-    // Using incremental update: avg = avg + (new - avg) / count
-    if (m_stats.sample_count == samples.size()) {
-      // First batch
-      m_stats.average_db = mag_db;
-    } else {
-      double alpha = 1.0 / static_cast<double>(m_stats.sample_count);
-      m_stats.average_db = m_stats.average_db * (1.0 - alpha) + mag_db * alpha;
-    }
+    ++m_stats.sample_count;
+    m_stats.average_db +=
+        (static_cast<double>(mag_db) - m_stats.average_db) /
+        static_cast<double>(m_stats.sample_count);
   }
 }
 

@@ -11,7 +11,6 @@
 #include <memory>
 #include <mutex>
 #include <queue>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -168,8 +167,14 @@ private:
   ReturnFunc m_return_func;
 };
 
-// Thread-safe pool of pre-allocated FFT frames
-class FramePool {
+// Thread-safe pool of pre-allocated FFT frames.
+//
+// Ownership note: FramePool MUST be constructed via std::make_shared so that
+// shared_from_this() works. FrameHandle's return path captures a weak_ptr to
+// the pool; if the pool has been destroyed by the time the handle is dropped,
+// the frame is destroyed directly instead of touching the dead pool. This
+// eliminates a destruction-order UAF when FrameHandles outlive g_frame_pool.
+class FramePool : public std::enable_shared_from_this<FramePool> {
 public:
   explicit FramePool(size_t frame_capacity, size_t initial_count = 8)
       : m_frame_capacity(frame_capacity) {
@@ -181,13 +186,15 @@ public:
   }
 
   ~FramePool() {
+    // Only destroy frames sitting in the free queue. Frames currently held by
+    // FrameHandles are owned by those handles — their return-func sees the
+    // dead weak_ptr and destroys them itself. Destroying them here would
+    // double-free.
     std::lock_guard<std::mutex> lock(m_mutex);
     while (!m_free_queue.empty()) {
       FFTFrame::destroy(m_free_queue.front());
       m_free_queue.pop();
     }
-    for (auto *f : m_allocated_frames)
-      FFTFrame::destroy(f);
   }
 
   FrameHandle acquire() {
@@ -197,35 +204,27 @@ public:
       if (!m_free_queue.empty()) {
         frame = m_free_queue.front();
         m_free_queue.pop();
-      } else {
-        frame = FFTFrame::create(m_frame_capacity);
-        if (frame)
-          m_allocated_frames.insert(frame);
-        else
-          return FrameHandle(nullptr, nullptr);
       }
     }
+    if (!frame) {
+      frame = FFTFrame::create(m_frame_capacity);
+      if (!frame)
+        return FrameHandle(nullptr, nullptr);
+    }
     frame->reset();
-    auto return_func = [this](FFTFrame *f) {
-      if (f) {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        m_allocated_frames.erase(f);
-        m_free_queue.push(f);
+    std::weak_ptr<FramePool> weak_self = weak_from_this();
+    auto return_func = [weak_self](FFTFrame *f) {
+      if (!f)
+        return;
+      if (auto pool = weak_self.lock()) {
+        std::lock_guard<std::mutex> lock(pool->m_mutex);
+        pool->m_free_queue.push(f);
+      } else {
+        // Pool is gone — frame ownership falls to us.
+        FFTFrame::destroy(f);
       }
     };
     return FrameHandle(frame, return_func);
-  }
-
-  struct Stats {
-    size_t free_count;
-    size_t allocated_count;
-    size_t frame_capacity;
-  };
-
-  Stats get_stats() const {
-    std::lock_guard<std::mutex> lock(m_mutex);
-    return Stats{m_free_queue.size(), m_allocated_frames.size(),
-                 m_frame_capacity};
   }
 
   size_t frame_capacity() const { return m_frame_capacity; }
@@ -234,7 +233,6 @@ private:
   size_t m_frame_capacity;
   mutable std::mutex m_mutex;
   std::queue<FFTFrame *> m_free_queue;
-  std::unordered_set<FFTFrame *> m_allocated_frames;
 };
 
 } // namespace openspectrum

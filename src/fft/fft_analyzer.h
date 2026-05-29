@@ -32,9 +32,6 @@ public:
   OS_HOT void execute(const std::vector<std::complex<float>> &input,
                       std::vector<std::complex<float>> &output);
 
-  // Execute FFT with pre-allocated internal buffers (zero-copy for output)
-  OS_HOT void execute(const std::vector<std::complex<float>> &input);
-
   // Get power spectrum (magnitude squared) from last FFT result
   [[nodiscard]] const std::vector<float> &get_power_spectrum() const {
     return m_power_spectrum;
@@ -97,9 +94,6 @@ private:
   std::vector<float> m_db_spectrum;
   std::vector<float> m_phase_spectrum;
   std::vector<float> m_freq_bins;
-
-  // PocketFFT workspace
-  std::vector<pocketfft_cpx> m_workspace;
 
   bool m_center_dc;
   bool m_extra_spectra_enabled = false;

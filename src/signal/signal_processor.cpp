@@ -118,14 +118,6 @@ void SignalProcessor::compute_flat_top() {
   }
 }
 
-auto SignalProcessor::get_window_coeff(size_t index) const -> float {
-  // Security: bounds-checked access
-  if (index >= m_window_coeffs.size()) {
-    return 1.0F; // Fallback to rectangle window
-  }
-  return m_window_coeffs[index];
-}
-
 void SignalProcessor::apply_window(std::vector<std::complex<float>> &samples) {
   // Security: ensure samples size matches window size
   if (samples.size() != m_fft_size) {

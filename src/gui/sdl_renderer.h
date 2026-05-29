@@ -28,18 +28,6 @@ public:
   SdlRenderer(const SdlRenderer &) = delete;
   SdlRenderer &operator=(const SdlRenderer &) = delete;
 
-  // Render RGBA pixel buffer (width * height * 4 bytes)
-  // Returns true on success, false on error
-  bool render(const std::vector<uint8_t> &pixels, size_t pitch = 0);
-
-  // Render with dirty regions for incremental updates
-  // Only updates specified rectangles in the texture
-  // Returns true on success, false on error
-  bool render_with_dirty_regions(
-      const std::vector<uint8_t> &pixels,
-      size_t pitch,
-      const std::vector<SDL_Rect> &dirty_rects);
-
   // Zero-copy render: writes spectrum (top) and waterfall (bottom) directly
   // into the SDL texture, bypassing the combined_pixels intermediate buffer.
   OS_HOT bool render_displays(const uint8_t *spectrum_data, const uint8_t *waterfall_data,

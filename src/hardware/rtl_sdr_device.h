@@ -36,17 +36,12 @@ public:
   void start_streaming(size_t buffer_count = 8);
   void stop_streaming();
 
-  // Callback using vector (legacy compatibility)
-  using SampleCallback = std::function<void(std::vector<std::complex<float>>)>;
-  void set_callback(SampleCallback cb);
-
   // Callback using FrameHandle (cache-friendly)
   using FrameCallback = std::function<void(openspectrum::FrameHandle)>;
   void set_frame_callback(FrameCallback cb);
 
 private:
   static void static_callback(unsigned char *buf, uint32_t len, void *ctx);
-  void process_callback(unsigned char *buf, uint32_t len);
   void process_callback_with_pool(unsigned char *buf, uint32_t len);
 
   rtlsdr_dev_t *m_dev = nullptr;
@@ -57,18 +52,14 @@ private:
 
   // Buffer pooling for zero-allocation sample processing
   size_t m_fft_size = 8192;
-  std::unique_ptr<openspectrum::FramePool> m_frame_pool;
+  // shared_ptr is required: FramePool relies on enable_shared_from_this so
+  // FrameHandles can hold a weak_ptr to the pool and survive its destruction.
+  std::shared_ptr<openspectrum::FramePool> m_frame_pool;
 
-  SampleCallback m_callback;
   FrameCallback m_frame_callback;
-  bool m_use_frame_callback = false;
-
   bool m_streaming = false;
 
   // Async thread support
   std::thread m_async_thread;
   std::atomic<bool> m_thread_running{false};
-
-  // Check if streaming mode is active
-  [[nodiscard]] bool is_streaming() const { return m_streaming; }
 };

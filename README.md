@@ -50,7 +50,7 @@ all simultaneously in the IQ stream.
 
 The project embraces the **divide and conquer** strategy, decomposing SDR processing into isolated, interchangeable modules.
 
-Each module communicates via well-defined interfaces. By following community standards (librtlsdr, KissFFT), compatibility and ease of adoption is ensured.
+Each module communicates via well-defined interfaces. By following community standards (librtlsdr, pocketfft), compatibility and ease of adoption is ensured.
 
 ### Module Directory Structure
 
@@ -65,7 +65,8 @@ OpenSpectrum/
 │   └── utils/             # Logging, configuration, utilities
 ├── include/
 ├── third_party/
-│   └── kissfft/           # Lightweight FFT library
+|   ├── stb/               # Writing images to C stdio
+│   └── pocketfft/         # High-performing FFT library
 └── Makefile               # Security-hardened build system
 ```
 
@@ -109,19 +110,18 @@ pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-make \
 
 ## Build from Source
 
-This project compiles with `-march=nehalem` as the architectural baseline, targeting CPUs from 2008+ with support for:
+This project compiles with `-march=haswell` as the architectural baseline, targeting CPUs from 2008+ with support for:
 - **SSE4.1 / SSE4.2** — Advanced SIMD instructions
 - **POPCNT** — Population count instruction
 - **CX16** — Compare and exchange 16-byte
 - **SAHF / FXSR** — Legacy x87 state management
 
-This should cover virtually all x86-64 processors in active use. For older CPUs, remove `-march=nehalem` from `CXXFLAGS` in the Makefile.
+This should cover virtually all x86-64 processors in active use. For older CPUs, remove `-march=haswell` from `CXXFLAGS` in the Makefile.
 
 ```bash
 # Clone the repository
 git clone https://github.com/domagoj-kod/OpenSpectrum.git
 cd OpenSpectrum
-git submodule update --init --recursive
 
 # Build with debug symbols
 make debug
@@ -136,7 +136,7 @@ make clean
 | Target | Optimization | Debug Info | Use Case |
 |--------|--------------|------------|----------|
 | `make` or `make debug` | `-O0` | Full (`-g`) | Development, debugging |
-| `make release` | `-O3 -flto -march=nehalem` | None (`-DNDEBUG`) | Production |
+| `make release` | `-O3 -flto -march=haswell` | None (`-DNDEBUG`) | Production |
 | `make profile` | `-O2 -pg` | Full (`-g`) | Performance analysis |
 
 All builds include:
@@ -178,9 +178,6 @@ Examples:
   ./openspectrum -W hann
   ./openspectrum --iq-log --iq-duration 10 --iq-output my_capture
 ```
-
-> [!NOTE]
-> The log batching is expected behavior for USB 2.0 RTL-SDR devices. The ~8.5 FPS frame rate is limited by USB transfer latency, not CPU/FFT. This is normal and acceptable for the current hardware configuration. Cosmetic issue, functionality works correctly.
 
 Apart from command line arguments the program uses keyboard shortcuts for frequency tuning, gain control, Fast Fourier Transform size & window functions change. Shift modifer allows for fine control fine control (0.1 MHz, 0.1 dB), while Ctrl modifier is used for coarse control (1 MHz, 10 dB).
 
@@ -315,9 +312,9 @@ rtl_eeprom
 
 ## Performance Notes
 
-Dell Precision notebook with Intel® Core™ i7-12700H processor displays minimal usage under maximum size FFT computations, utilizing ~1% CPU power and 30 MB of system memory.
+Dell Precision notebook with Intel® Core™ i7-12700H processor displays minimal usage under maximum size FFT computations, utilizing <1% CPU and occupying ~55 MB of system memory.
 
-- **FFT Performance:** KissFFT provides optimized FFT computation. For larger FFT sizes (8192+), paralelization is required.
+- **FFT Performance:** pocketfft provides SIMD accelerated FFT computation.
 - **Sample Rate:** Maximum stable rate depends on USB 2.0 bandwidth (~40 MB/s).
 - **Latency:** End-to-end latency is typically <50ms at 2.048 MS/s with FFT_SIZE=4096.
 
@@ -380,7 +377,7 @@ Contributions are welcome! Please follow these guidelines:
 ## Acknowledgments
 
 - **librtlsdr** — RTL-SDR device library
-- **KissFFT** — Fast Fourier Transform implementation by Mark Borgerding
+- **pocketfft** — Fast Fourier Transform implementation by Martin Reinecke
 - **SDL2** — Simple DirectMedia Layer for cross-platform rendering
 - **GNU Radio** — Inspiration for modular SDR pipeline architecture
 

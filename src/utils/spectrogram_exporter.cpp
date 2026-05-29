@@ -2,6 +2,9 @@
 
 #include "openspectrum/spectrogram_exporter.h"
 
+#include "format.h"
+#include "time_utils.h"
+
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -11,9 +14,9 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
-#include "stb_image_write.h"
-
-// Define STB_IMAGE_WRITE_IMPLEMENTATION in exactly one compilation unit
+// stb_image_write keeps its implementation block outside the include guard,
+// so one #include with STB_IMAGE_WRITE_IMPLEMENTATION defined is sufficient
+// to get both the declarations and the implementation in this TU.
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
@@ -25,22 +28,6 @@
 #endif
 
 namespace openspectrum {
-
-// Helper to format frequency for display
-static std::string format_frequency(uint32_t hz) {
-  if (hz >= 1000000000) {
-    return std::to_string(hz / 1000000000) + "." +
-           std::to_string((hz % 1000000000) / 1000000) + " GHz";
-  }
-  if (hz >= 1000000) {
-    return std::to_string(hz / 1000000) + "." +
-           std::to_string((hz % 1000000) / 1000) + " MHz";
-  }
-  if (hz >= 1000) {
-    return std::to_string(hz / 1000) + "." + std::to_string(hz % 1000) + " kHz";
-  }
-  return std::to_string(hz) + " Hz";
-}
 
 SpectrogramExporter::SpectrogramExporter(const SpectrogramExportConfig &config)
     : m_config(config) {}
@@ -82,7 +69,8 @@ std::string SpectrogramExporter::get_iso8601_timestamp() const {
   auto in_time_t = std::chrono::system_clock::to_time_t(now);
 
   std::stringstream ss;
-  ss << std::put_time(std::gmtime(&in_time_t), "%Y%m%dT%H%M%SZ");
+  std::tm const tm = safe_gmtime(in_time_t);
+  ss << std::put_time(&tm, "%Y%m%dT%H%M%SZ");
   return ss.str();
 }
 
@@ -97,11 +85,10 @@ double SpectrogramExporter::get_unix_timestamp() const {
 }
 
 // Generate filename with timestamp and optional frequency
-std::string
-SpectrogramExporter::generate_filename(const std::string &extension) const {
-  std::string timestamp = get_iso8601_timestamp();
-
-  std::string filename = m_config.filename_prefix + "_" + timestamp;
+std::string SpectrogramExporter::generate_filename(
+    const std::string &extension,
+    const std::string &iso8601_timestamp) const {
+  std::string filename = m_config.filename_prefix + "_" + iso8601_timestamp;
 
   // Prepend output directory
   if (!m_config.output_directory.empty()) {
@@ -118,13 +105,13 @@ SpectrogramExporter::generate_filename(const std::string &extension) const {
   return filename;
 }
 
-std::string SpectrogramExporter::generate_metadata_filename() const {
-  std::string base = generate_filename("png");
-  size_t last_dot = base.find_last_of('.');
+std::string SpectrogramExporter::metadata_filename_for(
+    const std::string &png_filename) {
+  size_t const last_dot = png_filename.find_last_of('.');
   if (last_dot != std::string::npos) {
-    return base.substr(0, last_dot) + ".meta.json";
+    return png_filename.substr(0, last_dot) + ".meta.json";
   }
-  return base + ".meta.json";
+  return png_filename + ".meta.json";
 }
 
 // Escape string for JSON output
@@ -177,16 +164,22 @@ ExportResult SpectrogramExporter::write_png(const std::string &filename,
     return result;
   }
 
-  // Set compression level
-  int previous_compression = stbi_write_png_compression_level;
-  stbi_write_png_compression_level = m_config.png_compression_level;
+  // stbi_write_png_compression_level is a process-wide global. Set/restore
+  // is safe within a single exporter (member mutex serialises calls) but
+  // races across exporter instances. Serialise the global window here.
+  static std::mutex s_stbi_compression_mutex;
+  int success = 0;
+  {
+    std::lock_guard<std::mutex> lock(s_stbi_compression_mutex);
+    int previous_compression = stbi_write_png_compression_level;
+    stbi_write_png_compression_level = m_config.png_compression_level;
 
-  // Write PNG file (RGBA = 4 components)
-  int success =
-      stbi_write_png(filename.c_str(), width, height, 4, data, stride_bytes);
+    // Write PNG file (RGBA = 4 components)
+    success =
+        stbi_write_png(filename.c_str(), width, height, 4, data, stride_bytes);
 
-  // Restore compression level
-  stbi_write_png_compression_level = previous_compression;
+    stbi_write_png_compression_level = previous_compression;
+  }
 
   if (success) {
     result.success = true;
@@ -204,15 +197,14 @@ void SpectrogramExporter::write_metadata(
     const std::string &image_type, uint32_t center_freq_hz,
     uint32_t sample_rate_hz, float gain_db, size_t fft_size,
     const std::string &window_function, const std::string &color_map,
-    const std::string &notes) {
+    const std::string &notes, const std::string &iso8601_timestamp) {
 
   std::stringstream ss;
   double timestamp = get_unix_timestamp();
 
   ss << "{\n";
   ss << "  \"version\": \"1.0\",\n";
-  ss << R"(  "export_timestamp_iso8601": ")" << get_iso8601_timestamp()
-     << "\",\n";
+  ss << R"(  "export_timestamp_iso8601": ")" << iso8601_timestamp << "\",\n";
   ss << "  \"export_timestamp_unix\": " << timestamp << ",\n";
 
   // Capture parameters
@@ -316,8 +308,9 @@ ExportResult SpectrogramExporter::export_combined(
               combined_buffer.data() + dest_offset);
   }
 
-  // Generate filename
-  std::string png_filename = generate_filename("png");
+  // Single timestamp read shared by the filename and the metadata field.
+  std::string const iso_ts = get_iso8601_timestamp();
+  std::string png_filename = generate_filename("png", iso_ts);
 
   // Write PNG
   result = write_png(png_filename.c_str(), combined_buffer.data(),
@@ -325,11 +318,11 @@ ExportResult SpectrogramExporter::export_combined(
                      static_cast<int>(total_height), static_cast<int>(stride));
 
   if (result.success && m_config.include_metadata) {
-    std::string meta_filename = generate_metadata_filename();
+    std::string meta_filename = metadata_filename_for(png_filename);
     write_metadata(meta_filename, static_cast<int>(display_width),
                    static_cast<int>(total_height), "combined", center_freq_hz,
                    sample_rate_hz, gain_db, fft_size, window_function,
-                   color_map, notes);
+                   color_map, notes, iso_ts);
     result.metadata_filename = meta_filename;
   }
 
@@ -359,18 +352,19 @@ ExportResult SpectrogramExporter::export_spectrum(
     return result;
   }
 
-  std::string png_filename = generate_filename("png");
+  std::string const iso_ts = get_iso8601_timestamp();
+  std::string png_filename = generate_filename("png", iso_ts);
   int stride = static_cast<int>(width * 4);
 
   result = write_png(png_filename.c_str(), pixels.data(),
                      static_cast<int>(width), static_cast<int>(height), stride);
 
   if (result.success && m_config.include_metadata) {
-    std::string meta_filename = generate_metadata_filename();
+    std::string meta_filename = metadata_filename_for(png_filename);
     write_metadata(meta_filename, static_cast<int>(width),
                    static_cast<int>(height), "spectrum", center_freq_hz,
                    sample_rate_hz, gain_db, fft_size, window_function,
-                   color_map, notes);
+                   color_map, notes, iso_ts);
     result.metadata_filename = meta_filename;
   }
 
@@ -398,18 +392,19 @@ ExportResult SpectrogramExporter::export_waterfall(
     return result;
   }
 
-  std::string png_filename = generate_filename("png");
+  std::string const iso_ts = get_iso8601_timestamp();
+  std::string png_filename = generate_filename("png", iso_ts);
   int stride = static_cast<int>(width * 4);
 
   result = write_png(png_filename.c_str(), pixels.data(),
                      static_cast<int>(width), static_cast<int>(height), stride);
 
   if (result.success && m_config.include_metadata) {
-    std::string meta_filename = generate_metadata_filename();
+    std::string meta_filename = metadata_filename_for(png_filename);
     write_metadata(meta_filename, static_cast<int>(width),
                    static_cast<int>(height), "waterfall", center_freq_hz,
                    sample_rate_hz, gain_db, fft_size, window_function,
-                   color_map, notes);
+                   color_map, notes, iso_ts);
     result.metadata_filename = meta_filename;
   }
 

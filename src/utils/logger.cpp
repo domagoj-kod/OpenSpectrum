@@ -2,6 +2,8 @@
 
 #include "logger.h"
 
+#include "time_utils.h"
+
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -22,7 +24,7 @@ namespace openspectrum {
 void ConsoleSink::write(const LogEntry &entry) {
   std::time_t const time =
       std::chrono::system_clock::to_time_t(entry.timestamp);
-  std::tm const tm = *std::localtime(&time);
+  std::tm const tm = safe_localtime(time);
 
   const char *level_str = "";
   switch (entry.level) {
@@ -91,7 +93,7 @@ void FileSink::rotate() {
 
   // Create rotated filename with timestamp
   std::time_t const now = std::time(nullptr);
-  std::tm const tm = *std::localtime(&now);
+  std::tm const tm = safe_localtime(now);
   char timestamp[20];
   std::strftime(timestamp, sizeof(timestamp), "%Y%m%d_%H%M%S", &tm);
 
@@ -126,7 +128,7 @@ void FileSink::write(const LogEntry &entry) {
 
   std::time_t const time =
       std::chrono::system_clock::to_time_t(entry.timestamp);
-  std::tm const tm = *std::localtime(&time);
+  std::tm const tm = safe_localtime(time);
 
   const char *level_str = "";
   switch (entry.level) {

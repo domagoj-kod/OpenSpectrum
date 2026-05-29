@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -12,12 +13,15 @@
 
 namespace openspectrum {
 
-// Capture statistics for metadata
+// Capture statistics for metadata.
+// min_db starts at +inf so the first real sample replaces it; max_db / peak_db
+// start at -inf for the symmetric reason. average_db starts at 0 and is built
+// up by the online-mean update in IqLogger::update_stats.
 struct IqCaptureStats {
-  double peak_db = -140.0;
-  double average_db = -140.0;
-  double min_db = -140.0;
-  double max_db = -140.0;
+  double peak_db = -std::numeric_limits<double>::infinity();
+  double average_db = 0.0;
+  double min_db = std::numeric_limits<double>::infinity();
+  double max_db = -std::numeric_limits<double>::infinity();
   size_t sample_count = 0;
   double duration_seconds = 0.0;
 };
@@ -50,9 +54,6 @@ public:
 
   // Write IQ samples (thread-safe)
   void write_samples(const std::vector<std::complex<float>> &samples);
-
-  // Write single sample (thread-safe)
-  void write_sample(std::complex<float> sample);
 
   // Stop current capture and finalize files
   void stop_capture();

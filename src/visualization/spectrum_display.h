@@ -102,7 +102,7 @@ public:
   [[nodiscard]] RgbColor get_color(float db_value) const;
 
   // Color map presets
-  enum class ColorMap { JET, VIRIDIS, HOT, GRAyscale, BLUE_RED };
+  enum class ColorMap { JET, VIRIDIS, HOT, GRAYSCALE, BLUE_RED };
 
   void set_color_map(ColorMap map);
 
