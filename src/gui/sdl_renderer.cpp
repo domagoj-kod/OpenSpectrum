@@ -140,6 +140,21 @@ SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title,
     }
   }
 
+  // Render at a fixed logical resolution. SDL then scales the whole scene to
+  // the actual window and letterboxes the remainder in black on resize /
+  // fullscreen, with no per-resize handling. Without this, a resized window
+  // left the composited content at native size in a corner and the uncleared
+  // remainder flashed arbitrary back-buffer colors every frame (a
+  // photosensitivity hazard), and non-integer waterfall scaling produced a
+  // crawling 1px seam. Logical size == window size in the default case, so the
+  // unresized path is unchanged.
+  SDL_RenderSetLogicalSize(m_renderer, static_cast<int>(width),
+                           static_cast<int>(height));
+  // Keep the clear color black so every SDL_RenderClear (and the letterbox
+  // bars) are black. The only code that changes the draw color (peak indicator,
+  // timing overlay) saves and restores it, so this stays black for all frames.
+  SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 255);
+
   // Create texture for RGBA rendering
   m_texture = SDL_CreateTexture(
       m_renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STREAMING,
