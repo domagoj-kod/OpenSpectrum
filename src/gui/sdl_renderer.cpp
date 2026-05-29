@@ -5,6 +5,7 @@
 #include "text_renderer.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -345,7 +346,7 @@ auto SdlRenderer::render_displays(const uint8_t *spectrum_data,
   SDL_RenderClear(m_renderer);
   SDL_RenderCopy(m_renderer, m_texture, nullptr, nullptr);
   render_overlays();
-  SDL_RenderPresent(m_renderer);
+  present_timed();
   return true;
 }
 
@@ -353,7 +354,16 @@ void SdlRenderer::present_frame() {
   SDL_RenderClear(m_renderer);
   SDL_RenderCopy(m_renderer, m_texture, nullptr, nullptr);
   render_overlays();
+  present_timed();
+}
+
+// DEBUG (frame-timing branch): time the present so the main loop can subtract
+// the swap/flush cost from total render time.
+void SdlRenderer::present_timed() {
+  auto t0 = std::chrono::steady_clock::now();
   SDL_RenderPresent(m_renderer);
+  auto t1 = std::chrono::steady_clock::now();
+  m_last_present_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
 }
 
 auto SdlRenderer::poll_events(ControlState *state) -> bool {
@@ -651,7 +661,7 @@ bool SdlRenderer::render_displays_scroll(const uint8_t *spectrum_data,
   SDL_RenderCopy(m_renderer, m_wf_scroll_tex, nullptr, &wf_dst);
 
   render_overlays();
-  SDL_RenderPresent(m_renderer);
+  present_timed();
   return true;
 }
 

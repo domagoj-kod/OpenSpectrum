@@ -21,6 +21,7 @@
 #include <csignal>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <exception>
 #include <memory>
 #include <mutex>
@@ -396,6 +397,39 @@ auto main(int argc, char *argv[]) -> int {
     // Track peak amplitude for display
     float peak_db = -140.0F;
 
+    // === Frame-timing instrumentation (debug branch) ===
+    // Splits each rendered frame into three wall-clock phases and logs rolling
+    // per-second averages + maxima, to localize the Linux-vs-Windows throughput
+    // gap. Only full frames (got_samples) are measured, since those are what
+    // advance the waterfall. Promote to a keyboard-toggled on-screen overlay
+    // later if the numbers prove useful.
+    //   cpu          : remove_dc + apply_window + FFT + display updates
+    //   render_build : SDL draw calls + texture upload + render-target switches
+    //   present      : SDL_RenderPresent (swap/flush)
+    using timing_clock = std::chrono::steady_clock;
+    struct PhaseStat {
+      double sum_ms = 0.0;
+      double max_ms = 0.0;
+      void add(double ms) {
+        sum_ms += ms;
+        if (ms > max_ms) {
+          max_ms = ms;
+        }
+      }
+      void reset() {
+        sum_ms = 0.0;
+        max_ms = 0.0;
+      }
+    };
+    PhaseStat ts_cpu;
+    PhaseStat ts_render;
+    PhaseStat ts_present;
+    uint64_t timing_frames = 0;
+    auto timing_window_start = timing_clock::now();
+    auto timing_ms = [](timing_clock::time_point a, timing_clock::time_point b) {
+      return std::chrono::duration<double, std::milli>(b - a).count();
+    };
+
     while (g_running.load(std::memory_order_relaxed)) {
       // === 1. Process SDL2 events (must be first in loop) ===
       if (!renderer.poll_events(&control_state)) {
@@ -651,6 +685,7 @@ auto main(int argc, char *argv[]) -> int {
       }
 
       // === 3. Signal processing ===
+      auto t_cpu_start = timing_clock::now();
       openspectrum::SignalProcessor::remove_dc(samples);
       signal_processor.apply_window(samples);
 
@@ -671,11 +706,13 @@ auto main(int argc, char *argv[]) -> int {
           config.sample_rate_hz);
 
       waterfall_display.add_spectrum_line(db_spectrum);
+      auto t_cpu_end = timing_clock::now();
 
       // === 7. Render directly into SDL texture (no combined_pixels buffer) ===
       const auto &spec_dirty_rects = spectrum_display.get_dirty_rects();
       const auto &wf_dirty_rects = waterfall_display.get_dirty_rects();
 
+      auto t_render_start = timing_clock::now();
       bool render_ok;
       if (!spec_dirty_rects.empty() || !wf_dirty_rects.empty()) {
         if (waterfall_display.needs_full_render()) {
@@ -704,6 +741,42 @@ auto main(int argc, char *argv[]) -> int {
       if (!render_ok) {
         LOG_ERROR("Render failed");
         break;
+      }
+      auto t_render_end = timing_clock::now();
+
+      // === 8. Frame-timing accumulation + per-second report (debug branch) ===
+      {
+        double const present_ms = renderer.last_present_ms();
+        double render_build_ms = timing_ms(t_render_start, t_render_end) - present_ms;
+        if (render_build_ms < 0.0) {
+          render_build_ms = 0.0; // clock skew guard
+        }
+        ts_cpu.add(timing_ms(t_cpu_start, t_cpu_end));
+        ts_render.add(render_build_ms);
+        ts_present.add(present_ms);
+        ++timing_frames;
+
+        double const window_s =
+            std::chrono::duration<double>(timing_clock::now() - timing_window_start)
+                .count();
+        if (window_s >= 1.0 && timing_frames > 0) {
+          double const inv = 1.0 / static_cast<double>(timing_frames);
+          char line[256];
+          std::snprintf(
+              line, sizeof(line),
+              "FRAME-TIMING fps=%.1f frames=%llu | cpu avg=%.2f max=%.2f | "
+              "render_build avg=%.2f max=%.2f | present avg=%.2f max=%.2f (ms)",
+              static_cast<double>(timing_frames) / window_s,
+              static_cast<unsigned long long>(timing_frames),
+              ts_cpu.sum_ms * inv, ts_cpu.max_ms, ts_render.sum_ms * inv,
+              ts_render.max_ms, ts_present.sum_ms * inv, ts_present.max_ms);
+          LOG_INFO(std::string(line));
+          ts_cpu.reset();
+          ts_render.reset();
+          ts_present.reset();
+          timing_frames = 0;
+          timing_window_start = timing_clock::now();
+        }
       }
 
       // === 9. Check for IQ capture duration expiry ===
