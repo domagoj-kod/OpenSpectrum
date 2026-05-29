@@ -429,6 +429,11 @@ auto main(int argc, char *argv[]) -> int {
     auto timing_ms = [](timing_clock::time_point a, timing_clock::time_point b) {
       return std::chrono::duration<double, std::milli>(b - a).count();
     };
+    // Latest per-second snapshot, surfaced to the on-screen overlay ('T' key).
+    double ov_fps = 0.0;
+    double ov_cpu = 0.0;
+    double ov_build = 0.0;
+    double ov_present = 0.0;
 
     while (g_running.load(std::memory_order_relaxed)) {
       // === 1. Process SDL2 events (must be first in loop) ===
@@ -616,6 +621,11 @@ auto main(int argc, char *argv[]) -> int {
           static_cast<uint32_t>(config.sample_rate_hz),
           spectrum_display.height());
 
+      // Push the latest timing snapshot so the 'T' overlay is drawn (inside
+      // render_overlays) on whichever present path runs this frame.
+      renderer.set_timing_overlay(control_state.timing_overlay_enabled(), ov_fps,
+                                  ov_cpu, ov_build, ov_present);
+
       // === 2. Read samples from async queue (non-blocking) ===
       // Wait for samples with timeout (8ms = ~125fps max, reduced from 16ms)
       FrameHandle async_samples_frame;
@@ -761,15 +771,18 @@ auto main(int argc, char *argv[]) -> int {
                 .count();
         if (window_s >= 1.0 && timing_frames > 0) {
           double const inv = 1.0 / static_cast<double>(timing_frames);
+          ov_fps = static_cast<double>(timing_frames) / window_s;
+          ov_cpu = ts_cpu.sum_ms * inv;
+          ov_build = ts_render.sum_ms * inv;
+          ov_present = ts_present.sum_ms * inv;
           char line[256];
           std::snprintf(
               line, sizeof(line),
               "FRAME-TIMING fps=%.1f frames=%llu | cpu avg=%.2f max=%.2f | "
               "render_build avg=%.2f max=%.2f | present avg=%.2f max=%.2f (ms)",
-              static_cast<double>(timing_frames) / window_s,
-              static_cast<unsigned long long>(timing_frames),
-              ts_cpu.sum_ms * inv, ts_cpu.max_ms, ts_render.sum_ms * inv,
-              ts_render.max_ms, ts_present.sum_ms * inv, ts_present.max_ms);
+              ov_fps, static_cast<unsigned long long>(timing_frames),
+              ov_cpu, ts_cpu.max_ms, ov_build, ts_render.max_ms,
+              ov_present, ts_present.max_ms);
           LOG_INFO(std::string(line));
           ts_cpu.reset();
           ts_render.reset();

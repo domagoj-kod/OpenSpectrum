@@ -96,6 +96,10 @@ public:
     m_spectrogram_export_requested = true;
   }
 
+  // Frame-timing overlay toggle (debug; 'T' key). Persistent on/off state.
+  bool timing_overlay_enabled() const noexcept { return m_timing_overlay; }
+  void toggle_timing_overlay() noexcept { m_timing_overlay = !m_timing_overlay; }
+
   // Apply all pending changes to device (batch update)
   void apply_to_device(RtlSdrDevice &dev) const;
 
@@ -126,6 +130,7 @@ private:
   bool window_changed_flag = false;
   bool m_iq_logging_toggle = false;
   bool m_spectrogram_export_requested = false;
+  bool m_timing_overlay = false;
 
   // Status string caching for performance
   mutable std::string m_cached_status;

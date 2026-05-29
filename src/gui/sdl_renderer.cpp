@@ -280,6 +280,65 @@ void SdlRenderer::render_overlays() {
     SDL_Rect const dst = {0, scale_y, static_cast<int>(m_width), scale_h};
     SDL_RenderCopy(m_renderer, m_freq_scale_texture, nullptr, &dst);
   }
+
+  // DEBUG: frame-timing overlay (toggled with 'T'), top-left, green on a
+  // semi-transparent backdrop. Text textures are created/destroyed per frame —
+  // acceptable because this path is off by default.
+  if (m_timing_overlay_enabled && m_text_renderer) {
+    char lines[4][32];
+    std::snprintf(lines[0], sizeof(lines[0]), "fps  %.1f", m_timing_fps);
+    std::snprintf(lines[1], sizeof(lines[1]), "cpu  %.2f ms", m_timing_cpu_ms);
+    std::snprintf(lines[2], sizeof(lines[2]), "bld  %.2f ms", m_timing_build_ms);
+    std::snprintf(lines[3], sizeof(lines[3]), "pres %.2f ms", m_timing_present_ms);
+
+    int line_h = 0;
+    int max_w = 0;
+    for (auto &s : lines) {
+      int w = 0;
+      int h = 0;
+      m_text_renderer->get_text_size(s, &w, &h);
+      if (w > max_w) max_w = w;
+      if (h > line_h) line_h = h;
+    }
+
+    const int pad = 5;
+    const int x0 = 8;
+    const int y0 = 8;
+    SDL_Rect const bg = {x0 - pad, y0 - pad, max_w + 2 * pad,
+                         4 * line_h + 2 * pad};
+    Uint8 r;
+    Uint8 g;
+    Uint8 b;
+    Uint8 a;
+    SDL_GetRenderDrawColor(m_renderer, &r, &g, &b, &a);
+    SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 192);
+    SDL_RenderFillRect(m_renderer, &bg);
+    SDL_SetRenderDrawColor(m_renderer, r, g, b, a);
+
+    SDL_Color const col = {0, 255, 0, 255};
+    for (int i = 0; i < 4; ++i) {
+      SDL_Texture *t = m_text_renderer->render_text(lines[i], col);
+      if (t != nullptr) {
+        int w = 0;
+        int h = 0;
+        m_text_renderer->get_text_size(lines[i], &w, &h);
+        SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
+        SDL_Rect const d = {x0, y0 + i * line_h, w, h};
+        SDL_RenderCopy(m_renderer, t, nullptr, &d);
+        SDL_DestroyTexture(t);
+      }
+    }
+  }
+}
+
+void SdlRenderer::set_timing_overlay(bool enabled, double fps, double cpu_ms,
+                                     double render_build_ms,
+                                     double present_ms) noexcept {
+  m_timing_overlay_enabled = enabled;
+  m_timing_fps = fps;
+  m_timing_cpu_ms = cpu_ms;
+  m_timing_build_ms = render_build_ms;
+  m_timing_present_ms = present_ms;
 }
 
 auto SdlRenderer::render_displays(const uint8_t *spectrum_data,

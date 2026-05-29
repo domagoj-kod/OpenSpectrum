@@ -170,6 +170,16 @@ auto SdlControlInput::handle_keyboard(SDL_Keycode key, bool shift_held,
     }
     break;
 
+  // Frame-timing overlay toggle (T key - debug)
+  case SDLK_t:
+    if (!ctrl_held && !shift_held) {
+      m_state.toggle_timing_overlay();
+      LOG_INFO(std::string("Frame-timing overlay ") +
+               (m_state.timing_overlay_enabled() ? "ON" : "OFF"));
+      changed = true;
+    }
+    break;
+
   // Spectrogram export (e key - instant export)
   case SDLK_e:
     if (!ctrl_held && !shift_held) {
