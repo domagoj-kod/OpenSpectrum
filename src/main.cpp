@@ -263,10 +263,14 @@ auto main(int argc, char *argv[]) -> int {
 
   try {
     // 1. Initialize SDL2 renderer FIRST (before hardware)
-    // VSYNC disabled by default for performance (can cause tearing but much
-    // faster)
+    // VSYNC on: the render loop now does only ~3-6 ms of work per frame and is
+    // sample-delivery bound (~62 lines/s), so there is ample headroom to cap at
+    // the display refresh. Without vsync, presenting ~62 fps into a 60 Hz panel
+    // tears and beats at ~2 Hz — visible as a periodic waterfall "blink" and a
+    // doubled spectrum peak while tuning. (Vsync appeared to do nothing in
+    // earlier tests only because we were then stuck below 60 fps.)
     SdlRenderer renderer(DISPLAY_WIDTH, DISPLAY_HEIGHT, "OpenSpectrum SDR",
-                         false);
+                         true);
     if (!renderer.is_valid()) {
       LOG_ERROR("Failed to initialize SDL2 renderer");
       return 1;
