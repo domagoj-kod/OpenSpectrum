@@ -151,8 +151,19 @@ auto ControlState::get_status_string() const -> std::string {
 
 // Apply all pending changes to device (batch update)
 void ControlState::apply_to_device(RtlSdrDevice &dev) const {
-  dev.set_frequency(frequency_hz);
-  dev.set_gain(gain_db);
+  // Only reprogram the tuner when a value actually changed. set_frequency() and
+  // set_gain() each issue blocking USB control transfers (PLL retune, gain-mode
+  // switch); calling them unconditionally every frame was the render-loop
+  // bottleneck. The first call always applies both to program initial state.
+  if (!m_device_applied || frequency_hz != m_applied_frequency_hz) {
+    dev.set_frequency(frequency_hz);
+    m_applied_frequency_hz = frequency_hz;
+  }
+  if (!m_device_applied || gain_db != m_applied_gain_db) {
+    dev.set_gain(gain_db);
+    m_applied_gain_db = gain_db;
+  }
+  m_device_applied = true;
 }
 
 } // namespace openspectrum

@@ -130,6 +130,16 @@ private:
   // Status string caching for performance
   mutable std::string m_cached_status;
   mutable bool m_status_dirty = true;
+
+  // Last values actually programmed into the tuner. apply_to_device() is called
+  // every render-loop iteration; without these guards it re-issued blocking USB
+  // control transfers (rtlsdr_set_center_freq + tuner gain-mode/gain writes,
+  // i.e. a full PLL retune) every frame, which dominated the loop wall-time and
+  // throttled the displayed frame rate (worst over high-latency USB paths such
+  // as WSL2 usbipd). Now writes fire only when freq/gain actually change.
+  mutable bool m_device_applied = false;
+  mutable uint32_t m_applied_frequency_hz = 0;
+  mutable float m_applied_gain_db = 0.0f;
 };
 
 } // namespace openspectrum
