@@ -32,7 +32,7 @@ void SpectrumPalette::set_color_map(ColorMap map) {
   case ColorMap::HOT:
     generate_hot_palette();
     break;
-  case ColorMap::GRAyscale:
+  case ColorMap::GRAYSCALE:
     generate_grayscale_palette();
     break;
   case ColorMap::BLUE_RED:

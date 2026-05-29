@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "openspectrum/control_state.h"
+#include "format.h"
 #include "rtl_sdr_device.h"
 #include "signal_processor.h"
 
@@ -47,20 +48,11 @@ static auto format_window(WindowFunction w) -> std::string {
   return std::string(SignalProcessor::window_function_to_string(w));
 }
 
-// Format frequency with auto-scaling units
+// Format frequency with auto-scaling units. Delegates to the shared utility
+// (src/utils/format.h); kept as a member entry point because UI/log call
+// sites already qualify it as ControlState::format_frequency.
 auto ControlState::format_frequency(uint32_t hz) -> std::string {
-  if (hz >= 1000000000) {
-    return std::to_string(hz / 1000000000) + "." +
-           std::to_string((hz % 1000000000) / 1000000) + " GHz";
-  }
-  if (hz >= 1000000) {
-    return std::to_string(hz / 1000000) + "." +
-           std::to_string((hz % 1000000) / 1000) + " MHz";
-  }
-  if (hz >= 1000) {
-    return std::to_string(hz / 1000) + "." + std::to_string(hz % 1000) + " kHz";
-  }
-  return std::to_string(hz) + " Hz";
+  return openspectrum::format_frequency(hz);
 }
 
 // Format gain value

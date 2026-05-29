@@ -94,9 +94,11 @@ SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title,
 
   m_renderer = SDL_CreateRenderer(m_window, -1, renderer_flags);
 
-  // SDL_GetRendererInfo with a NULL renderer is UB; guard before querying.
+  // SDL_GetRendererInfo with a NULL renderer is UB; info.name isn't
+  // explicitly documented non-null on success either.
   SDL_RendererInfo info;
-  if (m_renderer != nullptr && SDL_GetRendererInfo(m_renderer, &info) == 0) {
+  if (m_renderer != nullptr && SDL_GetRendererInfo(m_renderer, &info) == 0 &&
+      info.name != nullptr) {
     const char *renderer_name = info.name;
     bool is_software = (strstr(renderer_name, "llvmpipe") != nullptr) ||
                        (strstr(renderer_name, "swrast") != nullptr) ||
@@ -128,8 +130,11 @@ SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title,
       throw std::runtime_error("SDL_CreateRenderer failed: " +
                                std::string(SDL_GetError()));
     }
-    // Re-log after fallback
-    if (SDL_GetRendererInfo(m_renderer, &info) == 0) {
+    // Re-log after fallback. Same defensive pattern as the primary query:
+    // SDL_GetRendererInfo with a NULL renderer is UB, and info.name is not
+    // explicitly documented as non-null on success.
+    if (m_renderer != nullptr && SDL_GetRendererInfo(m_renderer, &info) == 0 &&
+        info.name != nullptr) {
       LOG_WARNING("Fallback renderer: " + std::string(info.name));
     }
   }

@@ -74,7 +74,11 @@ public:
 private:
   // Internal helper methods
   bool create_output_directory();
-  std::string generate_filename(const std::string &extension) const;
+  // Build a filename using a caller-provided timestamp so the PNG name and
+  // the JSON's export_timestamp_iso8601 field always agree, even if the
+  // wall clock crosses a second between the two reads.
+  std::string generate_filename(const std::string &extension,
+                                const std::string &iso8601_timestamp) const;
   // Derive the metadata filename from an already-generated PNG name so the
   // pair shares the same timestamp/sequence even if export crosses a second.
   static std::string metadata_filename_for(const std::string &png_filename);
@@ -85,7 +89,8 @@ private:
                       uint32_t center_freq_hz, uint32_t sample_rate_hz,
                       float gain_db, size_t fft_size,
                       const std::string &window_function,
-                      const std::string &color_map, const std::string &notes);
+                      const std::string &color_map, const std::string &notes,
+                      const std::string &iso8601_timestamp);
   std::string escape_json_string(const std::string &str) const;
   std::string get_iso8601_timestamp() const;
   double get_unix_timestamp() const;
