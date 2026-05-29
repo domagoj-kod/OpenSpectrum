@@ -54,12 +54,14 @@ static inline __m256 fast_log10_avx2(__m256 x) {
 #endif
 
 FftAnalyzer::FftAnalyzer(size_t fft_size, bool inverse)
-    : m_fft_size(fft_size), m_inverse(inverse), m_center_dc(false),
-      m_window_coherent_gain(1.0f), m_input_buffer(fft_size),
-      m_output_buffer(fft_size), m_power_spectrum((fft_size / 2) + 1),
+    : m_fft_size(fft_size), m_inverse(inverse),
+      m_input_buffer(fft_size), m_output_buffer(fft_size),
+      m_power_spectrum((fft_size / 2) + 1),
       m_magnitude_spectrum((fft_size / 2) + 1),
-      m_db_spectrum((fft_size / 2) + 1), m_phase_spectrum((fft_size / 2) + 1),
-      m_freq_bins((fft_size / 2) + 1) {
+      m_db_spectrum((fft_size / 2) + 1),
+      m_phase_spectrum((fft_size / 2) + 1),
+      m_freq_bins((fft_size / 2) + 1),
+      m_center_dc(false), m_window_coherent_gain(1.0F) {
   // Security: validate FFT size is a power of 2
   if (fft_size == 0 || (fft_size & (fft_size - 1)) != 0) {
     throw std::invalid_argument("FFT size must be a power of 2");

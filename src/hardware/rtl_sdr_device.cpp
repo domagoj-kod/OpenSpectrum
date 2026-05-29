@@ -13,7 +13,7 @@
 
 RtlSdrDevice::RtlSdrDevice(uint32_t index, size_t pool_capacity)
     : m_index(index), m_fft_size(pool_capacity) {
-  m_frame_pool = std::make_unique<openspectrum::FramePool>(m_fft_size, 16);
+  m_frame_pool = std::make_shared<openspectrum::FramePool>(m_fft_size, 16);
 }
 
 auto RtlSdrDevice::open() -> bool {
@@ -76,7 +76,7 @@ void RtlSdrDevice::set_fft_size(size_t fft_size) {
   if (m_fft_size != fft_size) {
     m_fft_size = fft_size;
     // Recreate pool with new size
-    m_frame_pool = std::make_unique<openspectrum::FramePool>(m_fft_size, 16);
+    m_frame_pool = std::make_shared<openspectrum::FramePool>(m_fft_size, 16);
   }
 }
 

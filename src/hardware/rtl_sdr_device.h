@@ -52,7 +52,9 @@ private:
 
   // Buffer pooling for zero-allocation sample processing
   size_t m_fft_size = 8192;
-  std::unique_ptr<openspectrum::FramePool> m_frame_pool;
+  // shared_ptr is required: FramePool relies on enable_shared_from_this so
+  // FrameHandles can hold a weak_ptr to the pool and survive its destruction.
+  std::shared_ptr<openspectrum::FramePool> m_frame_pool;
 
   FrameCallback m_frame_callback;
   bool m_streaming = false;

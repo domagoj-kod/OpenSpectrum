@@ -64,7 +64,9 @@ static FrameHandle g_sample_accumulator_frame;
 static std::mutex g_accumulator_mutex;
 
 // Frame pool for sample buffers (shared across callbacks)
-static std::unique_ptr<FramePool> g_frame_pool;
+// shared_ptr (not unique_ptr) so FrameHandle's return path can hold a
+// weak_ptr<FramePool> and safely no-op when the pool has been destroyed.
+static std::shared_ptr<FramePool> g_frame_pool;
 
 // Memory leak fix: Maximum queue size to prevent unbounded growth
 // At 8ms timeout and typical sample rates, 32 buffers is ~256ms of data
@@ -316,7 +318,7 @@ auto main(int argc, char *argv[]) -> int {
     LOG_INFO("Spectrogram exporter initialized");
 
     // 2. Initialize frame pool for zero-allocation sample processing
-    g_frame_pool = std::make_unique<FramePool>(FFT_SIZE, 32);
+    g_frame_pool = std::make_shared<FramePool>(FFT_SIZE, 32);
     LOG_INFO("FramePool initialized for FFT size: " + std::to_string(FFT_SIZE));
 
     // 2. Initialize hardware
@@ -342,8 +344,8 @@ auto main(int argc, char *argv[]) -> int {
 
     // Use frame-based callback for zero-allocation
     // The callback receives FrameHandle which automatically returns to pool
-    auto frame_callback = [](FrameHandle samples) {
-      async_sample_callback(std::move(samples));
+    auto frame_callback = [](FrameHandle samples_frame) {
+      async_sample_callback(std::move(samples_frame));
     };
     dev.set_frame_callback(frame_callback);
     dev.start_streaming(STREAM_BUFF);
@@ -445,16 +447,13 @@ auto main(int argc, char *argv[]) -> int {
         }
 
         // Now safe to destroy old pools and create new ones
-        g_frame_pool = std::make_unique<FramePool>(current_fft_size, 32);
+        g_frame_pool = std::make_shared<FramePool>(current_fft_size, 32);
         dev.set_fft_size(current_fft_size);
 
         // Update async FFT size and restart streaming
         g_async_fft_size = current_fft_size;
 
-        // Use frame-based callback
-        auto frame_callback = [](FrameHandle samples) {
-          async_sample_callback(std::move(samples));
-        };
+        // Reuse the outer frame_callback lambda (identical body).
         dev.set_frame_callback(frame_callback);
         dev.start_streaming(STREAM_BUFF);
 
