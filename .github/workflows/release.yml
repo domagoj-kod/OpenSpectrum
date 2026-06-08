@@ -27,7 +27,7 @@ jobs:
     name: Linux AppImage
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0   # full history + tags so `git describe` and the tag body work
 
@@ -37,7 +37,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential pkg-config \
             libsdl2-dev librtlsdr-dev libusb-1.0-0-dev \
-            imagemagick file desktop-file-utils zsync curl
+            file desktop-file-utils zsync curl
 
       - name: Build AppImage
         run: |
@@ -49,7 +49,7 @@ jobs:
           bash packaging/linux-appimage.sh "$VER"
 
       - name: Upload workflow artifact (always)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: linux-appimage
           path: dist/*.AppImage
@@ -75,7 +75,7 @@ jobs:
       run:
         shell: msys2 {0}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -103,10 +103,13 @@ jobs:
           bash packaging/windows-bundle.sh "$VER"
 
       - name: Upload workflow artifact (always)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: windows-zip
-          path: dist/*.zip
+          # Upload the unzipped staging dir, not the .zip: upload-artifact always
+          # re-zips its input, so handing it the .zip yields a confusing zip-in-zip
+          # on download. The real Release below attaches the .zip directly.
+          path: dist/*-windows-x86_64/**
 
       - name: Publish to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
