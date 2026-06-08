@@ -177,9 +177,21 @@ $(MAIN_OBJ): $(MAIN_SRC) | $(BUILD_DIR)
 $(TARGET): $(HARDWARE_OBJS) $(SIGNAL_OBJS) $(FFT_OBJS) $(VIS_OBJS) $(UTILS_OBJS) $(GUI_OBJS) $(CORE_OBJS) $(MAIN_OBJ)
 	$(CXX) $^ -o $@ $(LDFLAGS)
 
+# Package a release into a distributable, self-contained bundle for the current
+# platform (Linux -> AppImage, Windows/MSYS2 -> zip with bundled DLLs). Output
+# lands in dist/. Same scripts CI runs, so local and CI packaging stay identical.
+# Override the version with: make dist VERSION=v2.5.0
+VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
+dist:
+ifeq ($(OS),Windows_NT)
+	bash packaging/windows-bundle.sh "$(VERSION)"
+else
+	bash packaging/linux-appimage.sh "$(VERSION)"
+endif
+
 # Clean
 clean:
 	rm -rf $(BUILD_DIR) $(TARGET)
 
 # Phony targets
-.PHONY: all clean release profile profile-gen profile-use profile-clean debug
+.PHONY: all clean dist release profile profile-gen profile-use profile-clean debug

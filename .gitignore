@@ -156,3 +156,4 @@ compile_commands.json
 /openspectrum.exe
 /pgo-data/
 /build/
+/dist/
