@@ -62,6 +62,16 @@ public:
   bool window_changed() const noexcept { return window_changed_flag; }
   void clear_window_change_flag() noexcept { window_changed_flag = false; }
 
+  // Color palette cycling (runtime, 'c' / Shift+C). Stored as an index into the
+  // display's ColorMap enum; main.cpp maps it to SpectrumPalette::ColorMap so
+  // this SDL/display-agnostic class stays decoupled from the visualization layer.
+  static constexpr size_t PALETTE_COUNT = 5; // == SpectrumPalette::ColorMap size
+  size_t get_palette_index() const noexcept { return palette_index; }
+  void cycle_palette(int direction); // +1 forward, -1 backward; wraps
+  bool palette_changed() const noexcept { return palette_changed_flag; }
+  void clear_palette_change_flag() noexcept { palette_changed_flag = false; }
+  static const char *palette_name(size_t index) noexcept;
+
   // Get formatted status string for display
   std::string get_status_string() const;
 
@@ -128,6 +138,8 @@ private:
   bool fft_changed = false;
   bool reconfiguring = false;
   bool window_changed_flag = false;
+  size_t palette_index = 0; // 0 = first ColorMap (display default); see main.cpp
+  bool palette_changed_flag = false;
   bool m_iq_logging_toggle = false;
   bool m_spectrogram_export_requested = false;
   bool m_timing_overlay = false;

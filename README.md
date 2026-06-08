@@ -194,6 +194,7 @@ Apart from command line arguments the program uses keyboard shortcuts for freque
 | `Shift` | Fine control (0.1 MHz, 0.1 dB) |
 | `UP` | Cycle through supported window functions |
 | `DOWN` | Reverse through supported window functions |
+| `c` / `Shift+C` | Cycle color palette forward / backward (JET, VIRIDIS, HOT, GRAY, BLU-RED) |
 | `Ctrl+S` | Toggle IQ logging |
 | `e` | Export spectrogram as PNG |
 | `ESC/q` | Exit the program |

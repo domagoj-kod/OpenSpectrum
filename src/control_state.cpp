@@ -132,6 +132,26 @@ void ControlState::set_window(WindowFunction w) {
   }
 }
 
+// Cycle the active color palette. direction: +1 forward, -1 backward (wraps).
+void ControlState::cycle_palette(int direction) {
+  const int n = static_cast<int>(PALETTE_COUNT);
+  int idx = (static_cast<int>(palette_index) + direction) % n;
+  if (idx < 0) {
+    idx += n;
+  }
+  palette_index = static_cast<size_t>(idx);
+  palette_changed_flag = true;
+  mark_status_dirty();
+}
+
+// Short display name for a palette index. Order MUST match the display's
+// SpectrumPalette::ColorMap enum { JET, VIRIDIS, HOT, GRAYSCALE, BLUE_RED }.
+auto ControlState::palette_name(size_t index) noexcept -> const char * {
+  static constexpr const char *kNames[PALETTE_COUNT] = {"JET", "VIRIDIS", "HOT",
+                                                        "GRAY", "BLU-RED"};
+  return index < PALETTE_COUNT ? kNames[index] : "?";
+}
+
 // Get formatted status string for display (cached)
 auto ControlState::get_status_string() const -> std::string {
   if (!m_status_dirty) {
@@ -143,7 +163,8 @@ auto ControlState::get_status_string() const -> std::string {
     m_cached_status = "FREQ: " + format_frequency(frequency_hz) +
                       " | GAIN: " + format_gain(gain_db) +
                       " | FFT: " + std::to_string(fft_size) +
-                      " | WINDOW: " + format_window(window_function);
+                      " | WINDOW: " + format_window(window_function) +
+                      " | PAL: " + palette_name(palette_index);
   }
   m_status_dirty = false;
   return m_cached_status;

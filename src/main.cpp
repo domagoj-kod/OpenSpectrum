@@ -382,13 +382,29 @@ auto main(int argc, char *argv[]) -> int {
     spectrum_display.set_db_range(-120.0F, 0.0F);
     waterfall_display.set_db_range(-120.0F, 0.0F);
 
+    // Runtime color palettes ('c' / Shift+C). Index order MUST match
+    // ControlState::palette_name and ControlState::PALETTE_COUNT.
+    static constexpr SpectrumPalette::ColorMap kPaletteMap[] = {
+        SpectrumPalette::ColorMap::JET,    SpectrumPalette::ColorMap::VIRIDIS,
+        SpectrumPalette::ColorMap::HOT,    SpectrumPalette::ColorMap::GRAYSCALE,
+        SpectrumPalette::ColorMap::BLUE_RED};
+    static_assert(std::size(kPaletteMap) == ControlState::PALETTE_COUNT,
+                  "palette map must match ControlState::PALETTE_COUNT");
+
+    // Apply the startup palette; ControlState is the single source of truth.
+    {
+      const auto map = kPaletteMap[control_state.get_palette_index()];
+      spectrum_display.set_color_map(map);
+      waterfall_display.set_color_map(map);
+    }
+
     LOG_INFO("Display initialized: spectrum and waterfall");
 
     // Main processing loop
     LOG_INFO("Starting main loop. Press ESC or Ctrl+C to stop.");
     LOG_INFO("Controls: +/- Frequency, r/f Gain, 1-5 FFT size, UP/DOWN Window, "
-             "Ctrl+S Toggle IQ logging, e Export spectrogram, Shift/Ctrl for "
-             "fine/coarse");
+             "c/Shift+C Palette, Ctrl+S Toggle IQ logging, e Export spectrogram, "
+             "Shift/Ctrl for fine/coarse");
 
     std::vector<std::complex<float>> samples;
     std::vector<std::complex<float>> fft_output;
@@ -455,6 +471,14 @@ auto main(int argc, char *argv[]) -> int {
         LOG_INFO("Window function changed to: " +
                  std::string(SignalProcessor::window_function_to_string(
                      control_state.get_window())));
+      }
+
+      // === 1.1b. Check for color palette change ('c' / Shift+C) ===
+      if (control_state.palette_changed()) {
+        const auto map = kPaletteMap[control_state.get_palette_index()];
+        spectrum_display.set_color_map(map);  // recolors next frame
+        waterfall_display.set_color_map(map);  // repaints full history via LUT
+        control_state.clear_palette_change_flag();
       }
 
       // === 1.2. Check for FFT size change and reinitialize if needed ===

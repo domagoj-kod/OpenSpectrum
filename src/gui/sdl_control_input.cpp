@@ -119,6 +119,15 @@ auto SdlControlInput::handle_keyboard(SDL_Keycode key, bool shift_held,
     break;
   }
 
+  // Color palette: 'c' cycles forward, Shift+C cycles backward.
+  case SDLK_c: {
+    m_state.cycle_palette(shift_held ? -1 : 1);
+    LOG_INFO(std::string("[PALETTE] ") +
+             ControlState::palette_name(m_state.get_palette_index()));
+    changed = true;
+    break;
+  }
+
   // Window function controls (UP/DOWN arrows cycle through supported windows)
   case SDLK_UP:
   case SDLK_DOWN: {
