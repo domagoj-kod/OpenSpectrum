@@ -189,7 +189,7 @@ Apart from command line arguments the program uses keyboard shortcuts for freque
 | `-/_` | Decrease the center frequency |
 | `r` | Increase gain |
 | `f` | Decrease gain |
-| `1-4` | Set FFT size (512, 1024, 2048, 4096) |
+| `1-5` | Set FFT size (1024, 2048, 4096, 8192, 16384) |
 | `Ctrl` | Coarse control (10 MHz, 10 dB) |
 | `Shift` | Fine control (0.1 MHz, 0.1 dB) |
 | `UP` | Cycle through supported window functions |

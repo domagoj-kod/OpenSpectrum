@@ -19,7 +19,7 @@ struct DeviceConstraints {
   uint32_t max_frequency_hz = 1700000000; // 1.7 GHz (RTL2832U: ~500kHz-1.7GHz)
   float min_gain_db = 0.0f;
   float max_gain_db = 49.6f; // RTL2832U max
-  std::vector<size_t> supported_fft_sizes = {512, 1024, 2048, 4096};
+  std::vector<size_t> supported_fft_sizes = {1024, 2048, 4096, 8192, 16384};
   std::vector<WindowFunction> supported_window_functions = {
       WindowFunction::RECTANGLE,       WindowFunction::HANN,
       WindowFunction::HAMMING,         WindowFunction::BLACKMAN,

@@ -20,7 +20,7 @@ ControlState::ControlState() {
   constraints.max_frequency_hz = 1700000000; // 1.7 GHz
   constraints.min_gain_db = 0.0F;
   constraints.max_gain_db = 49.6F;
-  constraints.supported_fft_sizes = {512, 1024, 2048, 4096};
+  constraints.supported_fft_sizes = {1024, 2048, 4096, 8192, 16384};
 }
 
 // Helper to find FFT size index

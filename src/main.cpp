@@ -386,7 +386,7 @@ auto main(int argc, char *argv[]) -> int {
 
     // Main processing loop
     LOG_INFO("Starting main loop. Press ESC or Ctrl+C to stop.");
-    LOG_INFO("Controls: +/- Frequency, r/f Gain, 1-4 FFT size, UP/DOWN Window, "
+    LOG_INFO("Controls: +/- Frequency, r/f Gain, 1-5 FFT size, UP/DOWN Window, "
              "Ctrl+S Toggle IQ logging, e Export spectrogram, Shift/Ctrl for "
              "fine/coarse");
 
