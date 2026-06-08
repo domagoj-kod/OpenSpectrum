@@ -49,7 +49,7 @@ jobs:
           bash packaging/linux-appimage.sh "$VER"
 
       - name: Upload workflow artifact (always)
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: linux-appimage
           path: dist/*.AppImage
@@ -62,7 +62,7 @@ jobs:
 
       - name: Publish to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           body_path: RELEASE_BODY.md
           files: dist/*.AppImage
@@ -103,7 +103,7 @@ jobs:
           bash packaging/windows-bundle.sh "$VER"
 
       - name: Upload workflow artifact (always)
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: windows-zip
           # Upload the unzipped staging dir, not the .zip: upload-artifact always
@@ -113,7 +113,7 @@ jobs:
 
       - name: Publish to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: dist/*.zip
           fail_on_unmatched_files: true
