@@ -48,6 +48,14 @@ CFLAGS   := $(BASE_CFLAGS) -O0 -DOPENSPECTRUM_DEBUG
 CXXFLAGS := $(BASE_CXXFLAGS) -O0 -DOPENSPECTRUM_DEBUG
 LDFLAGS  := $(BASE_LDFLAGS)
 
+# Header-dependency tracking. -MMD emits a .d file per object listing the headers
+# it pulled in (excluding system headers); -MP adds a phony target for each header
+# so deleting/renaming one doesn't wedge the build with a "no rule to make" error.
+# The .d files are -included below, so editing a header rebuilds every .cpp that
+# includes it. Kept OUT of CXXFLAGS on purpose: release/profile/PGO targets
+# replace CXXFLAGS via recursive make, which would otherwise strip this.
+DEPFLAGS := -MMD -MP
+
 # Footprint-trim flags shared by release and PGO targets.
 # - function/data-sections + --gc-sections: drop every symbol the linker can
 #   prove unreachable, shrinking I-cache pressure.
@@ -142,6 +150,16 @@ GUI_OBJS := $(patsubst $(GUI_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(GUI_SRCS))
 CORE_OBJS := $(patsubst $(SRC_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(CORE_SRCS))
 MAIN_OBJ := $(BUILD_DIR)/main.o
 
+# Aggregate object list, reused by the link target and the dependency include.
+ALL_OBJS := $(HARDWARE_OBJS) $(SIGNAL_OBJS) $(FFT_OBJS) $(VIS_OBJS) \
+            $(UTILS_OBJS) $(GUI_OBJS) $(CORE_OBJS) $(MAIN_OBJ)
+
+# Per-object dependency files (one .d beside each .o). The leading '-' silences
+# the missing-file noise on a clean build before any .d exists; `make clean`
+# wipes BUILD_DIR, so they're removed alongside the objects.
+DEPS := $(ALL_OBJS:.o=.d)
+-include $(DEPS)
+
 all: $(TARGET)
 
 # Build directory
@@ -150,31 +168,31 @@ $(BUILD_DIR):
 
 # Object file rules
 $(BUILD_DIR)/%.o: $(HARDWARE_DIR)/%.cpp | $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $(DEPFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/%.o: $(SIGNAL_DIR)/%.cpp | $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $(DEPFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/%.o: $(FFT_DIR)/%.cpp | $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $(DEPFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/%.o: $(VIS_DIR)/%.cpp | $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $(DEPFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/%.o: $(UTILS_DIR)/%.cpp | $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $(DEPFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/%.o: $(GUI_DIR)/%.cpp | $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $(DEPFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp | $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $(DEPFLAGS) -c $< -o $@
 
 $(MAIN_OBJ): $(MAIN_SRC) | $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $(DEPFLAGS) -c $< -o $@
 
 # Final target
-$(TARGET): $(HARDWARE_OBJS) $(SIGNAL_OBJS) $(FFT_OBJS) $(VIS_OBJS) $(UTILS_OBJS) $(GUI_OBJS) $(CORE_OBJS) $(MAIN_OBJ)
+$(TARGET): $(ALL_OBJS)
 	$(CXX) $^ -o $@ $(LDFLAGS)
 
 # Package a release into a distributable, self-contained bundle for the current
