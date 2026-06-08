@@ -330,10 +330,7 @@ void SdlRenderer::render_overlays() {
     SDL_RenderFillRect(m_renderer, &bg);
     SDL_SetRenderDrawColor(m_renderer, r, g, b, a);
 
-    // White only: TextRenderer::render_text packs RGBA in an order that maps
-    // the input red channel onto alpha (latent byte-order bug), so non-white
-    // text with red==0 renders fully transparent. White is safe.
-    SDL_Color const col = {255, 255, 255, 255};
+    SDL_Color const col = {0, 255, 0, 255};
     for (int i = 0; i < 4; ++i) {
       SDL_Texture *t = m_text_renderer->render_text(lines[i], col);
       if (t != nullptr) {

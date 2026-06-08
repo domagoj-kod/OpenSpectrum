@@ -258,6 +258,13 @@ auto TextRenderer::render_text(const std::string &text, SDL_Color color)
     }
   }
 
+  // Pack the colour for the surface's actual format. SDL_PIXELFORMAT_RGBA32 is
+  // an endian-dependent alias (ABGR8888 on little-endian x86), so a hand-rolled
+  // (r<<24)|(g<<16)|(b<<8)|a is wrong — it maps input red onto alpha, leaving any
+  // colour with r==0 fully transparent. SDL_MapRGBA gets it right on any endian.
+  const uint32_t packed =
+      SDL_MapRGBA(surface->format, color.r, color.g, color.b, color.a);
+
   // Render each character
   for (size_t i = 0; i < text.length(); ++i) {
     char const c = text[i];
@@ -280,8 +287,7 @@ auto TextRenderer::render_text(const std::string &text, SDL_Color color)
           int const px = (static_cast<int>(i) * glyph_width) + x;
           int const py = y;
           if (px < total_width && py < total_height) {
-            pixels[(py * surface->pitch / 4) + px] =
-                (color.r << 24) | (color.g << 16) | (color.b << 8) | color.a;
+            pixels[(py * surface->pitch / 4) + px] = packed;
           }
         }
       }
