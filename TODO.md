@@ -21,7 +21,7 @@
 
 - [ ] PR build-check workflow (Linux compile on PRs to main) — catch build breaks
   pre-merge. (Lower priority while solo / committing direct to main.)
-- [ ] Makefile header-dependency tracking (`-MMD -MP`): editing a header currently
+- [x] Makefile header-dependency tracking (`-MMD -MP`): editing a header currently
   doesn't rebuild dependent .cpp → risk of stale objects.
 
 ## Cosmetic
