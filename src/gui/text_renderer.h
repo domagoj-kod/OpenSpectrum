@@ -34,12 +34,15 @@ private:
   SDL_Renderer *renderer = nullptr;
   int font_size = 16;
 
-  // Simple bitmap font (8x8 pixels per glyph)
-  // Contains ASCII 32-127
-  static const uint8_t BITMAP_FONT[96][8];
+  // Native glyph dimensions of the 8x16 IBM VGA font (8 wide, 16 scanlines).
+  static constexpr int GLYPH_SRC_W = 8;
+  static constexpr int GLYPH_SRC_H = 16;
 
-  int glyph_width = 8;
-  int glyph_height = 8;
+  // 8x16 bitmap font, ASCII 32-127 (index = code - 32).
+  static const uint8_t BITMAP_FONT[96][16];
+
+  int glyph_width = GLYPH_SRC_W;
+  int glyph_height = GLYPH_SRC_H;
 };
 
 } // namespace openspectrum
