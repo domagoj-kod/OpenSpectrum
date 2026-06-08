@@ -131,8 +131,17 @@ void RtlSdrDevice::start_streaming(size_t buffer_count) {
     LOG_INFO("Starting RTL-SDR async thread...");
     int ret = rtlsdr_read_async(m_dev, static_callback, this,
                                 static_cast<uint32_t>(buffer_count), buf_len);
+    // A negative return is normal on shutdown: stop_streaming() clears
+    // m_thread_running and then calls rtlsdr_cancel_async(), which makes this
+    // blocking call return with a libusb error (typically -5 NOT_FOUND) as the
+    // in-flight transfers are torn down. Only flag a genuine error if we did
+    // NOT initiate the stop.
     if (ret < 0) {
-      LOG_ERROR("Async streaming error: " + std::to_string(ret));
+      if (m_thread_running) {
+        LOG_ERROR("Async streaming error: " + std::to_string(ret));
+      } else {
+        LOG_DEBUG("Async streaming canceled (ret=" + std::to_string(ret) + ")");
+      }
     }
     LOG_INFO("RTL-SDR async thread exited.");
     m_thread_running = false;
