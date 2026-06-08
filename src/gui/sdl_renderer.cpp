@@ -222,11 +222,23 @@ void SdlRenderer::render_overlays() {
     int text_height = 0;
     m_text_renderer->get_text_size(m_current_status, &text_width, &text_height);
 
+    // Scale the bar down to fit the window width so a long status string (e.g.
+    // once the palette field is appended) can't overflow the left edge and clip
+    // FREQ. When it already fits, scale == 1 and it sits bottom-right as before;
+    // when too wide it shrinks proportionally (aspect preserved) to fill the
+    // available width. Robust to narrow / resized windows.
+    const int avail = static_cast<int>(m_width) - 20; // 10px margin each side
+    double scale = 1.0;
+    if (text_width > avail && text_width > 0) {
+      scale = static_cast<double>(avail) / static_cast<double>(text_width);
+    }
+    const int draw_w = static_cast<int>(text_width * scale);
+    const int draw_h = static_cast<int>(text_height * scale);
+
     SDL_Rect const dest_rect = {
-        static_cast<int>(m_width - text_width - 10), // 10px margin from right
-        static_cast<int>(m_height - text_height -
-                         10), // 10px margin from bottom
-        text_width, text_height};
+        static_cast<int>(m_width) - draw_w - 10,  // 10px margin from right
+        static_cast<int>(m_height) - draw_h - 10, // 10px margin from bottom
+        draw_w, draw_h};
     SDL_RenderCopy(m_renderer, m_status_texture, nullptr, &dest_rect);
   }
 
