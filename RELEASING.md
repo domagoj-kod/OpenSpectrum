@@ -40,8 +40,22 @@ make dist VERSION=v2.5.0  # explicit version label
 ```
 
 - Linux needs: `build-essential pkg-config libsdl2-dev librtlsdr-dev
-  libusb-1.0-0-dev imagemagick curl` (curl fetches `linuxdeploy`).
+  libusb-1.0-0-dev curl file` — `curl` fetches `linuxdeploy`, and `appimagetool`
+  shells out to `file`. No rasterizer is required: the app icon is the committed
+  `packaging/openspectrum.png` (source: `packaging/openspectrum.svg`).
 - Windows needs an MSYS2 MINGW64 shell with the toolchain + `make zip`.
+
+### Dry-run the whole job locally with `act`
+
+`act` (GitHub Actions in Docker) runs the Linux job end to end and produces a real
+AppImage. Two expected, harmless quirks:
+
+- The **upload-artifact** step fails with `Unable to get the ACTIONS_RUNTIME_TOKEN`
+  — `act` has no artifact backend. It works on real GitHub runners. To make it go
+  green locally, give `act` a local store:
+  `act -j "Linux AppImage" --artifact-server-path /tmp/act-artifacts`.
+- GitHub-hosted `ubuntu-latest` ships `file` preinstalled; the `act` image already
+  has it, so only a bare local `make dist` may need `apt-get install -y file`.
 
 ## Cost / runner notes
 

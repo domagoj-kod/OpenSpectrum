@@ -3,7 +3,8 @@
 # SDL2/librtlsdr/libusb so it runs on any modern x86-64 distro with no install
 # (the user just needs RTL-SDR udev permissions, same as any SDR tool).
 #
-# Run on Linux (locally or in CI). Requires: build deps, curl, imagemagick.
+# Run on Linux (locally or in CI). Requires: build deps, curl. The app icon is
+# the committed packaging/openspectrum.png (no rasterizer needed at build time).
 #   Usage: packaging/linux-appimage.sh [VERSION]
 set -euo pipefail
 
@@ -36,15 +37,18 @@ Categories=HamRadio;Utility;
 Terminal=true
 EOF
 
-# Icon (generated so we don't commit a binary). 256x256 keeps appimagetool happy.
+# Icon. A real 256x256 PNG is committed at packaging/openspectrum.png; we copy
+# it verbatim so the build needs no rasterizer (ImageMagick in CI lacks fonts
+# and a usable PNG-write policy). Fall back to a valid 1x1 placeholder only if
+# the committed asset is somehow missing, so the AppImage still builds.
 ICON="$APPDIR/usr/share/icons/hicolor/256x256/apps/openspectrum.png"
-if command -v convert >/dev/null 2>&1; then
-  convert -size 256x256 gradient:'#0b1f3a'-'#000000' \
-          -gravity center -pointsize 96 -fill '#39c5ff' -annotate 0 'OS' "$ICON"
+SRC_ICON="$ROOT/packaging/openspectrum.png"
+if [ -s "$SRC_ICON" ]; then
+  cp "$SRC_ICON" "$ICON"
 else
-  echo "!! ImageMagick 'convert' not found; writing a 1x1 placeholder icon" >&2
+  echo "!! packaging/openspectrum.png missing; writing a 1x1 placeholder icon" >&2
   base64 -d > "$ICON" <<'B64'
-iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC
+iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mPglrf6DwACAQFkRrTEIgAAAABJRU5ErkJggg==
 B64
 fi
 
@@ -53,7 +57,10 @@ TOOLDIR="$ROOT/dist/tools"
 mkdir -p "$TOOLDIR"
 LD="$TOOLDIR/linuxdeploy-x86_64.AppImage"
 if [ ! -x "$LD" ]; then
-  curl -fsSL -o "$LD" \
+  # Retry transient CDN 5xx (the `continuous` asset is periodically re-uploaded,
+  # so GitHub occasionally returns 502/504 mid-fetch).
+  curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 --connect-timeout 20 \
+    -o "$LD" \
     https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
   chmod +x "$LD"
 fi
