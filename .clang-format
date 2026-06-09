@@ -1,0 +1,8 @@
+---
+# LLVM base reproduces the style VS Code was already applying by default, so
+# adding this file is a no-op for existing code — it just makes the format
+# contract explicit and reproducible across machines / CI. Run separately from
+# clang-tidy:  clang-format -i $(find src include -name '*.cpp' -o -name '*.h')
+BasedOnStyle: LLVM
+Standard: c++20
+---

@@ -1,6 +1,55 @@
 ---
-Checks:          '-*,misc-throw-by-value-catch-by-reference,misc-static-assert,readability-container-size-empty,modernize-use-override,modernize-make-unique,modernize-deprecated-headers,misc-unused-using-decls,misc-redundant-expression,bugprone-redundant-branch-condition,bugprone-shared-ptr-array-mismatch,bugprone-string-constructor,bugprone-string-integer-assignment,bugprone-unused-raii,bugprone-unchecked-optional-access, bugprone-use-after-move,cppcoreguidelines-owning-memory,cppcoreguidelines-pro-bound-pointers,cppcoreguidelines-special-member-functions,performance-unnecessary-copy-initialization,performance-unnecessary-value-param,performance-for-range-copy,modernize-raw-string-literal,modernize-use-nodiscard,modernize-use-nullptr,modernize-return-braced-init-list,modernize-use-equals-default,readability-magic-numbers,misc-noexcept-move-constructor'
-# Not in here: modernize-use-emplace, since that basically breaks all things it touches
+# Curated check set. '-*' disables defaults; everything we want is listed
+# explicitly. Removed: readability-magic-numbers (343 hits, all legitimate
+# DSP/colour/bitmask constants, no auto-fix) and cppcoreguidelines-owning-memory
+# (objects to the deliberate cache-line-aligned raw-buffer design). Kept
+# cppcoreguidelines-special-member-functions (Rule-of-5 catches real lifetime
+# bugs). Not in here: modernize-use-emplace, which breaks most things it touches.
+Checks: '-*,
+  bugprone-macro-parentheses,
+  bugprone-redundant-branch-condition,
+  bugprone-shared-ptr-array-mismatch,
+  bugprone-string-constructor,
+  bugprone-string-integer-assignment,
+  bugprone-unchecked-optional-access,
+  bugprone-unused-raii,
+  bugprone-use-after-move,
+  cppcoreguidelines-special-member-functions,
+  misc-redundant-expression,
+  misc-static-assert,
+  misc-throw-by-value-catch-by-reference,
+  misc-unused-using-decls,
+  modernize-concat-nested-namespaces,
+  modernize-deprecated-headers,
+  modernize-make-unique,
+  modernize-raw-string-literal,
+  modernize-return-braced-init-list,
+  modernize-use-bool-literals,
+  modernize-use-default-member-init,
+  modernize-use-equals-default,
+  modernize-use-nodiscard,
+  modernize-use-nullptr,
+  modernize-use-override,
+  modernize-use-std-numbers,
+  modernize-use-using,
+  performance-faster-string-find,
+  performance-for-range-copy,
+  performance-move-const-arg,
+  performance-noexcept-move-constructor,
+  performance-trivially-destructible,
+  performance-unnecessary-copy-initialization,
+  performance-unnecessary-value-param,
+  readability-container-size-empty,
+  readability-else-after-return,
+  readability-isolate-declaration,
+  readability-qualified-auto,
+  readability-redundant-control-flow,
+  readability-redundant-member-init,
+  readability-redundant-smartptr-get,
+  readability-redundant-string-cstr,
+  readability-static-accessed-through-instance'
 WarningsAsErrors: ''
-HeaderFilterRegex: '^(src|include)/.*\.(c|cc|cpp|h|hpp)$'
+# Search semantics (no leading '^'): matches the absolute paths that
+# compile_commands.json carries, so header diagnostics are actually emitted.
+HeaderFilterRegex: '(src|include)/.*\.(h|hpp)$'
 FormatStyle:     file
