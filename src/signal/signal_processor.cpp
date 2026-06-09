@@ -118,7 +118,7 @@ void SignalProcessor::compute_flat_top() {
   }
 }
 
-void SignalProcessor::apply_window(std::vector<std::complex<float>> &samples) {
+void SignalProcessor::apply_window(std::span<std::complex<float>> samples) {
   // Security: ensure samples size matches window size
   if (samples.size() != m_fft_size) {
     precompute_window(samples.size());
@@ -149,7 +149,7 @@ void SignalProcessor::apply_window(std::vector<std::complex<float>> &samples) {
 #endif
 }
 
-void SignalProcessor::remove_dc(std::vector<std::complex<float>> &samples) {
+void SignalProcessor::remove_dc(std::span<std::complex<float>> samples) {
   const size_t n = samples.size();
   if (n == 0) return;
 

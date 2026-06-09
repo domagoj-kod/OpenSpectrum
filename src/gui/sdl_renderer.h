@@ -28,11 +28,14 @@ public:
   SdlRenderer(const SdlRenderer &) = delete;
   SdlRenderer &operator=(const SdlRenderer &) = delete;
 
-  // Zero-copy render: writes spectrum (top) and waterfall (bottom) directly
-  // into the SDL texture, bypassing the combined_pixels intermediate buffer.
-  OS_HOT bool render_displays(const uint8_t *spectrum_data, const uint8_t *waterfall_data,
+  // Full waterfall render: uploads the whole waterfall buffer into the texture
+  // bottom region (used while history is filling or after a LUT/reset). The
+  // spectrum is drawn on the GPU from spec_verts/spec_idx (SDL_RenderGeometry),
+  // so no spectrum pixel upload happens here.
+  OS_HOT bool render_displays(const std::vector<SDL_Vertex> &spec_verts,
+                              const std::vector<int> &spec_idx,
+                              const uint8_t *waterfall_data,
                               size_t spectrum_height,
-                              const std::vector<SDL_Rect> &spec_dirty_rects,
                               const std::vector<SDL_Rect> &wf_dirty_rects);
 
   // Re-present the last rendered texture with updated overlays (no texture upload).
@@ -41,13 +44,14 @@ public:
 
   // Steady-state render: GPU-shifts the waterfall texture up by line_height,
   // uploads only new_wf_line_rgba (m_width * line_height * 4 bytes) at the
-  // bottom, then composites spectrum + waterfall in one pass.
-  OS_HOT bool render_displays_scroll(const uint8_t *spectrum_data,
+  // bottom, then composites the GPU-drawn spectrum (spec_verts/spec_idx) over
+  // the waterfall in one pass.
+  OS_HOT bool render_displays_scroll(const std::vector<SDL_Vertex> &spec_verts,
+                                     const std::vector<int> &spec_idx,
                                      const uint8_t *new_wf_line_rgba,
                                      size_t spectrum_height,
                                      size_t wf_height,
-                                     size_t line_height,
-                                     const std::vector<SDL_Rect> &spec_dirty_rects);
+                                     size_t line_height);
 
   // Process events. Returns true if should continue, false if quit requested
   // If state is provided, handle keyboard input for control state
@@ -97,6 +101,21 @@ private:
   // Called after rendering the main texture
   void render_overlays();
 
+  // Draw the spectrum bars on the GPU (one SDL_RenderGeometry call, solid-color
+  // geometry, no texture). Called into the active render target.
+  void render_spectrum(const std::vector<SDL_Vertex> &verts,
+                       const std::vector<int> &indices);
+
+  // Compose the base frame into m_frame_tex: clear, blit the waterfall source
+  // region to the bottom, then draw the spectrum bars over the top region.
+  // wf_src may be null to copy the whole source texture.
+  void compose_base(SDL_Texture *wf_tex, const SDL_Rect *wf_src,
+                    const SDL_Rect &wf_dst, const std::vector<SDL_Vertex> &verts,
+                    const std::vector<int> &indices);
+
+  // RenderClear + blit m_frame_tex + overlays + present. Shared by all paths.
+  void present_composited();
+
   // DEBUG (frame-timing branch): SDL_RenderPresent wrapped in a steady-clock
   // measurement, result stored in m_last_present_ms.
   void present_timed();
@@ -108,6 +127,13 @@ private:
   SDL_Window *m_window = nullptr;
   SDL_Renderer *m_renderer = nullptr;
   SDL_Texture *m_texture = nullptr;
+
+  // Persistent full-window TARGET texture holding the last composited base
+  // frame (waterfall + GPU-drawn spectrum bars, no overlays). Both render paths
+  // compose into it; present_frame() re-blits it so the idle/no-samples path
+  // stays correct without re-running the spectrum/waterfall draw — and without
+  // needing to know whether the waterfall is in fill or scroll phase.
+  SDL_Texture *m_frame_tex = nullptr;
 
   // VSYNC control
   bool m_enable_vsync = false;

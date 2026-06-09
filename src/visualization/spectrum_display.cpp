@@ -189,13 +189,62 @@ void SpectrumDisplay::update_spectrum(const std::vector<float> &db_values,
     set_db_range(min_val - 5.0F, max_val + 5.0F);
   }
 
-  render();
-  
-  // Mark entire spectrum as dirty (simplified for now)
-  m_dirty_rects.push_back({0, 0, static_cast<int>(m_width), static_cast<int>(m_height)});
+  // The live render path draws the spectrum on the GPU from build_vertices();
+  // m_pixels is no longer painted here. render_to_pixels() fills it on demand
+  // for the (cold) spectrogram export path.
 }
 
-void SpectrumDisplay::render() {
+// One colored quad per bin, emitted as 4 vertices + 6 indices into the caller's
+// reusable buffers. Positions are in spectrum-region coords: x spans the bin's
+// horizontal slice, y runs from the bar top (region_h - bar_height) down to the
+// region baseline (region_h). High dB => tall bar reaching toward the top.
+void SpectrumDisplay::build_vertices(float region_w, float region_h,
+                                     std::vector<SDL_Vertex> &verts,
+                                     std::vector<int> &indices) const {
+  verts.clear();
+  indices.clear();
+
+  const size_t num_bins = m_spectrum_data.size();
+  const float db_range = m_max_db - m_min_db;
+  if (num_bins == 0 || db_range <= 0.0F || region_w <= 0.0F || region_h <= 0.0F) {
+    return;
+  }
+
+  const float bin_width = region_w / static_cast<float>(num_bins);
+  const float db_to_height = region_h / db_range;
+
+  verts.reserve(num_bins * 4);
+  indices.reserve(num_bins * 6);
+
+  for (size_t i = 0; i < num_bins; ++i) {
+    float const db = m_spectrum_data[i];
+    float const bar_height =
+        std::clamp((db - m_min_db) * db_to_height, 0.0F, region_h);
+
+    RgbColor const c = m_palette.get_color(db);
+    SDL_Color const col = {c.red, c.green, c.blue, c.alpha};
+
+    float const x0 = static_cast<float>(i) * bin_width;
+    float const x1 = x0 + bin_width;
+    float const y_top = region_h - bar_height;
+    float const y_bot = region_h;
+
+    auto const base = static_cast<int>(verts.size());
+    verts.push_back({SDL_FPoint{x0, y_top}, col, SDL_FPoint{0.0F, 0.0F}});
+    verts.push_back({SDL_FPoint{x1, y_top}, col, SDL_FPoint{0.0F, 0.0F}});
+    verts.push_back({SDL_FPoint{x1, y_bot}, col, SDL_FPoint{0.0F, 0.0F}});
+    verts.push_back({SDL_FPoint{x0, y_bot}, col, SDL_FPoint{0.0F, 0.0F}});
+
+    indices.push_back(base + 0);
+    indices.push_back(base + 1);
+    indices.push_back(base + 2);
+    indices.push_back(base + 0);
+    indices.push_back(base + 2);
+    indices.push_back(base + 3);
+  }
+}
+
+void SpectrumDisplay::render_to_pixels() {
   if (m_spectrum_data.empty()) {
     clear();
     return;

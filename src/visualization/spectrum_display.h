@@ -135,9 +135,23 @@ public:
                               const std::vector<float> & /*freq_bins*/,
                               float center_freq_hz, float sample_rate_hz);
 
-  // Get rendered pixel buffer (RGB32 format: RGBA interleaved)
-  // Phase 3: Returns PixelBuffer for direct access; has .data() and .size()
-  // methods
+  // Build GPU draw geometry for the current spectrum: one colored quad per bin
+  // (4 vertices + 6 indices), positioned in the spectrum region [0,region_w) x
+  // [0,region_h). Drawn by SdlRenderer::render_spectrum via SDL_RenderGeometry,
+  // replacing the old per-frame CPU pixel paint + full texture upload. The out
+  // buffers are cleared and refilled (caller reuses them frame-to-frame so the
+  // capacity is retained — no per-frame allocation).
+  OS_HOT void build_vertices(float region_w, float region_h,
+                             std::vector<SDL_Vertex> &verts,
+                             std::vector<int> &indices) const;
+
+  // Paint the current spectrum into m_pixels on demand. Cold path: only the
+  // spectrogram PNG exporter consumes the pixel buffer (via get_pixels()); the
+  // live render path uses build_vertices() instead.
+  OS_COLD void render_to_pixels();
+
+  // Get rendered pixel buffer (RGB32 format: RGBA interleaved). Only valid after
+  // render_to_pixels(); consumed by the spectrogram exporter.
   [[nodiscard]] const PixelBuffer &get_pixels() const { return m_pixels; }
   uint8_t *pixel_data() { return m_pixels.data(); }
   [[nodiscard]] const uint8_t *pixel_data() const { return m_pixels.data(); }
@@ -157,10 +171,6 @@ public:
   [[nodiscard]] float min_db() const noexcept { return m_min_db; }
   [[nodiscard]] float max_db() const noexcept { return m_max_db; }
 
-  // Get dirty rectangles for incremental rendering
-  [[nodiscard]] const std::vector<SDL_Rect>& get_dirty_rects() const { return m_dirty_rects; }
-  void clear_dirty_rects() { m_dirty_rects.clear(); }
-
 private:
   size_t m_width;
   size_t m_height;
@@ -175,10 +185,6 @@ private:
   float m_max_db = 0.0f;
   bool m_autoscale = true;
 
-  // Dirty rectangles for incremental rendering
-  mutable std::vector<SDL_Rect> m_dirty_rects;
-
-  void render();
   void clear();
 };
 

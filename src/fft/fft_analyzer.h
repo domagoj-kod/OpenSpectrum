@@ -5,6 +5,7 @@
 #include <complex>
 #include <cstddef>
 #include <memory>
+#include <span>
 #include <vector>
 
 #include "openspectrum/attributes.h"
@@ -27,9 +28,10 @@ public:
   FftAnalyzer &operator=(FftAnalyzer &&other) noexcept;
 
   // Execute FFT on input samples, store result in output
-  // Input: time-domain complex samples (size = fft_size)
+  // Input: time-domain complex samples (size = fft_size). A span so a pooled
+  // FrameHandle buffer can be passed without copying (a std::vector binds too).
   // Output: frequency-domain complex bins (size = fft_size)
-  OS_HOT void execute(const std::vector<std::complex<float>> &input,
+  OS_HOT void execute(std::span<const std::complex<float>> input,
                       std::vector<std::complex<float>> &output);
 
   // Get power spectrum (magnitude squared) from last FFT result

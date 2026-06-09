@@ -115,7 +115,7 @@ void FftAnalyzer::compute_frequency_bins() {
   }
 }
 
-void FftAnalyzer::execute(const std::vector<std::complex<float>> &input,
+void FftAnalyzer::execute(std::span<const std::complex<float>> input,
                           std::vector<std::complex<float>> &output) {
   // Security: validate input size
   if (input.size() != m_fft_size) {

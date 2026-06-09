@@ -26,6 +26,7 @@
 #include <memory>
 #include <mutex>
 #include <queue>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -406,13 +407,18 @@ auto main(int argc, char *argv[]) -> int {
              "c/Shift+C Palette, Ctrl+S Toggle IQ logging, e Export spectrogram, "
              "Shift/Ctrl for fine/coarse");
 
-    std::vector<std::complex<float>> samples;
     std::vector<std::complex<float>> fft_output;
     size_t current_fft_size = config.fft_size;
 
     // Initialize buffers with current FFT size
-    samples.resize(current_fft_size);
     fft_output.resize(current_fft_size);
+
+    // Reusable spectrum draw geometry — refilled each frame by
+    // SpectrumDisplay::build_vertices(), kept across iterations so the capacity
+    // is retained (no per-frame allocation) and so present_frame() on the
+    // no-samples path still has the last geometry available.
+    std::vector<SDL_Vertex> spec_verts;
+    std::vector<int> spec_idx;
 
     // Track peak amplitude for display
     float peak_db = -140.0F;
@@ -524,7 +530,6 @@ auto main(int argc, char *argv[]) -> int {
         dev.set_frame_callback(frame_callback);
         dev.start_streaming(STREAM_BUFF);
 
-        samples.resize(current_fft_size);
         fft_output.resize(current_fft_size);
 
         // Recreate signal processor with new size
@@ -571,6 +576,10 @@ auto main(int argc, char *argv[]) -> int {
         std::string color_map_name = "jet"; // Default
         // Note: SpectrumDisplay doesn't expose color map getter,
         // so we use default. Could be enhanced later.
+
+        // The live path draws the spectrum on the GPU and no longer keeps the
+        // CPU pixel buffer current, so paint it on demand for the exporter.
+        spectrum_display.render_to_pixels();
 
         // Export combined spectrogram (spectrum + waterfall)
         auto result = spectrogram_exporter.export_combined(
@@ -700,25 +709,18 @@ auto main(int argc, char *argv[]) -> int {
       }
 
       // async_samples_frame is now guaranteed to be exactly current_fft_size
-      // (accumulated in callback to match FFT size)
-
-      // Copy frame data to samples vector for FFT processing
-      // This is a temporary copy - in future we can modify FFT to use
-      // FrameHandle directly
-      if (samples.size() < current_fft_size) {
-        samples.resize(current_fft_size);
-      }
-      std::copy_n(async_samples_frame.data(), current_fft_size,
-                  samples.begin());
-
-      // async_samples_frame will be automatically returned to pool when it goes
-      // out of scope
+      // (accumulated in callback to match FFT size). Process the pooled frame
+      // buffer in place via a span — no copy into a separate samples vector.
+      // The frame is released back to the pool at the end of the iteration.
+      std::span<std::complex<float>> samples(async_samples_frame.data(),
+                                             current_fft_size);
 
       // === 2.5. IQ logging (if enabled) ===
+      // Log the raw samples before remove_dc / windowing mutate them in place.
       if (iq_capturing) {
         // Convert to vector for IQ logger (it expects vector)
-        std::vector<std::complex<float>> iq_samples(
-            samples.begin(), samples.begin() + current_fft_size);
+        std::vector<std::complex<float>> iq_samples(samples.begin(),
+                                                    samples.end());
         iq_logger.write_samples(iq_samples);
       }
 
@@ -746,35 +748,31 @@ auto main(int argc, char *argv[]) -> int {
       waterfall_display.add_spectrum_line(db_spectrum);
       auto t_cpu_end = timing_clock::now();
 
-      // === 7. Render directly into SDL texture (no combined_pixels buffer) ===
-      const auto &spec_dirty_rects = spectrum_display.get_dirty_rects();
+      // === 7. Render: spectrum as GPU geometry, waterfall via texture ===
+      // Build the spectrum bars once per frame (reuses spec_verts/spec_idx
+      // capacity). The waterfall still picks full-upload vs GPU-scroll.
+      spectrum_display.build_vertices(static_cast<float>(renderer.width()),
+                                      static_cast<float>(spectrum_display.height()),
+                                      spec_verts, spec_idx);
       const auto &wf_dirty_rects = waterfall_display.get_dirty_rects();
 
       auto t_render_start = timing_clock::now();
       bool render_ok;
-      if (!spec_dirty_rects.empty() || !wf_dirty_rects.empty()) {
-        if (waterfall_display.needs_full_render()) {
-          // First frame after reset or LUT rebuild: full CPU→GPU upload.
-          // Also seeds the GPU scroll texture for subsequent scroll frames.
-          render_ok = renderer.render_displays(
-              spectrum_display.pixel_data(),
-              waterfall_display.get_pixels().data(), spectrum_display.height(),
-              spec_dirty_rects, wf_dirty_rects);
-        } else {
-          // Steady state: GPU shifts existing waterfall texture up by one line
-          // and uploads only the new bottom strip (~5 KB instead of ~1.5 MB).
-          render_ok = renderer.render_displays_scroll(
-              spectrum_display.pixel_data(),
-              waterfall_display.get_new_line_rgba(), spectrum_display.height(),
-              waterfall_display.height(), waterfall_display.get_line_height(),
-              spec_dirty_rects);
-        }
-        spectrum_display.clear_dirty_rects();
-        waterfall_display.clear_dirty_rects();
+      if (waterfall_display.needs_full_render()) {
+        // First frame after reset or LUT rebuild: full waterfall upload. Also
+        // seeds the GPU scroll texture for subsequent scroll frames.
+        render_ok = renderer.render_displays(
+            spec_verts, spec_idx, waterfall_display.get_pixels().data(),
+            spectrum_display.height(), wf_dirty_rects);
       } else {
-        renderer.present_frame();
-        render_ok = true;
+        // Steady state: GPU shifts the waterfall texture up by one line and
+        // uploads only the new bottom strip (~5 KB instead of ~1.5 MB).
+        render_ok = renderer.render_displays_scroll(
+            spec_verts, spec_idx, waterfall_display.get_new_line_rgba(),
+            spectrum_display.height(), waterfall_display.height(),
+            waterfall_display.get_line_height());
       }
+      waterfall_display.clear_dirty_rects();
 
       if (!render_ok) {
         LOG_ERROR("Render failed");

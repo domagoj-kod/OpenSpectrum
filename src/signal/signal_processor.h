@@ -5,6 +5,7 @@
 #include <array>
 #include <complex>
 #include <cstdint>
+#include <span>
 #include <vector>
 
 #include "openspectrum/attributes.h"
@@ -26,11 +27,13 @@ public:
   OS_COLD explicit SignalProcessor(size_t fft_size);
   ~SignalProcessor() = default;
 
-  // Apply selected window function to samples (in-place)
-  OS_HOT void apply_window(std::vector<std::complex<float>> &samples);
+  // Apply selected window function to samples (in-place).
+  // Takes a span so callers can process a pooled FrameHandle buffer directly
+  // without first copying it into a std::vector (a std::vector& binds here too).
+  OS_HOT void apply_window(std::span<std::complex<float>> samples);
 
-  // Remove DC offset (mean subtraction)
-  OS_HOT static void remove_dc(std::vector<std::complex<float>> &samples);
+  // Remove DC offset (mean subtraction), in-place.
+  OS_HOT static void remove_dc(std::span<std::complex<float>> samples);
 
   // Set window function. Recomputes coefficients so the next apply_window()
   // uses the new shape; keyboard-driven window changes would otherwise silently

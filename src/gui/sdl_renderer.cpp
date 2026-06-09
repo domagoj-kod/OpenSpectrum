@@ -168,6 +168,29 @@ SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title,
                              std::string(SDL_GetError()));
   }
 
+  // Persistent base-frame compose target (see m_frame_tex docs). Full window
+  // size so its blit to screen goes through the same logical-size scaling as
+  // the old whole-texture copy did.
+  m_frame_tex = SDL_CreateTexture(
+      m_renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_TARGET,
+      static_cast<int>(width), static_cast<int>(height));
+  if (m_frame_tex == nullptr) {
+    SDL_DestroyTexture(m_texture);
+    SDL_DestroyRenderer(m_renderer);
+    SDL_DestroyWindow(m_window);
+    SDL_Quit();
+    throw std::runtime_error("SDL_CreateTexture (frame) failed: " +
+                             std::string(SDL_GetError()));
+  }
+  SDL_SetTextureBlendMode(m_frame_tex, SDL_BLENDMODE_NONE);
+
+  // Clear it once so present_frame() shows black (not uninitialized GPU memory)
+  // if it runs before the first render_displays() while awaiting samples.
+  SDL_SetRenderTarget(m_renderer, m_frame_tex);
+  SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 255);
+  SDL_RenderClear(m_renderer);
+  SDL_SetRenderTarget(m_renderer, nullptr);
+
   // Initialize text renderer for status bar
   m_text_renderer = std::make_unique<TextRenderer>(m_renderer, 16);
   if (!m_text_renderer->init()) {
@@ -202,6 +225,9 @@ SdlRenderer::~SdlRenderer() {
   }
   if (m_status_texture != nullptr) {
     SDL_DestroyTexture(m_status_texture);
+  }
+  if (m_frame_tex != nullptr) {
+    SDL_DestroyTexture(m_frame_tex);
   }
   if (m_texture != nullptr) {
     SDL_DestroyTexture(m_texture);
@@ -368,10 +394,46 @@ void SdlRenderer::set_timing_overlay(bool enabled, double fps, double cpu_ms,
   m_timing_present_ms = present_ms;
 }
 
-auto SdlRenderer::render_displays(const uint8_t *spectrum_data,
+// Draw the spectrum bars into the active render target — one SDL_RenderGeometry
+// call, solid-color geometry (no texture).
+void SdlRenderer::render_spectrum(const std::vector<SDL_Vertex> &verts,
+                                  const std::vector<int> &indices) {
+  if (verts.empty()) return;
+  SDL_RenderGeometry(m_renderer, nullptr, verts.data(),
+                     static_cast<int>(verts.size()),
+                     indices.empty() ? nullptr : indices.data(),
+                     static_cast<int>(indices.size()));
+}
+
+void SdlRenderer::compose_base(SDL_Texture *wf_tex, const SDL_Rect *wf_src,
+                               const SDL_Rect &wf_dst,
+                               const std::vector<SDL_Vertex> &verts,
+                               const std::vector<int> &indices) {
+  SDL_SetRenderTarget(m_renderer, m_frame_tex);
+  // Force black before clearing: the spectrum background (the area above the
+  // bars) is the cleared color, and rebuild_freq_scale_ticks() can leave the
+  // renderer's draw color non-black. Leaving it black also re-establishes the
+  // app-wide invariant that overlay code saves/restores around.
+  SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 255);
+  SDL_RenderClear(m_renderer);
+  if (wf_tex != nullptr && wf_dst.w > 0 && wf_dst.h > 0) {
+    SDL_RenderCopy(m_renderer, wf_tex, wf_src, &wf_dst);
+  }
+  render_spectrum(verts, indices); // top region, coords in frame-texture space
+  SDL_SetRenderTarget(m_renderer, nullptr);
+}
+
+void SdlRenderer::present_composited() {
+  SDL_RenderClear(m_renderer);
+  SDL_RenderCopy(m_renderer, m_frame_tex, nullptr, nullptr);
+  render_overlays();
+  present_timed();
+}
+
+auto SdlRenderer::render_displays(const std::vector<SDL_Vertex> &spec_verts,
+                                   const std::vector<int> &spec_idx,
                                    const uint8_t *waterfall_data,
                                    size_t spectrum_height,
-                                   const std::vector<SDL_Rect> &spec_dirty_rects,
                                    const std::vector<SDL_Rect> &wf_dirty_rects)
     -> bool {
   if (m_texture == nullptr) return false;
@@ -387,19 +449,8 @@ auto SdlRenderer::render_displays(const uint8_t *spectrum_data,
   const size_t src_pitch = m_width * 4;
   const int wf_height = static_cast<int>(m_height - spectrum_height);
 
-  for (const auto &rect : spec_dirty_rects) {
-    int x0 = std::max(0, rect.x);
-    int y0 = std::max(0, rect.y);
-    int x1 = std::min(rect.x + rect.w, static_cast<int>(m_width));
-    int y1 = std::min(rect.y + rect.h, static_cast<int>(spectrum_height));
-    if (x1 <= x0 || y1 <= y0) continue;
-    size_t copy_bytes = static_cast<size_t>(x1 - x0) * 4;
-    for (int y = y0; y < y1; ++y) {
-      memcpy(tex + y * texture_pitch + x0 * 4,
-             spectrum_data + y * src_pitch + x0 * 4, copy_bytes);
-    }
-  }
-
+  // Upload only the waterfall into m_texture's bottom region. The spectrum is
+  // now GPU-drawn from spec_verts, so no spectrum pixel upload happens here.
   for (const auto &rect : wf_dirty_rects) {
     int x0 = std::max(0, rect.x);
     int y0 = std::max(0, rect.y);
@@ -417,30 +468,28 @@ auto SdlRenderer::render_displays(const uint8_t *spectrum_data,
 
   // Seed the GPU scroll texture from the main texture's waterfall region so
   // the first render_displays_scroll() frame is visually continuous.
-  if (m_wf_scroll_tex != nullptr) {
-    int wf_h = static_cast<int>(m_height) - static_cast<int>(spectrum_height);
-    if (wf_h > 0) {
-      SDL_Rect const wf_src = {0, static_cast<int>(spectrum_height),
-                               static_cast<int>(m_width), wf_h};
-      SDL_SetRenderTarget(m_renderer, m_wf_scroll_tex);
-      SDL_RenderCopy(m_renderer, m_texture, &wf_src, nullptr);
-      SDL_SetRenderTarget(m_renderer, nullptr);
-      m_wf_scroll_valid = true;
-    }
+  if (m_wf_scroll_tex != nullptr && wf_height > 0) {
+    SDL_Rect const wf_src = {0, static_cast<int>(spectrum_height),
+                             static_cast<int>(m_width), wf_height};
+    SDL_SetRenderTarget(m_renderer, m_wf_scroll_tex);
+    SDL_RenderCopy(m_renderer, m_texture, &wf_src, nullptr);
+    SDL_SetRenderTarget(m_renderer, nullptr);
+    m_wf_scroll_valid = true;
   }
 
-  SDL_RenderClear(m_renderer);
-  SDL_RenderCopy(m_renderer, m_texture, nullptr, nullptr);
-  render_overlays();
-  present_timed();
+  // Compose base = waterfall region of m_texture (bottom) + spectrum bars (top).
+  SDL_Rect const wf_src = {0, static_cast<int>(spectrum_height),
+                           static_cast<int>(m_width), wf_height};
+  SDL_Rect const wf_dst = wf_src;
+  compose_base(m_texture, &wf_src, wf_dst, spec_verts, spec_idx);
+
+  present_composited();
   return true;
 }
 
 void SdlRenderer::present_frame() {
-  SDL_RenderClear(m_renderer);
-  SDL_RenderCopy(m_renderer, m_texture, nullptr, nullptr);
-  render_overlays();
-  present_timed();
+  // No new data: re-blit the last composited base frame with fresh overlays.
+  present_composited();
 }
 
 // DEBUG (frame-timing branch): time the present so the main loop can subtract
@@ -652,36 +701,14 @@ bool SdlRenderer::ensure_wf_scroll_textures(size_t wf_height, size_t line_height
   return true;
 }
 
-bool SdlRenderer::render_displays_scroll(const uint8_t *spectrum_data,
+bool SdlRenderer::render_displays_scroll(const std::vector<SDL_Vertex> &spec_verts,
+                                          const std::vector<int> &spec_idx,
                                           const uint8_t *new_wf_line_rgba,
                                           size_t spectrum_height,
                                           size_t wf_height,
-                                          size_t line_height,
-                                          const std::vector<SDL_Rect> &spec_dirty_rects) {
+                                          size_t line_height) {
   if (m_texture == nullptr) return false;
   if (!ensure_wf_scroll_textures(wf_height, line_height)) return false;
-
-  // --- Spectrum upload (dirty regions only, top half of m_texture) ---
-  if (!spec_dirty_rects.empty()) {
-    void *tex_pixels = nullptr; int tex_pitch = 0;
-    if (SDL_LockTexture(m_texture, nullptr, &tex_pixels, &tex_pitch) == 0) {
-      uint8_t *tex = static_cast<uint8_t *>(tex_pixels);
-      const size_t src_pitch = m_width * 4;
-      for (const auto &r : spec_dirty_rects) {
-        int x0 = std::max(0, r.x);
-        int y0 = std::max(0, r.y);
-        int x1 = std::min(r.x + r.w, static_cast<int>(m_width));
-        int y1 = std::min(r.y + r.h, static_cast<int>(spectrum_height));
-        if (x1 <= x0 || y1 <= y0) continue;
-        size_t bytes = static_cast<size_t>(x1 - x0) * 4;
-        for (int y = y0; y < y1; ++y) {
-          memcpy(tex + y * tex_pitch + x0 * 4,
-                 spectrum_data + y * src_pitch + x0 * 4, bytes);
-        }
-      }
-      SDL_UnlockTexture(m_texture);
-    }
-  }
 
   // --- GPU waterfall scroll ---
   // Upload the new line (~5 KB) to the narrow streaming texture
@@ -735,19 +762,13 @@ bool SdlRenderer::render_displays_scroll(const uint8_t *spectrum_data,
   m_wf_scroll_valid = true;
 
   // --- Compose final frame ---
-  SDL_RenderClear(m_renderer);
-  // Spectrum (top)
-  SDL_Rect const spec_src = {0, 0, static_cast<int>(m_width),
-                              static_cast<int>(spectrum_height)};
-  SDL_Rect const spec_dst = spec_src;
-  SDL_RenderCopy(m_renderer, m_texture, &spec_src, &spec_dst);
-  // Waterfall (bottom) — entire scroll texture maps to the bottom half
+  // Waterfall (bottom) = the whole scroll texture mapped to the bottom region;
+  // spectrum (top) = GPU geometry. Composited into m_frame_tex for present.
   SDL_Rect const wf_dst = {0, static_cast<int>(spectrum_height),
-                            static_cast<int>(m_width), static_cast<int>(wf_height)};
-  SDL_RenderCopy(m_renderer, m_wf_scroll_tex, nullptr, &wf_dst);
+                           static_cast<int>(m_width), static_cast<int>(wf_height)};
+  compose_base(m_wf_scroll_tex, nullptr, wf_dst, spec_verts, spec_idx);
 
-  render_overlays();
-  present_timed();
+  present_composited();
   return true;
 }
 
