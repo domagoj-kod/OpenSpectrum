@@ -8,6 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 make              # debug build (O0, symbols, OPENSPECTRUM_DEBUG defined)
 make release      # O3 + LTO + -march=haswell + footprint trim
 make profile      # O2 + gprof instrumentation
+make dist         # package a release bundle for the current platform → dist/
 make clean        # remove build/ and binary
 
 # PGO pipeline (binary becomes ~15-20 % faster on the trained workload)
@@ -32,6 +33,16 @@ Linting (clang-tidy config in `.clang-tidy`):
 clang-tidy src/**/*.cpp -- $(pkg-config --cflags sdl2) -Isrc -Iinclude -Ithird_party/pocketfft -std=c++20
 ```
 
+**Header-dependency tracking**: the per-object compile rules pass `DEPFLAGS := -MMD -MP`, emitting a `.d` file beside each `.o` that lists the headers it pulled in; these are `-included` at the bottom of the Makefile, so editing a header rebuilds every `.cpp` that includes it. `DEPFLAGS` is kept **separate from `CXXFLAGS` on purpose** — `release` / `profile` / `profile-gen` / `profile-use` override `CXXFLAGS` via recursive make, which would strip `-MMD -MP` if it lived there. If you add a new compile rule, append `$(DEPFLAGS)` to it.
+
+## Release & packaging
+
+`make dist` builds a self-contained, distributable bundle for the current platform into `dist/` — Linux → AppImage, Windows/MSYS2 → zip with bundled DLLs. It dispatches on `$(OS)` to the platform script (`packaging/linux-appimage.sh` or `packaging/windows-bundle.sh`) and stamps a version: `VERSION` defaults to `git describe --tags --always`, override with `make dist VERSION=v2.5.0`.
+
+`.github/workflows/release.yml` runs the **same scripts** so local and CI packaging stay identical. It triggers on `push` of a `v*` tag (and has a manual `workflow_dispatch` that builds artifacts but does *not* publish a Release). Two jobs — Linux AppImage on `ubuntu-latest`, Windows zip on `windows-latest` (MSYS2 MINGW64) — build, upload a workflow artifact unconditionally, and publish to a GitHub Release (body extracted from the annotated tag message). Cutting a release = `git tag -s vX -F notes.txt && git push origin vX`; see `RELEASING.md` for the full checklist.
+
+The app icon (`packaging/openspectrum.png`, with `openspectrum.svg` source) is **committed**, not rasterized at build time — the packaging scripts consume the PNG directly, so there is no build-time SVG-to-PNG dependency.
+
 ## Architecture
 
 The pipeline is a single-threaded render loop fed by an async RTL-SDR callback thread. Both threads call `enable_ftz_daz()` on first entry (per-thread MXCSR; the render thread sets it at the top of `main`, the callback thread via a `thread_local` guard on first sample). This eliminates the ~100-cycle microcode trap on denormal floats that show up near the dB noise floor.
@@ -55,6 +66,8 @@ Main thread (main.cpp)
 ```
 
 The throttle (`while (!g_sample_queue.empty()) move + pop`) runs inside the dequeue lock. Each move-assignment releases the prior `FrameHandle` to the pool; only the newest survives. Prevents render-loop latency accumulation when the callback outpaces the renderer.
+
+**Shutdown is not an error path**: `stop_streaming()` cancels the async transfer, which makes `rtlsdr_read_async` return a negative code (e.g. -5) on the callback thread. This is *expected*, not a failure — it is gated on `m_thread_running`, so do not log or re-flag it as an ERROR. Only an unexpected negative return while still running is a real fault.
 
 ### Key data structures
 
@@ -120,9 +133,17 @@ History is stored as `RingBuffer<vector<uint8_t>>` — dB values are quantized t
 
 Keyboard input (`SdlControlInput`) writes into `ControlState` (frequency, gain, FFT size, window function). Main loop polls `control_state.fft_size_changed()`, `window_changed()`, etc. each iteration. `control_state.apply_to_device(dev)` is the single place hardware registers are updated. On frequency change, the sample queue is drained immediately so the spectrum snaps in sync with the freq-scale overlay.
 
+**Palette cycling** (`c` cycles forward, `Shift+C` backward): `SdlControlInput` calls `ControlState::cycle_palette(±1)` over `PALETTE_COUNT` maps. Main loop polls `control_state.palette_changed()`, looks up `kPaletteMap[get_palette_index()]`, and pushes it to both displays via `set_color_map()`. On the waterfall, `set_color_map()` → `rebuild_rgba_lut()` → sets `m_needs_full_render = true`, so the *entire* waterfall is recolored from the quantized `uint8_t` history on the next frame (no re-acquisition needed — the LUT is the only thing that changed).
+
 ### Frequency scale overlay
 
 `SdlRenderer::render_frequency_scale()` bakes ticks + labels onto a single `SDL_TEXTUREACCESS_TARGET` texture (`m_freq_scale_texture`) only when `center_hz` or `sample_rate_hz` changes. `render_overlays()` issues one `SDL_RenderCopy` per frame. This avoids the Serializing Operations spike from per-frame blend-mode save/restore calls.
+
+### Text renderer
+
+`TextRenderer` (`src/gui/text_renderer.{h,cpp}`) is a bitmap-font renderer with no glyph cache — each `render_text()` call returns a fresh caller-owned `SDL_Texture` (call sites cache the rendered string-texture themselves). The font is the public-domain **IBM VGA 8x16** ROM typeface (ASCII 32–127, `BITMAP_FONT[96][16]` — 16 bytes = 16 scanlines per glyph). **MSB of each byte is the leftmost pixel**, matching the `1 << (7 - src_x)` test in the blit loop. Scaling is **integer-only**: `scale = font_size / GLYPH_SRC_H`, so glyphs render at native 8x16, or 16x32, etc. — never a fractional size.
+
+**Colour byte-order gotcha (recurred once)**: build the packed pixel with `SDL_MapRGBA(surface->format, r, g, b, a)`, *not* a hand-rolled `(r<<24)|(g<<16)|(b<<8)|a`. SDL's `RGBA32` is `ABGR8888` on little-endian x86, so the hand-rolled shift maps input red onto the alpha byte — any colour with `r == 0` then renders fully transparent. `SDL_MapRGBA` is correct on either endianness.
 
 ## Code-layout discipline
 
