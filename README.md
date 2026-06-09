@@ -320,6 +320,39 @@ Dell Precision notebook with Intel® Core™ i7-12700H processor displays minima
 - **Sample Rate:** Maximum stable rate depends on USB 2.0 bandwidth (~40 MB/s).
 - **Latency:** End-to-end latency is typically <50ms at 2.048 MS/s with FFT_SIZE=4096.
 
+### GPU spectrum rendering
+
+The amplitude spectrum is drawn directly on the GPU (one `SDL_RenderGeometry`
+call, one colored quad per bin) instead of being CPU-painted into a pixel
+buffer and uploaded every frame. This removed the per-frame ~1.5 MB CPU→GPU
+texture upload and a redundant IQ-frame copy (the FFT input is now processed
+in place via `std::span`).
+
+Measured on the i7-12700H above, native Windows (Direct3D 11, vsync 60 FPS),
+against the prior CPU-painted build. Frame rate is vsync-capped in both, so
+the figure below is the **real per-frame work** (signal + FFT + render
+command build, i.e. excluding the vsync idle wait):
+
+| FFT size | CPU-painted | GPU geometry | Δ |
+|---------:|------------:|-------------:|----:|
+| 4096     | 2.76 ms     | 0.94 ms      | −66% |
+| 8192     | 4.68 ms     | 1.42 ms      | −70% |
+| 16384    | 4.34 ms     | 2.68 ms      | −38% |
+
+Intel VTune confirms the mechanism (4096 FFT):
+
+- **Back-end Memory Bound halved** (21.6% → 11.5% of pipeline slots) — the
+  strided pixel paint + upload were memory-bandwidth/latency + DTLB bound;
+  that fingerprint is gone.
+- **Total CPU time −32%, spin time −40%**, and the Direct3D present/upload
+  path (`dxgi.dll`) dropped **−48%** (3.24 s → 1.67 s over a 25 s capture).
+  The application's own functions fall below the top-hotspot noise floor.
+- The GPU execution-unit array is idle in both builds — the cost was always
+  CPU-side driver/upload, which is what was eliminated.
+
+The pipeline is now purely vsync/present-bound with ~14 ms/frame of headroom
+even at 16384-point FFTs.
+
 ---
 
 ## Security
