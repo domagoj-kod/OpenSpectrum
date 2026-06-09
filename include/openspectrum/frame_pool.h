@@ -22,12 +22,12 @@ namespace openspectrum {
 
 // Cache-line aligned frame for FFT samples
 struct alignas(64) FFTFrame {
-  size_t capacity;
-  size_t size;
-  FFTFrame *next;
-  std::complex<float> *data;
+  size_t capacity{0};
+  size_t size{0};
+  FFTFrame *next{nullptr};
+  std::complex<float> *data{nullptr};
 
-  FFTFrame() : capacity(0), size(0), next(nullptr), data(nullptr) {}
+  FFTFrame() = default;
 
   ~FFTFrame() {
 #ifdef _WIN32

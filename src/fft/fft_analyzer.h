@@ -97,9 +97,9 @@ private:
   std::vector<float> m_phase_spectrum;
   std::vector<float> m_freq_bins;
 
-  bool m_center_dc;
+  bool m_center_dc{false};
   bool m_extra_spectra_enabled = false;
-  float m_window_coherent_gain; // Default to rectangular window
+  float m_window_coherent_gain{1.0F}; // Default to rectangular window
 
   // Pre-compute frequency bins
   void compute_frequency_bins();

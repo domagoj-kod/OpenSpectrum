@@ -313,7 +313,7 @@ ExportResult SpectrogramExporter::export_combined(
   std::string png_filename = generate_filename("png", iso_ts);
 
   // Write PNG
-  result = write_png(png_filename.c_str(), combined_buffer.data(),
+  result = write_png(png_filename, combined_buffer.data(),
                      static_cast<int>(display_width),
                      static_cast<int>(total_height), static_cast<int>(stride));
 
@@ -356,7 +356,7 @@ ExportResult SpectrogramExporter::export_spectrum(
   std::string png_filename = generate_filename("png", iso_ts);
   int stride = static_cast<int>(width * 4);
 
-  result = write_png(png_filename.c_str(), pixels.data(),
+  result = write_png(png_filename, pixels.data(),
                      static_cast<int>(width), static_cast<int>(height), stride);
 
   if (result.success && m_config.include_metadata) {
@@ -396,7 +396,7 @@ ExportResult SpectrogramExporter::export_waterfall(
   std::string png_filename = generate_filename("png", iso_ts);
   int stride = static_cast<int>(width * 4);
 
-  result = write_png(png_filename.c_str(), pixels.data(),
+  result = write_png(png_filename, pixels.data(),
                      static_cast<int>(width), static_cast<int>(height), stride);
 
   if (result.success && m_config.include_metadata) {

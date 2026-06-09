@@ -60,8 +60,7 @@ FftAnalyzer::FftAnalyzer(size_t fft_size, bool inverse)
       m_magnitude_spectrum((fft_size / 2) + 1),
       m_db_spectrum((fft_size / 2) + 1),
       m_phase_spectrum((fft_size / 2) + 1),
-      m_freq_bins((fft_size / 2) + 1),
-      m_center_dc(false), m_window_coherent_gain(1.0F) {
+      m_freq_bins((fft_size / 2) + 1) {
   // Security: validate FFT size is a power of 2
   if (fft_size == 0 || (fft_size & (fft_size - 1)) != 0) {
     throw std::invalid_argument("FFT size must be a power of 2");
