@@ -110,8 +110,9 @@ pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-make \
 
 ## Build from Source
 
-This project compiles with `-march=haswell` as the architectural baseline, targeting CPUs from 2008+ with support for:
+This project compiles with `-march=haswell` as the architectural baseline, targeting CPUs from 2013+ with support for:
 - **SSE4.1 / SSE4.2** — Advanced SIMD instructions
+- **AVX2** - Expands integer commands to 256 bits
 - **POPCNT** — Population count instruction
 - **CX16** — Compare and exchange 16-byte
 - **SAHF / FXSR** — Legacy x87 state management
