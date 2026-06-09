@@ -77,7 +77,7 @@ OpenSpectrum/
 > [!WARNING]
 > Skip this step when using macOS on Unix-like OS.
 
-To install RTL2832U device drivers on **Windows 10**+ follow the official [start guide](https://www.rtl-sdr.com/rtl-sdr-quick-start-guide/). This is the **Step 0**. Windows users might need to disable *Memory Integrity Protection* setting option as windows tends to replace the original drivers with generic Realtek ones. See **Troubleshooting** section of the [start guide](https://www.rtl-sdr.com/rtl-sdr-quick-start-guide/).
+To install RTL2832U device drivers on **Windows 10**+ follow the official [start guide](https://www.rtl-sdr.com/rtl-sdr-quick-start-guide/). This is the **Step 0**. Windows users might need to disable *Memory Integrity Protection* setting option as Windows update tends to replace the original drivers with generic Realtek ones. See **Troubleshooting** section of the [start guide](https://www.rtl-sdr.com/rtl-sdr-quick-start-guide/).
 
 ## Prebuilt binaries
 
