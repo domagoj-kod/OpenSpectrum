@@ -72,6 +72,45 @@ void RtlSdrDevice::set_gain(float gain_db) {
   }
 }
 
+void RtlSdrDevice::set_freq_correction(int ppm) {
+  if (m_dev == nullptr || ppm == 0) {
+    return;
+  }
+  // librtlsdr returns -2 when the value is already set; only a real failure
+  // is worth surfacing.
+  int const ret = rtlsdr_set_freq_correction(m_dev, ppm);
+  if (ret != 0 && ret != -2) {
+    LOG_ERROR("Failed to set frequency correction (" + std::to_string(ppm) +
+              " ppm): " + std::to_string(ret));
+  } else {
+    LOG_INFO("Frequency correction: " + std::to_string(ppm) + " ppm");
+  }
+}
+
+void RtlSdrDevice::set_bias_tee(bool on) {
+  if (m_dev == nullptr) {
+    return;
+  }
+  if (rtlsdr_set_bias_tee(m_dev, on ? 1 : 0) != 0) {
+    LOG_ERROR("Failed to switch bias tee (dongle may not support it)");
+  } else {
+    LOG_INFO(std::string("Bias tee ") + (on ? "ON" : "OFF"));
+  }
+}
+
+auto RtlSdrDevice::set_direct_sampling(int mode) -> bool {
+  if (m_dev == nullptr) {
+    return false;
+  }
+  if (rtlsdr_set_direct_sampling(m_dev, mode) != 0) {
+    LOG_ERROR("Failed to enable direct sampling mode " + std::to_string(mode));
+    return false;
+  }
+  LOG_INFO("Direct sampling mode " + std::to_string(mode) +
+           (mode == 2 ? " (Q-branch)" : mode == 1 ? " (I-branch)" : " (off)"));
+  return true;
+}
+
 void RtlSdrDevice::set_fft_size(size_t fft_size) {
   if (m_fft_size != fft_size) {
     m_fft_size = fft_size;

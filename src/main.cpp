@@ -340,6 +340,24 @@ auto main(int argc, char *argv[]) -> int {
       return 1;
     }
 
+    // One-shot device options (CLI-only by design: bias-T accidentally toggled
+    // into a shorted antenna is a hardware risk, and direct sampling needs the
+    // tuner reconfigured before streaming starts).
+    dev.set_freq_correction(config.ppm_correction);
+    if (config.bias_tee) {
+      dev.set_bias_tee(true);
+    }
+    if (config.direct_sampling && dev.set_direct_sampling(2)) {
+      // Q-branch samples the RTL2832U ADC directly: usable 0 - 14.4 MHz
+      // (Nyquist of the 28.8 MHz crystal). Re-constrain tuning so +/- keys
+      // stay inside the HF range; set_constraints clamps the current freq.
+      DeviceConstraints hf = control_state.get_constraints();
+      hf.min_frequency_hz = 0;
+      hf.max_frequency_hz = 14'400'000;
+      control_state.set_constraints(hf);
+      control_state.mark_status_dirty();
+    }
+
     dev.set_sample_rate(static_cast<uint32_t>(config.sample_rate_hz));
     dev.set_frequency(control_state.get_frequency());
     dev.set_gain(control_state.get_gain());
