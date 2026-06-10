@@ -68,9 +68,9 @@ TRIM_LDFLAGS := -Wl,--gc-sections
 
 # Release target overrides
 release:
-	$(MAKE) CFLAGS="$(BASE_CFLAGS) -O3 -DNDEBUG -flto -march=haswell $(TRIM_CFLAGS)" \
-	       CXXFLAGS="$(BASE_CXXFLAGS) -O3 -DNDEBUG -flto -march=haswell $(TRIM_CFLAGS)" \
-	       LDFLAGS="$(BASE_LDFLAGS) -flto -march=haswell $(TRIM_CFLAGS) $(TRIM_LDFLAGS)" \
+	$(MAKE) CFLAGS="$(BASE_CFLAGS) -O3 -DNDEBUG -flto=auto -march=haswell $(TRIM_CFLAGS)" \
+	       CXXFLAGS="$(BASE_CXXFLAGS) -O3 -DNDEBUG -flto=auto -march=haswell $(TRIM_CFLAGS)" \
+	       LDFLAGS="$(BASE_LDFLAGS) -flto=auto -march=haswell $(TRIM_CFLAGS) $(TRIM_LDFLAGS)" \
 	       all
 
 # Profile target overrides
@@ -96,9 +96,9 @@ profile-gen:
 # the linker reorder blocks/functions according to actual hot paths.
 # -fprofile-correction tolerates minor source edits between gen and use.
 profile-use:
-	$(MAKE) CFLAGS="$(BASE_CFLAGS) -O3 -DNDEBUG -flto -march=haswell $(TRIM_CFLAGS) -fprofile-use=$(PGO_DIR) -fprofile-correction" \
-	       CXXFLAGS="$(BASE_CXXFLAGS) -O3 -DNDEBUG -flto -march=haswell $(TRIM_CFLAGS) -fprofile-use=$(PGO_DIR) -fprofile-correction" \
-	       LDFLAGS="$(BASE_LDFLAGS) -flto -march=haswell $(TRIM_CFLAGS) $(TRIM_LDFLAGS) -fprofile-use=$(PGO_DIR) -fprofile-correction" \
+	$(MAKE) CFLAGS="$(BASE_CFLAGS) -O3 -DNDEBUG -flto=auto -march=haswell $(TRIM_CFLAGS) -fprofile-use=$(PGO_DIR) -fprofile-correction" \
+	       CXXFLAGS="$(BASE_CXXFLAGS) -O3 -DNDEBUG -flto=auto -march=haswell $(TRIM_CFLAGS) -fprofile-use=$(PGO_DIR) -fprofile-correction" \
+	       LDFLAGS="$(BASE_LDFLAGS) -flto=auto -march=haswell $(TRIM_CFLAGS) $(TRIM_LDFLAGS) -fprofile-use=$(PGO_DIR) -fprofile-correction" \
 	       all
 
 # Wipe collected profile data (use when source has changed significantly).
