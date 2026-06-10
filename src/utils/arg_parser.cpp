@@ -78,6 +78,10 @@ void print_usage(const char *argv0) {
          "manual)\n"
       << "  --iq-output FILE    Output filename prefix (default: "
          "auto-generated)\n"
+      << "  --play FILE.iq      Replay a recorded IQ capture instead of "
+         "opening\n"
+      << "                      hardware (loops; reads freq/rate from the\n"
+      << "                      .meta.json sidecar when present)\n"
       << "  --help              Show this help message\n"
       << "\n"
       << "Examples:\n"
@@ -194,6 +198,13 @@ auto parse_arguments(int argc, char *argv[]) -> AppConfig {
       }
       config.iq_output_file = argv[++i];
       config.iq_logging_enabled = true; // Enable logging if output is set
+    } else if (arg == "--play") {
+      if (i + 1 >= argc) {
+        std::cerr << "Error: IQ playback filename required\n";
+        print_usage(argv[0]);
+        std::exit(1);
+      }
+      config.play_file = argv[++i];
     } else if (arg == "--help" || arg == "-h") {
       config.show_help = true;
       print_usage(argv[0]);

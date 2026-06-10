@@ -29,6 +29,9 @@ struct AppConfig {
   int ppm_correction = 0;       // crystal frequency correction
   bool bias_tee = false;        // 4.5 V antenna-port power
   bool direct_sampling = false; // Q-branch direct sampling (HF, 0-14.4 MHz)
+
+  // IQ playback: replay a .iq capture instead of opening hardware
+  std::string play_file;
 };
 
 // Parse command-line arguments
