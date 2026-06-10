@@ -168,9 +168,15 @@ Options:
   -W, --window NAME   Window function: rectangle, hann, hamming,
                       blackman, blackman-harris, flat-top
                       (default: blackman-harris)
+  --ppm N             Crystal frequency correction in ppm (default: 0)
+  --bias-t            Power the antenna port (4.5 V bias tee)
+  --direct-sampling   Q-branch direct sampling for HF (tunes 0-14.4 MHz)
   --iq-log            Enable IQ data logging to file
   --iq-duration SEC   Capture duration in seconds (default: 0 = manual)
   --iq-output FILE    Output filename prefix (default: auto-generated)
+  --play FILE.iq      Replay a recorded IQ capture instead of opening
+                      hardware (loops; reads freq/rate from the
+                      .meta.json sidecar when present)
   --help              Show this help message
 
 Examples:
@@ -178,6 +184,8 @@ Examples:
   ./openspectrum --freq 144500000 --gain 15 --fft-size 8192
   ./openspectrum -W hann
   ./openspectrum --iq-log --iq-duration 10 --iq-output my_capture
+  ./openspectrum --direct-sampling -f 7100000      # 40 m band, HF
+  ./openspectrum --play data/capture_20260610.iq   # no hardware needed
 ```
 
 Apart from command line arguments the program uses keyboard shortcuts for frequency tuning, gain control, Fast Fourier Transform size & window functions change. Shift modifer allows for fine control fine control (0.1 MHz, 0.1 dB), while Ctrl modifier is used for coarse control (1 MHz, 10 dB).
@@ -196,6 +204,9 @@ Apart from command line arguments the program uses keyboard shortcuts for freque
 | `UP` | Cycle through supported window functions |
 | `DOWN` | Reverse through supported window functions |
 | `c` / `Shift+C` | Cycle color palette forward / backward (JET, VIRIDIS, HOT, GRAY, BLU-RED) |
+| `m` | Toggle max-hold trace (white line at the per-bin running peak) |
+| `a` | Toggle video averaging (EMA-smoothed spectrum bars) |
+| `x` | Reset traces (clear held peaks, re-seed the average) |
 | `Ctrl+S` | Toggle IQ logging |
 | `e` | Export spectrogram as PNG |
 | `ESC/q` | Exit the program |

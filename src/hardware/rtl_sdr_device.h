@@ -27,9 +27,9 @@ public:
   void set_gain(float gain_db); // 0-49.6 dB
 
   // One-shot device options, applied after open() and before streaming.
-  void set_freq_correction(int ppm);    // crystal error, parts-per-million
-  void set_bias_tee(bool on);           // 4.5 V antenna-port power (RTL-SDR v3)
-  bool set_direct_sampling(int mode);   // 0=off, 1=I-branch, 2=Q-branch (HF)
+  void set_freq_correction(int ppm);  // crystal error, parts-per-million
+  void set_bias_tee(bool on);         // 4.5 V antenna-port power (RTL-SDR v3)
+  bool set_direct_sampling(int mode); // 0=off, 1=I-branch, 2=Q-branch (HF)
 
   // Set FFT size for buffer pooling (should match FFT analyzer size)
   void set_fft_size(size_t fft_size);

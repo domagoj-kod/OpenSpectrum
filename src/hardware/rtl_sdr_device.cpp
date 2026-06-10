@@ -107,7 +107,9 @@ auto RtlSdrDevice::set_direct_sampling(int mode) -> bool {
     return false;
   }
   LOG_INFO("Direct sampling mode " + std::to_string(mode) +
-           (mode == 2 ? " (Q-branch)" : mode == 1 ? " (I-branch)" : " (off)"));
+           (mode == 2   ? " (Q-branch)"
+            : mode == 1 ? " (I-branch)"
+                        : " (off)"));
   return true;
 }
 

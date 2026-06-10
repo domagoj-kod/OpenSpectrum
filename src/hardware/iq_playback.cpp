@@ -48,12 +48,12 @@ auto IqPlaybackSource::open() -> bool {
   return true;
 }
 
-void IqPlaybackSource::start(size_t chunk_size, std::shared_ptr<FramePool> pool) {
+void IqPlaybackSource::start(size_t chunk_size,
+                             std::shared_ptr<FramePool> pool) {
   stop();
   m_chunk_size = chunk_size;
   m_pool = std::move(pool);
-  if (m_file == nullptr || !m_pool || m_chunk_size == 0 ||
-      m_sample_rate == 0) {
+  if (m_file == nullptr || !m_pool || m_chunk_size == 0 || m_sample_rate == 0) {
     return;
   }
   m_running = true;
@@ -72,9 +72,8 @@ void IqPlaybackSource::stop() {
 // throttle behaves identically for files and dongles.
 void IqPlaybackSource::thread_main() {
   using clock = std::chrono::steady_clock;
-  auto const chunk_period =
-      std::chrono::nanoseconds(static_cast<uint64_t>(1e9) * m_chunk_size /
-                               m_sample_rate);
+  auto const chunk_period = std::chrono::nanoseconds(
+      static_cast<uint64_t>(1e9) * m_chunk_size / m_sample_rate);
   auto next_deadline = clock::now() + chunk_period;
 
   while (m_running.load(std::memory_order_relaxed)) {
@@ -162,7 +161,8 @@ auto IqPlaybackSource::read_meta_sidecar(const std::string &iq_path,
     if (pos == std::string::npos) {
       return false;
     }
-    out = static_cast<uint32_t>(std::strtoul(text.c_str() + pos + 1, nullptr, 10));
+    out = static_cast<uint32_t>(
+        std::strtoul(text.c_str() + pos + 1, nullptr, 10));
     return out != 0;
   };
 

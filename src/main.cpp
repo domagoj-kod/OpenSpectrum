@@ -377,8 +377,8 @@ auto main(int argc, char *argv[]) -> int {
     std::unique_ptr<IqPlaybackSource> playback;
 
     if (playback_mode) {
-      playback = std::make_unique<IqPlaybackSource>(config.play_file,
-                                                    effective_rate);
+      playback =
+          std::make_unique<IqPlaybackSource>(config.play_file, effective_rate);
       if (!playback->open()) {
         LOG_ERROR("Failed to open IQ playback file");
         return 1;
@@ -472,11 +472,10 @@ auto main(int argc, char *argv[]) -> int {
 
     // Main processing loop
     LOG_INFO("Starting main loop. Press ESC or Ctrl+C to stop.");
-    LOG_INFO(
-        "Controls: +/- Frequency, r/f Gain, 1-5 FFT size, UP/DOWN Window, "
-        "c/Shift+C Palette, m Max-hold, a Average, x Reset traces, "
-        "Ctrl+S Toggle IQ logging, e Export spectrogram, "
-        "Shift/Ctrl for fine/coarse");
+    LOG_INFO("Controls: +/- Frequency, r/f Gain, 1-5 FFT size, UP/DOWN Window, "
+             "c/Shift+C Palette, m Max-hold, a Average, x Reset traces, "
+             "Ctrl+S Toggle IQ logging, e Export spectrogram, "
+             "Shift/Ctrl for fine/coarse");
 
     std::vector<std::complex<float>> fft_output;
     size_t current_fft_size = config.fft_size;
@@ -648,9 +647,8 @@ auto main(int argc, char *argv[]) -> int {
           iq_capturing = false;
           LOG_INFO("IQ logging stopped");
         } else {
-          iq_logger.start_capture(control_state.get_frequency(),
-                                  effective_rate, control_state.get_gain(),
-                                  current_fft_size,
+          iq_logger.start_capture(control_state.get_frequency(), effective_rate,
+                                  control_state.get_gain(), current_fft_size,
                                   SignalProcessor::window_function_to_string(
                                       control_state.get_window()),
                                   "Manual capture");
