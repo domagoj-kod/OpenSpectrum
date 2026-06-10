@@ -103,7 +103,7 @@ brew install librtlsdr sdl3 pkg-config
 **Windows (MSYS2) build:**
 ```bash
 pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-make \
-       mingw-w64-x86_64-rtl-sdr mingw-w64-x86_64-SDL3
+       mingw-w64-x86_64-rtl-sdr mingw-w64-x86_64-sdl3
 ```
 
 ---

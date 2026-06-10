@@ -108,7 +108,7 @@ jobs:
           install: >-
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-pkgconf
-            mingw-w64-x86_64-SDL3
+            mingw-w64-x86_64-sdl3
             mingw-w64-x86_64-rtl-sdr
             mingw-w64-x86_64-libusb
             make
