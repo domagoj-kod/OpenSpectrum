@@ -183,8 +183,9 @@ auto TextRenderer::render_text(const std::string &text, SDL_Color color)
 
   // Pack the colour for the surface's actual format. SDL_PIXELFORMAT_RGBA32 is
   // an endian-dependent alias (ABGR8888 on little-endian x86), so a hand-rolled
-  // (r<<24)|(g<<16)|(b<<8)|a is wrong — it maps input red onto alpha, leaving any
-  // colour with r==0 fully transparent. SDL_MapSurfaceRGBA gets it right on any endian.
+  // (r<<24)|(g<<16)|(b<<8)|a is wrong — it maps input red onto alpha, leaving
+  // any colour with r==0 fully transparent. SDL_MapSurfaceRGBA gets it right on
+  // any endian.
   const uint32_t packed =
       SDL_MapSurfaceRGBA(surface, color.r, color.g, color.b, color.a);
 
