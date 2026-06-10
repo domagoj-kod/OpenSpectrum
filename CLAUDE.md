@@ -23,7 +23,7 @@ The binary is `openspectrum` (Linux) or `openspectrum.exe` (Windows/MSYS2).
 
 Release / PGO targets enable: `-march=haswell` (AVX2 + FMA3), `-flto`, `-ffunction-sections -fdata-sections -fvisibility=hidden -fvisibility-inlines-hidden` + `-Wl,--gc-sections` for footprint trim, and `-falign-functions=32 -falign-loops=32` so hot loops fit in one DSB fetch line. Trimmed flags live in `TRIM_CFLAGS` / `TRIM_LDFLAGS` in the Makefile.
 
-There is no Makefile test target. `test/` is **legacy**: it still targets the SDL2 API (last touched 2026-05-05, pre-SDL3-migration), does not compile against SDL3, is not part of any build, and is pending deprecation. It existed to verify hardware acceleration; do not use it as an API reference.
+There is no test suite. The former `test/` directory (standalone SDL2-era hardware-acceleration probes, never part of any build) was removed before v3.0.0.
 
 Linting (clang-tidy config in `.clang-tidy`):
 ```bash
