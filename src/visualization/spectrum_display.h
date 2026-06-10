@@ -12,7 +12,7 @@
 #include "openspectrum/attributes.h"
 
 // Forward declaration for SDL types
-#include <SDL2/SDL.h>
+#include <SDL3/SDL.h>
 
 namespace openspectrum {
 

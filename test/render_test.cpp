@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Test to verify hardware-accelerated SDL2 rendering
+// Test to verify hardware-accelerated SDL3 rendering
 
-#include <SDL2/SDL.h>
+#include <SDL3/SDL.h>
 #include <iostream>
 #include <string>
 
 int main() {
-  std::cout << "=== SDL2 Hardware Acceleration Test ===" << std::endl;
+  std::cout << "=== SDL3 Hardware Acceleration Test ===" << std::endl;
 
   // Initialize SDL video subsystem
   if (SDL_Init(SDL_INIT_VIDEO) < 0) {

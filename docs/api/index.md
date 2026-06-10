@@ -28,7 +28,7 @@ The project follows a **divide and conquer** (divide et impera) architecture, se
 │          │                            │                         │
 │          │                            ▼                         │
 │          │            ┌──────────────────────────────────┐      │
-│          └────────────│            GUI (SDL2)            │      │
+│          └────────────│            GUI (SDL3)            │      │
 │                       └──────────────────────────────────┘      │
 │                                                                 │
 │  ┌─────────────────────────────────────────────────────────────┐│
@@ -133,7 +133,7 @@ iq_logger.stop_capture();
 | **[Signal Processing](signal_processing.md)** | Signal conditioning and windowing | SignalProcessor |
 | **[FFT Analysis](fft_analysis.md)** | Fast Fourier Transform computation | FftAnalyzer |
 | **[Visualization](visualization.md)** | Spectrum and waterfall rendering | RgbColor, PixelBuffer, SpectrumPalette, SpectrumDisplay, WaterfallDisplay |
-| **[GUI](gui.md)** | SDL2-based rendering and input | SdlRenderer, TextRenderer |
+| **[GUI](gui.md)** | SDL3-based rendering and input | SdlRenderer, TextRenderer |
 | **[Hardware](hardware.md)** | SDR device abstraction | RtlSdrDevice |
 | **[Utilities](utilities.md)** | Logging, configuration, utilities | Logger, AppConfig, Logging Macros |
 | **[IQ Logging](iq_logging.md)** | IQ data capture for post-processing | IqLogger, IqLoggerConfig, IqCaptureStats |
@@ -160,7 +160,7 @@ iq_logger.stop_capture();
 
 ### User Interface
 
-- **[SdlRenderer](gui.md#sdlrenderer)** - SDL2 window and texture management
+- **[SdlRenderer](gui.md#sdlrenderer)** - SDL3 window and texture management
 - **[TextRenderer](gui.md#textrenderer)** - Bitmap font text rendering
 - **[ControlState](control_state.md)** - SDL-agnostic state management for parameters
 - **[RuntimeControls (Deprecated)](runtime_controls.md)** - Keyboard-controlled parameter adjustment - DEPRECATED
@@ -218,7 +218,7 @@ The project uses security-hardened compiler flags:
 | Dependency | Purpose | Header |
 |------------|---------|--------|
 | librtlsdr | RTL-SDR hardware support | `rtl-sdr.h` |
-| SDL2 | Graphics and input | `SDL2/SDL.h` |
+| SDL3 | Graphics and input | `SDL3/SDL.h` |
 | KissFFT | FFT computation | `kiss_fft.h` |
 | stb_image_write | PNG/BMP/TGA/JPEG image writing | `stb_image_write.h` |
 | C++20 | Standard library | Various |

@@ -6,9 +6,9 @@
 #include <cstdint>
 #include <string>
 
-#include <SDL2/SDL_pixels.h>
-#include <SDL2/SDL_render.h>
-#include <SDL2/SDL_surface.h>
+#include <SDL3/SDL_pixels.h>
+#include <SDL3/SDL_render.h>
+#include <SDL3/SDL_surface.h>
 
 namespace openspectrum {
 
@@ -149,15 +149,18 @@ auto TextRenderer::render_text(const std::string &text, SDL_Color color)
   }
 
   // Create surface
-  SDL_Surface *surface = SDL_CreateRGBSurfaceWithFormat(
-      0, total_width, total_height, 32, SDL_PIXELFORMAT_RGBA32);
+  SDL_Surface *surface = SDL_CreateSurface(total_width, total_height, SDL_PIXELFORMAT_RGBA32);
 
   if (surface == nullptr) {
     SDL_DestroyTexture(texture);
     return nullptr;
   }
 
-  SDL_LockSurface(surface);
+  if (!SDL_LockSurface(surface)) {
+    SDL_DestroyTexture(texture);
+    SDL_DestroySurface(surface);
+    return nullptr;
+  }
   auto *pixels = static_cast<uint32_t *>(surface->pixels);
 
   // Fill with transparent
@@ -170,9 +173,8 @@ auto TextRenderer::render_text(const std::string &text, SDL_Color color)
   // Pack the colour for the surface's actual format. SDL_PIXELFORMAT_RGBA32 is
   // an endian-dependent alias (ABGR8888 on little-endian x86), so a hand-rolled
   // (r<<24)|(g<<16)|(b<<8)|a is wrong — it maps input red onto alpha, leaving any
-  // colour with r==0 fully transparent. SDL_MapRGBA gets it right on any endian.
-  const uint32_t packed =
-      SDL_MapRGBA(surface->format, color.r, color.g, color.b, color.a);
+  // colour with r==0 fully transparent. SDL_MapSurfaceRGBA gets it right on any endian.
+  const uint32_t packed = SDL_MapSurfaceRGBA(surface, color.r, color.g, color.b, color.a);
 
   // Render each character
   for (size_t i = 0; i < text.length(); ++i) {
@@ -205,7 +207,7 @@ auto TextRenderer::render_text(const std::string &text, SDL_Color color)
 
   SDL_UnlockSurface(surface);
   SDL_UpdateTexture(texture, nullptr, surface->pixels, surface->pitch);
-  SDL_FreeSurface(surface);
+  SDL_DestroySurface(surface);
 
   return texture;
 }

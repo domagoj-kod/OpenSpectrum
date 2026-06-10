@@ -20,9 +20,9 @@ git push origin v2.5.0
 Within a few minutes a GitHub Release `v2.5.0` appears with two assets attached:
 
 - `OpenSpectrum-v2.5.0-x86_64.AppImage` — self-contained Linux build (bundles
-  SDL2/librtlsdr/libusb; runs on any modern x86-64 distro).
+  SDL3/librtlsdr/libusb; runs on any modern x86-64 distro).
 - `OpenSpectrum-v2.5.0-windows-x86_64.zip` — the `.exe` **plus all required MinGW
-  DLLs** (SDL2, librtlsdr, libusb, libwinpthread, …).
+  DLLs** (SDL3, librtlsdr, libusb, libwinpthread, …).
 
 The Release body is taken from the annotated tag's message.
 

@@ -10,7 +10,7 @@
 #include <cstdint>
 #include <string>
 
-#include <SDL2/SDL_keycode.h>
+#include <SDL3/SDL_keycode.h>
 
 namespace openspectrum {
 
@@ -71,7 +71,7 @@ auto SdlControlInput::handle_keyboard(SDL_Keycode key, bool shift_held,
   }
 
   // Gain controls
-  case SDLK_r: {
+  case SDLK_R: {
     float const prev = m_state.get_gain();
     float const new_gain = std::min(m_state.get_gain() + current_gain_step,
                                     constraints.max_gain_db);
@@ -85,7 +85,7 @@ auto SdlControlInput::handle_keyboard(SDL_Keycode key, bool shift_held,
     break;
   }
 
-  case SDLK_f: {
+  case SDLK_F: {
     float const prev = m_state.get_gain();
     float const new_gain = std::max(m_state.get_gain() - current_gain_step,
                                     constraints.min_gain_db);
@@ -120,7 +120,7 @@ auto SdlControlInput::handle_keyboard(SDL_Keycode key, bool shift_held,
   }
 
   // Color palette: 'c' cycles forward, Shift+C cycles backward.
-  case SDLK_c: {
+  case SDLK_C: {
     m_state.cycle_palette(shift_held ? -1 : 1);
     LOG_INFO(std::string("[PALETTE] ") +
              ControlState::palette_name(m_state.get_palette_index()));
@@ -171,7 +171,7 @@ auto SdlControlInput::handle_keyboard(SDL_Keycode key, bool shift_held,
   }
 
   // IQ logging toggle (Ctrl+S)
-  case SDLK_s:
+  case SDLK_S:
     if (ctrl_held && !shift_held) {
       m_state.request_iq_logging_toggle();
       LOG_INFO("IQ logging toggle requested");
@@ -181,7 +181,7 @@ auto SdlControlInput::handle_keyboard(SDL_Keycode key, bool shift_held,
     break;
 
   // Frame-timing overlay toggle (T key - debug)
-  case SDLK_t:
+  case SDLK_T:
     if (!ctrl_held && !shift_held) {
       m_state.toggle_timing_overlay();
       LOG_INFO(std::string("Frame-timing overlay ") +
@@ -191,7 +191,7 @@ auto SdlControlInput::handle_keyboard(SDL_Keycode key, bool shift_held,
     break;
 
   // Spectrogram export (e key - instant export)
-  case SDLK_e:
+  case SDLK_E:
     if (!ctrl_held && !shift_held) {
       m_state.request_spectrogram_export();
       LOG_INFO("Spectrogram export requested");

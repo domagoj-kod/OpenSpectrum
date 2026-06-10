@@ -5,9 +5,9 @@
 CC := gcc
 CXX := g++
 
-# SDL2 flags (detect via pkg-config, fallback to manual)
-SDL2_CFLAGS := $(shell pkg-config --cflags sdl2 2>/dev/null || echo "")
-SDL2_LDFLAGS := $(shell pkg-config --libs sdl2 2>/dev/null || echo "-lSDL2")
+# SDL3 flags (detect via pkg-config, fallback to manual)
+SDL3_CFLAGS := $(shell pkg-config --cflags sdl3 2>/dev/null || echo "")
+SDL3_LDFLAGS := $(shell pkg-config --libs sdl3 2>/dev/null || echo "-lSDL3")
 
 # Platform-specific configuration
 ifeq ($(OS),Windows_NT)
@@ -23,7 +23,7 @@ ifeq ($(OS),Windows_NT)
                     -fstack-protector-strong \
                     -static-libgcc -static-libstdc++
 
-    BASE_LDFLAGS := -lrtlsdr $(SDL2_LDFLAGS) -static-libgcc -static-libstdc++
+    BASE_LDFLAGS := -lrtlsdr $(SDL3_LDFLAGS) -static-libgcc -static-libstdc++
 else
     # Linux and other Unix-like systems
     TARGET := openspectrum
@@ -36,7 +36,7 @@ else
                     -D_FORTIFY_SOURCE=2 \
                     -fstack-protector-strong -fPIE
 
-    BASE_LDFLAGS := -lrtlsdr -lpthread -lm $(SDL2_LDFLAGS) \
+    BASE_LDFLAGS := -lrtlsdr -lpthread -lm $(SDL3_LDFLAGS) \
                    -Wl,-z,now \
                    -Wl,-z,relro \
                    -Wl,-z,noexecstack
@@ -59,7 +59,7 @@ DEPFLAGS := -MMD -MP
 # Footprint-trim flags shared by release and PGO targets.
 # - function/data-sections + --gc-sections: drop every symbol the linker can
 #   prove unreachable, shrinking I-cache pressure.
-# - visibility=hidden: only main() (and SDL2 hooks) need external linkage.
+# - visibility=hidden: only main() (and SDL3 hooks) need external linkage.
 #   Strips export tables, lets LTO be more aggressive.
 # - align-loops/functions=32: hot loops fit in one DSB fetch line.
 TRIM_CFLAGS  := -ffunction-sections -fdata-sections -fvisibility=hidden \
@@ -125,7 +125,7 @@ GUI_DIR := $(SRC_DIR)/gui
 # Include paths
 INCLUDES := -I$(THIRD_PARTY) -I$(THIRD_PARTY)/pocketfft -I$(THIRD_PARTY_STB) -I$(HARDWARE_DIR) -I$(INCLUDE_DIR) \
             -I$(SIGNAL_DIR) -I$(FFT_DIR) -I$(VIS_DIR) -I$(UTILS_DIR) \
-            -I$(GUI_DIR) -I$(INCLUDE_DIR)/openspectrum $(SDL2_CFLAGS)
+            -I$(GUI_DIR) -I$(INCLUDE_DIR)/openspectrum $(SDL3_CFLAGS)
 
 # Source files
 HARDWARE_SRCS := $(wildcard $(HARDWARE_DIR)/*.cpp)

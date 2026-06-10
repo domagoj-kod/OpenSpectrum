@@ -40,7 +40,7 @@ all simultaneously in the IQ stream.
 | **Multi-Device Support** | RTL2832U (via librtlsdr) with architecture ready for proprietary SDR hardware |
 | **Real-Time FFT Analysis** | Configurable FFT size, window functions, and DC removal |
 | **Dual Visualization** | Spectrum display + waterfall display for temporal signal analysis |
-| **SDL2 GUI** | Hardware-accelerated rendering with responsive design |
+| **SDL3 GUI** | Hardware-accelerated rendering with responsive design |
 | **Modular Design** | Plug-and-play architecture: swap hardware backends without modifying core logic |
 | **Security-Hardened** | Compiled with `-D_FORTIFY_SOURCE=2`, stack protection, RELRO, and more |
 
@@ -61,7 +61,7 @@ OpenSpectrum/
 │   ├── signal/            # Signal conditioning (DC removal, windowing)
 │   ├── fft/               # Fast Fourier Transform & spectral analysis
 │   ├── visualization/     # Spectrum & waterfall rendering logic
-│   ├── gui/               # SDL2 window and event management
+│   ├── gui/               # SDL3 window and event management
 │   └── utils/             # Logging, configuration, utilities
 ├── include/
 ├── third_party/
@@ -92,18 +92,18 @@ OpenSpectrum is **platform-agnostic** and supports Linux, macOS (in theory at le
 | `g++` / `clang++` | C++20 Compiler | `sudo apt install build-essential` |
 | `make` | Build system (optional) | `sudo apt install make` |
 | `librtlsdr-dev` | RTL-SDR hardware support | `sudo apt install librtlsdr-dev` |
-| `libsdl2-dev` | GUI rendering | `sudo apt install libsdl2-dev` |
+| `libsdl3-dev` | GUI rendering | `sudo apt install libsdl3-dev` |
 | `pkg-config` | Dependency detection | `sudo apt install pkg-config` |
 
 **macOS (Homebrew):**
 ```bash
-brew install librtlsdr sdl2 pkg-config
+brew install librtlsdr sdl3 pkg-config
 ```
 
 **Windows (MSYS2) build:**
 ```bash
 pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-make \
-       mingw-w64-x86_64-rtl-sdr mingw-w64-x86_64-SDL2
+       mingw-w64-x86_64-rtl-sdr mingw-w64-x86_64-SDL3
 ```
 
 ---
@@ -413,7 +413,7 @@ Contributions are welcome! Please follow these guidelines:
 
 - **librtlsdr** — RTL-SDR device library
 - **pocketfft** — Fast Fourier Transform implementation by Martin Reinecke
-- **SDL2** — Simple DirectMedia Layer for cross-platform rendering
+- **SDL3** — Simple DirectMedia Layer for cross-platform rendering
 - **GNU Radio** — Inspiration for modular SDR pipeline architecture
 
 ---

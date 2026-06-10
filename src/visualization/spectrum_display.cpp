@@ -8,7 +8,7 @@
 #include <cstdint>
 #include <vector>
 
-#include <SDL2/SDL.h>
+#include <SDL3/SDL.h>
 
 namespace openspectrum {
 
@@ -222,7 +222,13 @@ void SpectrumDisplay::build_vertices(float region_w, float region_h,
         std::clamp((db - m_min_db) * db_to_height, 0.0F, region_h);
 
     RgbColor const c = m_palette.get_color(db);
-    SDL_Color const col = {c.red, c.green, c.blue, c.alpha};
+    // SDL3: SDL_Vertex uses SDL_FColor (float r,g,b,a) instead of SDL_Color (Uint8)
+    SDL_FColor const col = {
+        static_cast<float>(c.red) / 255.0f,
+        static_cast<float>(c.green) / 255.0f,
+        static_cast<float>(c.blue) / 255.0f,
+        static_cast<float>(c.alpha) / 255.0f
+    };
 
     float const x0 = static_cast<float>(i) * bin_width;
     float const x1 = x0 + bin_width;

@@ -2,15 +2,15 @@
 
 Defined in: `src/gui/sdl_renderer.h`, `src/gui/sdl_control_input.h`, and `src/gui/text_renderer.h`
 
-The GUI module provides SDL2-based rendering capabilities for the spectrum analyzer, including window management, texture rendering, text rendering using a bitmap font, and keyboard input handling.
+The GUI module provides SDL3-based rendering capabilities for the spectrum analyzer, including window management, texture rendering, text rendering using a bitmap font, and keyboard input handling.
 
 ---
 
 ## Dependencies
 
 This module requires:
-- SDL2 library (`libsdl2-dev` or equivalent)
-- Headers: `SDL2/SDL.h`
+- SDL3 library (`libsdl2-dev` or equivalent)
+- Headers: `SDL3/SDL.h`
 
 ---
 
@@ -34,7 +34,7 @@ This change separates platform-specific input handling (SDL) from platform-agnos
 
 ## SdlRenderer Class
 
-The `SdlRenderer` class manages the SDL2 window, renderer, and texture for displaying the spectrum analyzer output.
+The `SdlRenderer` class manages the SDL3 window, renderer, and texture for displaying the spectrum analyzer output.
 
 ```cpp
 class SdlRenderer {
@@ -81,7 +81,7 @@ SdlRenderer(size_t width, size_t height,
             const std::string &title = "OpenSpectrum SDR");
 ```
 
-Constructs an SDL2 renderer with the specified dimensions and title.
+Constructs an SDL3 renderer with the specified dimensions and title.
 
 **Parameters:**
 - `width` - Window width in pixels
@@ -89,7 +89,7 @@ Constructs an SDL2 renderer with the specified dimensions and title.
 - `title` - Window title string (default: "OpenSpectrum SDR")
 
 **Behavior:**
-- Initializes SDL2 video subsystem if not already initialized
+- Initializes SDL3 video subsystem if not already initialized
 - Creates SDL_Window with `SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE`
 - Creates SDL_Renderer with `SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC`
 - Creates SDL_Texture for rendering pixels
@@ -109,7 +109,7 @@ Constructs an SDL2 renderer with the specified dimensions and title.
 ~SdlRenderer();
 ```
 
-Destructor that properly cleans up SDL2 resources.
+Destructor that properly cleans up SDL3 resources.
 
 **Behavior:**
 - Destroys SDL_Texture
@@ -187,7 +187,7 @@ Renders text to the status bar texture.
 bool poll_events(ControlState *state = nullptr);
 ```
 
-Poll and process SDL2 events.
+Poll and process SDL3 events.
 
 **Parameters:**
 - `state` - Optional pointer to ControlState for keyboard handling (default: nullptr). The renderer internally creates an `SdlControlInput` to process keyboard events and update the state.
@@ -252,7 +252,7 @@ Checks if the renderer was successfully initialized.
 ```cpp
 SdlRenderer renderer(1024, 576);
 if (!renderer.is_valid()) {
-  std::cerr << "Failed to initialize SDL2 renderer" << std::endl;
+  std::cerr << "Failed to initialize SDL3 renderer" << std::endl;
   return 1;
 }
 ```
@@ -463,7 +463,7 @@ int main() {
   SdlRenderer renderer(WIDTH, HEIGHT, "My Spectrum Analyzer");
   
   if (!renderer.is_valid()) {
-    std::cerr << "Failed to initialize SDL2" << std::endl;
+    std::cerr << "Failed to initialize SDL3" << std::endl;
     return 1;
   }
 
@@ -544,14 +544,14 @@ int main() {
 
 ## Error Handling
 
-The SdlRenderer and TextRenderer classes use SDL2's error reporting system. After any operation that returns false or nullptr, you can get the error with:
+The SdlRenderer and TextRenderer classes use SDL3's error reporting system. After any operation that returns false or nullptr, you can get the error with:
 
 ```cpp
 const char *error = SDL_GetError();
 std::cerr << "SDL Error: " << error << std::endl;
 ```
 
-Common SDL2 errors:
+Common SDL3 errors:
 - "Could not initialize SDL" - SDL_Init failed
 - "No available video device" - No display available
 - "Failed to create window" - Window creation failed
@@ -561,7 +561,7 @@ Common SDL2 errors:
 
 ## Performance Considerations
 
-1. **Double Buffering:** SDL2 uses double buffering by default with `SDL_RENDERER_PRESENTVSYNC`
+1. **Double Buffering:** SDL3 uses double buffering by default with `SDL_RENDERER_PRESENTVSYNC`
 2. **Hardware Acceleration:** Rendering is hardware-accelerated when available
 3. **Texture Caching:** TextRenderer caches glyph textures to avoid re-rendering
 4. **Batched Rendering:** All rendering happens in a single pass before presentation
@@ -723,4 +723,4 @@ int main() {
 - [ControlState](control_state.md) - SDL-agnostic state management
 - [RuntimeControls (Deprecated)](runtime_controls.md) - Deprecated class, use ControlState
 - [Visualization](visualization.md) - Provides pixel data for rendering
-- [SDL2 Documentation](https://wiki.libsdl.org/) - SDL2 library documentation
+- [SDL3 Documentation](https://wiki.libsdl.org/) - SDL3 library documentation
