@@ -76,10 +76,17 @@ SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title,
   SDL_SetHint(SDL_HINT_RENDER_DRIVER, "direct3d11");
 #endif
 
-  // SDL3: Use SDL_CreateWindowWithProperties for window creation
+  // SDL3: Use SDL_CreateWindowWithProperties for window creation. Position is
+  // set explicitly: SDL3's plain SDL_CreateWindow no longer centers windows
+  // (SDL2 passed SDL_WINDOWPOS_CENTERED), so without these props placement is
+  // left to the window manager.
   SDL_PropertiesID window_props = SDL_CreateProperties();
   SDL_SetStringProperty(window_props, SDL_PROP_WINDOW_CREATE_TITLE_STRING,
                         title.c_str());
+  SDL_SetNumberProperty(window_props, SDL_PROP_WINDOW_CREATE_X_NUMBER,
+                        SDL_WINDOWPOS_CENTERED);
+  SDL_SetNumberProperty(window_props, SDL_PROP_WINDOW_CREATE_Y_NUMBER,
+                        SDL_WINDOWPOS_CENTERED);
   SDL_SetNumberProperty(window_props, SDL_PROP_WINDOW_CREATE_WIDTH_NUMBER,
                         static_cast<int>(width));
   SDL_SetNumberProperty(window_props, SDL_PROP_WINDOW_CREATE_HEIGHT_NUMBER,
@@ -95,53 +102,25 @@ SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title,
                              std::string(SDL_GetError()));
   }
 
-  // SDL3: Create renderer with properties
-  SDL_PropertiesID renderer_props = SDL_CreateProperties();
-  SDL_SetPointerProperty(renderer_props,
-                         SDL_PROP_RENDERER_CREATE_WINDOW_POINTER, m_window);
-  if (m_enable_vsync) {
-    SDL_SetNumberProperty(renderer_props,
-                          SDL_PROP_RENDERER_CREATE_PRESENT_VSYNC_NUMBER, 1);
-  }
-  m_renderer = SDL_CreateRendererWithProperties(renderer_props);
-  SDL_DestroyProperties(renderer_props);
-
+  // SDL3: a null driver name makes SDL try every renderer in priority order,
+  // ending with software — no manual software fallback needed (SDL2 required
+  // an explicit second SDL_CreateRenderer call with SDL_RENDERER_SOFTWARE).
+  m_renderer = SDL_CreateRenderer(m_window, nullptr);
   if (m_renderer == nullptr) {
-    LOG_WARNING(
-        "Default renderer creation failed: " + std::string(SDL_GetError()) +
-        ". Falling back to software renderer.");
-    // Try software renderer
-    renderer_props = SDL_CreateProperties();
-    SDL_SetStringProperty(renderer_props, SDL_PROP_RENDERER_CREATE_NAME_STRING,
-                          SDL_SOFTWARE_RENDERER);
-    SDL_SetPointerProperty(renderer_props,
-                           SDL_PROP_RENDERER_CREATE_WINDOW_POINTER, m_window);
-    if (m_enable_vsync) {
-      SDL_SetNumberProperty(renderer_props,
-                            SDL_PROP_RENDERER_CREATE_PRESENT_VSYNC_NUMBER, 1);
-    }
-    m_renderer = SDL_CreateRendererWithProperties(renderer_props);
-    SDL_DestroyProperties(renderer_props);
-
-    if (m_renderer == nullptr) {
-      SDL_DestroyWindow(m_window);
-      SDL_Quit();
-      throw std::runtime_error("SDL_CreateRenderer failed: " +
-                               std::string(SDL_GetError()));
-    }
-    LOG_WARNING("Using software renderer: " +
-                std::string(SDL_SOFTWARE_RENDERER));
+    SDL_DestroyWindow(m_window);
+    SDL_Quit();
+    throw std::runtime_error("SDL_CreateRenderer failed: " +
+                             std::string(SDL_GetError()));
+  }
+  if (m_enable_vsync) {
+    SDL_SetRenderVSync(m_renderer, 1);
   }
 
-  // SDL3: Get renderer information using properties API
   const char *renderer_name = SDL_GetRendererName(m_renderer);
   if (renderer_name != nullptr) {
-    bool is_software =
-        (strstr(renderer_name, SDL_SOFTWARE_RENDERER) != nullptr);
-    // Get vsync property from renderer
-    float vsync_value =
-        SDL_GetNumberProperty(SDL_GetRendererProperties(m_renderer),
-                              SDL_PROP_RENDERER_VSYNC_NUMBER, 0);
+    bool is_software = (strcmp(renderer_name, SDL_SOFTWARE_RENDERER) == 0);
+    int vsync_value = 0;
+    SDL_GetRenderVSync(m_renderer, &vsync_value);
     std::string vsync_str = (vsync_value != 0) ? "ON" : "OFF";
     std::string accel_str = is_software ? "NO" : "YES";
     LOG_INFO("Renderer: " + std::string(renderer_name) +
@@ -171,7 +150,7 @@ SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title,
 
   // Create texture for RGBA rendering
   m_texture = SDL_CreateTexture(
-      m_renderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STREAMING,
+      m_renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STREAMING,
       static_cast<int>(width), static_cast<int>(height));
 
   if (m_texture == nullptr) {
@@ -181,12 +160,13 @@ SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title,
     throw std::runtime_error("SDL_CreateTexture failed: " +
                              std::string(SDL_GetError()));
   }
+  SDL_SetTextureScaleMode(m_texture, SDL_SCALEMODE_NEAREST);
 
   // Persistent base-frame compose target (see m_frame_tex docs). Full window
   // size so its blit to screen goes through the same logical-size scaling as
   // the old whole-texture copy did.
   m_frame_tex = SDL_CreateTexture(
-      m_renderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_TARGET,
+      m_renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_TARGET,
       static_cast<int>(width), static_cast<int>(height));
   if (m_frame_tex == nullptr) {
     SDL_DestroyTexture(m_texture);
@@ -197,6 +177,10 @@ SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title,
                              std::string(SDL_GetError()));
   }
   SDL_SetTextureBlendMode(m_frame_tex, SDL_BLENDMODE_NONE);
+  // SDL3 defaults textures to SDL_SCALEMODE_LINEAR (SDL2 was nearest).
+  // m_frame_tex is what the logical-presentation scaling stretches on window
+  // resize; nearest keeps the waterfall pixel-crisp like the SDL2 build.
+  SDL_SetTextureScaleMode(m_frame_tex, SDL_SCALEMODE_NEAREST);
 
   // Clear it once so present_frame() shows black (not uninitialized GPU memory)
   // if it runs before the first render_displays() while awaiting samples.
@@ -472,7 +456,7 @@ auto SdlRenderer::render_displays(const std::vector<SDL_Vertex> &spec_verts,
                                   const std::vector<int> &spec_idx,
                                   const uint8_t *waterfall_data,
                                   size_t spectrum_height,
-                                  const std::vector<SDL_FRect> &wf_dirty_rects)
+                                  const std::vector<SDL_Rect> &wf_dirty_rects)
     -> bool {
   if (m_texture == nullptr)
     return false;
@@ -480,8 +464,7 @@ auto SdlRenderer::render_displays(const std::vector<SDL_Vertex> &spec_verts,
   void *texture_pixels = nullptr;
   int texture_pitch = 0;
   if (!SDL_LockTexture(m_texture, nullptr, &texture_pixels, &texture_pitch)) {
-    const char* err = SDL_GetError();
-    std::cerr << "SDL_LockTexture failed: " << (err ? err : "Unknown error") << " (m_texture=" << m_texture << ")" << '\n';
+    std::cerr << "SDL_LockTexture failed: " << SDL_GetError() << '\n';
     return false;
   }
 
@@ -492,11 +475,10 @@ auto SdlRenderer::render_displays(const std::vector<SDL_Vertex> &spec_verts,
   // Upload only the waterfall into m_texture's bottom region. The spectrum is
   // now GPU-drawn from spec_verts, so no spectrum pixel upload happens here.
   for (const auto &rect : wf_dirty_rects) {
-    int x0 = std::max(0, static_cast<int>(rect.x));
-    int y0 = std::max(0, static_cast<int>(rect.y));
-    int x1 =
-        std::min(static_cast<int>(rect.x + rect.w), static_cast<int>(m_width));
-    int y1 = std::min(static_cast<int>(rect.y + rect.h), wf_height);
+    int x0 = std::max(0, rect.x);
+    int y0 = std::max(0, rect.y);
+    int x1 = std::min(rect.x + rect.w, static_cast<int>(m_width));
+    int y1 = std::min(rect.y + rect.h, wf_height);
     if (x1 <= x0 || y1 <= y0)
       continue;
     size_t copy_bytes = static_cast<size_t>(x1 - x0) * 4;
@@ -737,17 +719,22 @@ bool SdlRenderer::ensure_wf_scroll_textures(size_t wf_height,
   const int h = static_cast<int>(wf_height);
   const int lh = static_cast<int>(line_height);
 
-  m_wf_scroll_tex = SDL_CreateTexture(m_renderer, SDL_PIXELFORMAT_ABGR8888,
+  m_wf_scroll_tex = SDL_CreateTexture(m_renderer, SDL_PIXELFORMAT_RGBA32,
                                       SDL_TEXTUREACCESS_TARGET, w, h);
-  m_wf_scroll_aux = SDL_CreateTexture(m_renderer, SDL_PIXELFORMAT_ABGR8888,
+  m_wf_scroll_aux = SDL_CreateTexture(m_renderer, SDL_PIXELFORMAT_RGBA32,
                                       SDL_TEXTUREACCESS_TARGET, w, h);
-  m_wf_line_tex = SDL_CreateTexture(m_renderer, SDL_PIXELFORMAT_ABGR8888,
+  m_wf_line_tex = SDL_CreateTexture(m_renderer, SDL_PIXELFORMAT_RGBA32,
                                     SDL_TEXTUREACCESS_STREAMING, w, lh);
 
   if (m_wf_scroll_tex == nullptr || m_wf_scroll_aux == nullptr ||
       m_wf_line_tex == nullptr) {
     return false;
   }
+  // Nearest to match SDL2's default (SDL3 defaults to linear); these are
+  // blitted 1:1 but keep them consistent with m_frame_tex.
+  SDL_SetTextureScaleMode(m_wf_scroll_tex, SDL_SCALEMODE_NEAREST);
+  SDL_SetTextureScaleMode(m_wf_scroll_aux, SDL_SCALEMODE_NEAREST);
+  SDL_SetTextureScaleMode(m_wf_line_tex, SDL_SCALEMODE_NEAREST);
 
   m_wf_scroll_line_height = line_height;
   return true;
@@ -846,13 +833,14 @@ void SdlRenderer::rebuild_freq_scale_ticks() {
 
   // Bake the entire scale bar into a single render-target texture.
   // render_overlays() does one SDL_RenderCopy per frame — no state churn.
-  m_freq_scale_texture = SDL_CreateTexture(m_renderer, SDL_PIXELFORMAT_ABGR8888,
+  m_freq_scale_texture = SDL_CreateTexture(m_renderer, SDL_PIXELFORMAT_RGBA32,
                                            SDL_TEXTUREACCESS_TARGET,
                                            static_cast<int>(m_width), SCALE_H);
   if (m_freq_scale_texture == nullptr)
     return;
 
   SDL_SetTextureBlendMode(m_freq_scale_texture, SDL_BLENDMODE_BLEND);
+  SDL_SetTextureScaleMode(m_freq_scale_texture, SDL_SCALEMODE_NEAREST);
 
   SDL_SetRenderTarget(m_renderer, m_freq_scale_texture);
 

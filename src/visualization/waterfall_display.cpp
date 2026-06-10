@@ -118,10 +118,10 @@ void WaterfallDisplay::reset() {
   m_palette.set_db_range(m_global_min, m_global_max);
   m_needs_full_render = true; // GPU scroll texture must be re-seeded
   m_dirty_rects.push_back(
-      {0.0f, 0.0f, static_cast<float>(m_width), static_cast<float>(m_height)});
+      {0, 0, static_cast<int>(m_width), static_cast<int>(m_height)});
 }
 
-SDL_FRect WaterfallDisplay::line_to_rect(size_t line_index) const {
+SDL_Rect WaterfallDisplay::line_to_rect(size_t line_index) const {
   if (line_index >= m_history.size()) {
     return {0, 0, 0, 0};
   }
@@ -135,8 +135,8 @@ SDL_FRect WaterfallDisplay::line_to_rect(size_t line_index) const {
     actual_height = m_height - y_offset;
   }
 
-  return {0.0f, static_cast<float>(y_offset), static_cast<float>(m_width),
-          static_cast<float>(actual_height)};
+  return {0, static_cast<int>(y_offset), static_cast<int>(m_width),
+          static_cast<int>(actual_height)};
 }
 
 void WaterfallDisplay::add_spectrum_line(const std::vector<float> &db_values) {
@@ -193,14 +193,14 @@ void WaterfallDisplay::add_spectrum_line(const std::vector<float> &db_values) {
       m_dirty_rects.push_back(line_to_rect(old_size));
     } else {
       // First line - mark all
-      m_dirty_rects.push_back({0.0f, 0.0f, static_cast<float>(m_width),
-                               static_cast<float>(m_height)});
+      m_dirty_rects.push_back(
+          {0, 0, static_cast<int>(m_width), static_cast<int>(m_height)});
     }
   } else if (was_full) {
     // Buffer was full - all logical indices have shifted due to circular
     // overwrite Need to mark entire waterfall as dirty since all lines moved
-    m_dirty_rects.push_back({0.0f, 0.0f, static_cast<float>(m_width),
-                             static_cast<float>(m_height)});
+    m_dirty_rects.push_back(
+        {0, 0, static_cast<int>(m_width), static_cast<int>(m_height)});
   }
 
   // Update ranges if autoscale
@@ -243,16 +243,16 @@ void WaterfallDisplay::render_line_into(const std::vector<uint8_t> &hist_line,
 void WaterfallDisplay::render() {
   if (m_history.empty()) {
     m_pixels.clear();
-    m_dirty_rects.push_back({0.0f, 0.0f, static_cast<float>(m_width),
-                             static_cast<float>(m_height)});
+    m_dirty_rects.push_back(
+        {0, 0, static_cast<int>(m_width), static_cast<int>(m_height)});
     return;
   }
 
   const float db_range = m_global_max - m_global_min;
   if (db_range <= 0) {
     m_pixels.clear();
-    m_dirty_rects.push_back({0.0f, 0.0f, static_cast<float>(m_width),
-                             static_cast<float>(m_height)});
+    m_dirty_rects.push_back(
+        {0, 0, static_cast<int>(m_width), static_cast<int>(m_height)});
     return;
   }
 
@@ -289,7 +289,7 @@ void WaterfallDisplay::render() {
         false; // next frame: scroll path (m_wf_scroll_tex now seeded)
   }
   m_dirty_rects.push_back(
-      {0.0f, 0.0f, static_cast<float>(m_width), static_cast<float>(m_height)});
+      {0, 0, static_cast<int>(m_width), static_cast<int>(m_height)});
 }
 
 } // namespace openspectrum

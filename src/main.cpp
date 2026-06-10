@@ -30,6 +30,11 @@
 #include <string>
 #include <vector>
 
+// SDL3 requires the file defining main() to include SDL_main.h (no longer
+// pulled in by SDL.h). A no-op on Linux; provides the entry-point shim on
+// platforms that need one (e.g. Windows GUI subsystem).
+#include <SDL3/SDL_main.h>
+
 #if defined(__SSE__) || defined(_M_X64) || defined(_M_IX86_FP)
 #include <pmmintrin.h> // _MM_SET_DENORMALS_ZERO_MODE
 #include <xmmintrin.h> // _MM_SET_FLUSH_ZERO_MODE

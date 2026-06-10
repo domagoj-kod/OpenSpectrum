@@ -10,7 +10,7 @@
 #include <vector>
 
 // Forward declaration for SDL types (to avoid including SDL.h in header)
-struct SDL_FRect;
+struct SDL_Rect;
 
 namespace openspectrum {
 
@@ -46,8 +46,10 @@ public:
   // Reset history (clear waterfall)
   void reset();
 
-  // Get dirty rectangles for incremental rendering
-  [[nodiscard]] const std::vector<SDL_FRect> &get_dirty_rects() const {
+  // Get dirty rectangles for incremental rendering. These are CPU-side memcpy
+  // bounds (consumed as ints by SdlRenderer::render_displays), so they stay
+  // SDL_Rect — only rects passed to SDL3 render calls need SDL_FRect.
+  [[nodiscard]] const std::vector<SDL_Rect> &get_dirty_rects() const {
     return m_dirty_rects;
   }
   void clear_dirty_rects() { m_dirty_rects.clear(); }
@@ -85,7 +87,7 @@ private:
   float m_global_max = 0.0f;
 
   // Dirty rectangles for incremental rendering
-  mutable std::vector<SDL_FRect> m_dirty_rects;
+  mutable std::vector<SDL_Rect> m_dirty_rects;
 
   // GPU scroll state
   bool m_needs_full_render = true;
@@ -115,7 +117,7 @@ private:
                         uint8_t *dst_base, size_t rows) const;
   void update_global_range();
 
-  [[nodiscard]] SDL_FRect line_to_rect(size_t line_index) const;
+  [[nodiscard]] SDL_Rect line_to_rect(size_t line_index) const;
 };
 
 } // namespace openspectrum

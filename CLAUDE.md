@@ -23,14 +23,11 @@ The binary is `openspectrum` (Linux) or `openspectrum.exe` (Windows/MSYS2).
 
 Release / PGO targets enable: `-march=haswell` (AVX2 + FMA3), `-flto`, `-ffunction-sections -fdata-sections -fvisibility=hidden -fvisibility-inlines-hidden` + `-Wl,--gc-sections` for footprint trim, and `-falign-functions=32 -falign-loops=32` so hot loops fit in one DSB fetch line. Trimmed flags live in `TRIM_CFLAGS` / `TRIM_LDFLAGS` in the Makefile.
 
-There is no Makefile test target. Tests in `test/` require standalone compilation:
-```bash
-g++ -std=c++20 test/render_test.cpp -o test/render_test.out -lSDL2
-```
+There is no Makefile test target. `test/` is **legacy**: it still targets the SDL2 API (last touched 2026-05-05, pre-SDL3-migration), does not compile against SDL3, is not part of any build, and is pending deprecation. It existed to verify hardware acceleration; do not use it as an API reference.
 
 Linting (clang-tidy config in `.clang-tidy`):
 ```bash
-clang-tidy src/**/*.cpp -- $(pkg-config --cflags sdl2) -Isrc -Iinclude -Ithird_party/pocketfft -std=c++20
+clang-tidy src/**/*.cpp -- $(pkg-config --cflags sdl3) -Isrc -Iinclude -Ithird_party/pocketfft -std=c++20
 ```
 
 **Header-dependency tracking**: the per-object compile rules pass `DEPFLAGS := -MMD -MP`, emitting a `.d` file beside each `.o` that lists the headers it pulled in; these are `-included` at the bottom of the Makefile, so editing a header rebuilds every `.cpp` that includes it. `DEPFLAGS` is kept **separate from `CXXFLAGS` on purpose** — `release` / `profile` / `profile-gen` / `profile-use` override `CXXFLAGS` via recursive make, which would strip `-MMD -MP` if it lived there. If you add a new compile rule, append `$(DEPFLAGS)` to it.
@@ -55,7 +52,7 @@ RTL-SDR callback thread
        └─ pushes complete FFT-sized FrameHandles → g_sample_queue
 
 Main thread (main.cpp)
-  └─ SDL2 events → ControlState
+  └─ SDL3 events → ControlState
   └─ dequeues FrameHandle from g_sample_queue (8 ms timeout)
   └─ drains queue to newest — drops any backlog (frame-rate throttle)
   └─ SignalProcessor: remove_dc() + apply_window()
@@ -143,7 +140,9 @@ Keyboard input (`SdlControlInput`) writes into `ControlState` (frequency, gain, 
 
 `TextRenderer` (`src/gui/text_renderer.{h,cpp}`) is a bitmap-font renderer with no glyph cache — each `render_text()` call returns a fresh caller-owned `SDL_Texture` (call sites cache the rendered string-texture themselves). The font is the public-domain **IBM VGA 8x16** ROM typeface (ASCII 32–127, `BITMAP_FONT[96][16]` — 16 bytes = 16 scanlines per glyph). **MSB of each byte is the leftmost pixel**, matching the `1 << (7 - src_x)` test in the blit loop. Scaling is **integer-only**: `scale = font_size / GLYPH_SRC_H`, so glyphs render at native 8x16, or 16x32, etc. — never a fractional size.
 
-**Colour byte-order gotcha (recurred once)**: build the packed pixel with `SDL_MapRGBA(surface->format, r, g, b, a)`, *not* a hand-rolled `(r<<24)|(g<<16)|(b<<8)|a`. SDL's `RGBA32` is `ABGR8888` on little-endian x86, so the hand-rolled shift maps input red onto the alpha byte — any colour with `r == 0` then renders fully transparent. `SDL_MapRGBA` is correct on either endianness.
+**Colour byte-order gotcha (recurred once)**: build the packed pixel with `SDL_MapSurfaceRGBA(surface, r, g, b, a)` (SDL3; was `SDL_MapRGBA(surface->format, ...)` in SDL2), *not* a hand-rolled `(r<<24)|(g<<16)|(b<<8)|a`. SDL's `RGBA32` is `ABGR8888` on little-endian x86, so the hand-rolled shift maps input red onto the alpha byte — any colour with `r == 0` then renders fully transparent. `SDL_MapSurfaceRGBA` is correct on either endianness. Always use the symbolic `SDL_PIXELFORMAT_RGBA32` alias, never a hardcoded `8888` format.
+
+**SDL3 texture-default gotchas (caused the v2.6 status-bar regression)**: SDL3 creates alpha-format textures with `SDL_BLENDMODE_BLEND` and `SDL_SCALEMODE_LINEAR` by default; SDL2 used `NONE` and nearest. The text renderer fills its surface with transparent pixels, and under `BLENDMODE_NONE` those render as **opaque black — that is the black backdrop behind the FREQ status bar / PEAK / IQ text**. `render_text()` therefore sets `SDL_BLENDMODE_NONE` + `SDL_SCALEMODE_NEAREST` explicitly on every texture it returns; call sites wanting real transparency (freq-scale labels, timing overlay) opt into `BLEND` themselves. All other textures (`m_texture`, `m_frame_tex`, scroll/freq-scale textures) also set `SDL_SCALEMODE_NEAREST` so logical-presentation scaling on window resize stays pixel-crisp.
 
 ## Code-layout discipline
 

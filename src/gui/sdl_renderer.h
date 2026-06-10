@@ -36,7 +36,7 @@ public:
                               const std::vector<int> &spec_idx,
                               const uint8_t *waterfall_data,
                               size_t spectrum_height,
-                              const std::vector<SDL_FRect> &wf_dirty_rects);
+                              const std::vector<SDL_Rect> &wf_dirty_rects);
 
   // Re-present the last rendered texture with updated overlays (no texture
   // upload). Use when no new pixel data is available (e.g. waiting for

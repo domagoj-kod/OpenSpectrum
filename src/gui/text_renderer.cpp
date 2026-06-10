@@ -141,15 +141,26 @@ auto TextRenderer::render_text(const std::string &text, SDL_Color color)
   int const total_height = glyph_height;
 
   SDL_Texture *texture =
-      SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ABGR8888,
+      SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA32,
                         SDL_TEXTUREACCESS_TARGET, total_width, total_height);
 
   if (texture == nullptr) {
     return nullptr;
   }
 
+  // SDL3 defaults alpha-format textures to SDL_BLENDMODE_BLEND (SDL2 was
+  // always SDL_BLENDMODE_NONE). Under NONE the transparent fill below renders
+  // as opaque black — that *is* the black backdrop behind the status bar,
+  // PEAK, and IQ text. Keep NONE here; call sites that want real transparency
+  // (freq-scale labels, timing overlay) set BLEND explicitly on the result.
+  SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_NONE);
+  // Nearest matches SDL2's default; keeps the bitmap font crisp when the
+  // logical-presentation scaling stretches overlays on window resize.
+  SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_NEAREST);
+
   // Create surface
-  SDL_Surface *surface = SDL_CreateSurface(total_width, total_height, SDL_PIXELFORMAT_ABGR8888);
+  SDL_Surface *surface =
+      SDL_CreateSurface(total_width, total_height, SDL_PIXELFORMAT_RGBA32);
 
   if (surface == nullptr) {
     SDL_DestroyTexture(texture);
@@ -170,11 +181,12 @@ auto TextRenderer::render_text(const std::string &text, SDL_Color color)
     }
   }
 
-  // Pack the colour for the surface's actual format. SDL_PIXELFORMAT_ABGR8888 is
+  // Pack the colour for the surface's actual format. SDL_PIXELFORMAT_RGBA32 is
   // an endian-dependent alias (ABGR8888 on little-endian x86), so a hand-rolled
   // (r<<24)|(g<<16)|(b<<8)|a is wrong — it maps input red onto alpha, leaving any
   // colour with r==0 fully transparent. SDL_MapSurfaceRGBA gets it right on any endian.
-  const uint32_t packed = SDL_MapSurfaceRGBA(surface, color.r, color.g, color.b, color.a);
+  const uint32_t packed =
+      SDL_MapSurfaceRGBA(surface, color.r, color.g, color.b, color.a);
 
   // Render each character
   for (size_t i = 0; i < text.length(); ++i) {

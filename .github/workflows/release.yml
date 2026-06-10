@@ -35,9 +35,30 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential pkg-config \
-            libsdl2-dev librtlsdr-dev libusb-1.0-0-dev \
+            build-essential pkg-config cmake ninja-build \
+            librtlsdr-dev libusb-1.0-0-dev \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev \
+            libxfixes-dev libxss-dev libwayland-dev wayland-protocols \
+            libxkbcommon-dev libdecor-0-dev libegl-dev libgl-dev \
             file desktop-file-utils zsync curl
+
+      # Ubuntu 24.04 (ubuntu-latest) has no libsdl3-dev package — SDL3 first
+      # ships in 25.04. Build it from source, pinned to the version used in
+      # development. Staying on the 24.04 runner keeps the AppImage's glibc
+      # baseline old (= runs on more distros), which a newer container would
+      # forfeit. The X11/Wayland/GL -dev packages above are SDL's video
+      # backends; without them SDL builds but can't open a window.
+      - name: Build SDL3 from source
+        run: |
+          SDL_VER=3.2.10
+          curl -fsSL -o sdl3.tar.gz \
+            "https://github.com/libsdl-org/SDL/releases/download/release-${SDL_VER}/SDL3-${SDL_VER}.tar.gz"
+          tar xzf sdl3.tar.gz
+          cmake -S "SDL3-${SDL_VER}" -B sdl3-build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release
+          cmake --build sdl3-build
+          sudo cmake --install sdl3-build
+          sudo ldconfig
 
       - name: Build AppImage
         run: |
