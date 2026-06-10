@@ -263,7 +263,7 @@ auto main(int argc, char *argv[]) -> int {
   const size_t WATERFALL_LINES = DISPLAY_HEIGHT / 2;
 
   try {
-    // 1. Initialize SDL2 renderer FIRST (before hardware)
+    // 1. Initialize SDL3 renderer FIRST (before hardware)
     // VSYNC on: the render loop now does only ~3-6 ms of work per frame and is
     // sample-delivery bound (~62 lines/s), so there is ample headroom to cap at
     // the display refresh. Without vsync, presenting ~62 fps into a 60 Hz panel
@@ -273,10 +273,10 @@ auto main(int argc, char *argv[]) -> int {
     SdlRenderer renderer(DISPLAY_WIDTH, DISPLAY_HEIGHT, "OpenSpectrum SDR",
                          true);
     if (!renderer.is_valid()) {
-      LOG_ERROR("Failed to initialize SDL2 renderer");
+      LOG_ERROR("Failed to initialize SDL3 renderer");
       return 1;
     }
-    LOG_INFO("SDL2 renderer initialized");
+    LOG_INFO("SDL3 renderer initialized");
 
     // 1.5 Initialize runtime controls
     ControlState control_state;
@@ -386,8 +386,8 @@ auto main(int argc, char *argv[]) -> int {
     // Runtime color palettes ('c' / Shift+C). Index order MUST match
     // ControlState::palette_name and ControlState::PALETTE_COUNT.
     static constexpr SpectrumPalette::ColorMap kPaletteMap[] = {
-        SpectrumPalette::ColorMap::JET,    SpectrumPalette::ColorMap::VIRIDIS,
-        SpectrumPalette::ColorMap::HOT,    SpectrumPalette::ColorMap::GRAYSCALE,
+        SpectrumPalette::ColorMap::JET, SpectrumPalette::ColorMap::VIRIDIS,
+        SpectrumPalette::ColorMap::HOT, SpectrumPalette::ColorMap::GRAYSCALE,
         SpectrumPalette::ColorMap::BLUE_RED};
     static_assert(std::size(kPaletteMap) == ControlState::PALETTE_COUNT,
                   "palette map must match ControlState::PALETTE_COUNT");
@@ -403,9 +403,10 @@ auto main(int argc, char *argv[]) -> int {
 
     // Main processing loop
     LOG_INFO("Starting main loop. Press ESC or Ctrl+C to stop.");
-    LOG_INFO("Controls: +/- Frequency, r/f Gain, 1-5 FFT size, UP/DOWN Window, "
-             "c/Shift+C Palette, Ctrl+S Toggle IQ logging, e Export spectrogram, "
-             "Shift/Ctrl for fine/coarse");
+    LOG_INFO(
+        "Controls: +/- Frequency, r/f Gain, 1-5 FFT size, UP/DOWN Window, "
+        "c/Shift+C Palette, Ctrl+S Toggle IQ logging, e Export spectrogram, "
+        "Shift/Ctrl for fine/coarse");
 
     std::vector<std::complex<float>> fft_output;
     size_t current_fft_size = config.fft_size;
@@ -452,7 +453,8 @@ auto main(int argc, char *argv[]) -> int {
     PhaseStat ts_present;
     uint64_t timing_frames = 0;
     auto timing_window_start = timing_clock::now();
-    auto timing_ms = [](timing_clock::time_point a, timing_clock::time_point b) {
+    auto timing_ms = [](timing_clock::time_point a,
+                        timing_clock::time_point b) {
       return std::chrono::duration<double, std::milli>(b - a).count();
     };
     // Latest per-second snapshot, surfaced to the on-screen overlay ('T' key).
@@ -462,7 +464,7 @@ auto main(int argc, char *argv[]) -> int {
     double ov_present = 0.0;
 
     while (g_running.load(std::memory_order_relaxed)) {
-      // === 1. Process SDL2 events (must be first in loop) ===
+      // === 1. Process SDL3 events (must be first in loop) ===
       if (!renderer.poll_events(&control_state)) {
         g_running = false;
         break;
@@ -483,7 +485,7 @@ auto main(int argc, char *argv[]) -> int {
       if (control_state.palette_changed()) {
         const auto map = kPaletteMap[control_state.get_palette_index()];
         spectrum_display.set_color_map(map);  // recolors next frame
-        waterfall_display.set_color_map(map);  // repaints full history via LUT
+        waterfall_display.set_color_map(map); // repaints full history via LUT
         control_state.clear_palette_change_flag();
       }
 
@@ -660,8 +662,8 @@ auto main(int argc, char *argv[]) -> int {
 
       // Push the latest timing snapshot so the 'T' overlay is drawn (inside
       // render_overlays) on whichever present path runs this frame.
-      renderer.set_timing_overlay(control_state.timing_overlay_enabled(), ov_fps,
-                                  ov_cpu, ov_build, ov_present);
+      renderer.set_timing_overlay(control_state.timing_overlay_enabled(),
+                                  ov_fps, ov_cpu, ov_build, ov_present);
 
       // === 2. Read samples from async queue (non-blocking) ===
       // Wait for samples with timeout (8ms = ~125fps max, reduced from 16ms)
@@ -751,9 +753,9 @@ auto main(int argc, char *argv[]) -> int {
       // === 7. Render: spectrum as GPU geometry, waterfall via texture ===
       // Build the spectrum bars once per frame (reuses spec_verts/spec_idx
       // capacity). The waterfall still picks full-upload vs GPU-scroll.
-      spectrum_display.build_vertices(static_cast<float>(renderer.width()),
-                                      static_cast<float>(spectrum_display.height()),
-                                      spec_verts, spec_idx);
+      spectrum_display.build_vertices(
+          static_cast<float>(renderer.width()),
+          static_cast<float>(spectrum_display.height()), spec_verts, spec_idx);
       const auto &wf_dirty_rects = waterfall_display.get_dirty_rects();
 
       auto t_render_start = timing_clock::now();
@@ -783,7 +785,8 @@ auto main(int argc, char *argv[]) -> int {
       // === 8. Frame-timing accumulation + per-second report (debug branch) ===
       {
         double const present_ms = renderer.last_present_ms();
-        double render_build_ms = timing_ms(t_render_start, t_render_end) - present_ms;
+        double render_build_ms =
+            timing_ms(t_render_start, t_render_end) - present_ms;
         if (render_build_ms < 0.0) {
           render_build_ms = 0.0; // clock skew guard
         }
@@ -792,9 +795,9 @@ auto main(int argc, char *argv[]) -> int {
         ts_present.add(present_ms);
         ++timing_frames;
 
-        double const window_s =
-            std::chrono::duration<double>(timing_clock::now() - timing_window_start)
-                .count();
+        double const window_s = std::chrono::duration<double>(
+                                    timing_clock::now() - timing_window_start)
+                                    .count();
         if (window_s >= 1.0 && timing_frames > 0) {
           double const inv = 1.0 / static_cast<double>(timing_frames);
           ov_fps = static_cast<double>(timing_frames) / window_s;
@@ -806,9 +809,9 @@ auto main(int argc, char *argv[]) -> int {
               line, sizeof(line),
               "FRAME-TIMING fps=%.1f frames=%llu | cpu avg=%.2f max=%.2f | "
               "render_build avg=%.2f max=%.2f | present avg=%.2f max=%.2f (ms)",
-              ov_fps, static_cast<unsigned long long>(timing_frames),
-              ov_cpu, ts_cpu.max_ms, ov_build, ts_render.max_ms,
-              ov_present, ts_present.max_ms);
+              ov_fps, static_cast<unsigned long long>(timing_frames), ov_cpu,
+              ts_cpu.max_ms, ov_build, ts_render.max_ms, ov_present,
+              ts_present.max_ms);
           LOG_INFO(std::string(line));
           ts_cpu.reset();
           ts_render.reset();

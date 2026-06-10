@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Bundle the Windows release into a self-contained zip: the .exe plus every
-# non-system DLL it needs (SDL2, librtlsdr, libusb, libwinpthread, ...). This is
+# non-system DLL it needs (SDL3, librtlsdr, libusb, libwinpthread, ...). This is
 # what the old hand-made zips were missing, making them unrunnable.
 #
 # Run inside an MSYS2 MINGW64 shell (locally or in CI).

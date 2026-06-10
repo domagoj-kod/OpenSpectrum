@@ -19,12 +19,10 @@ namespace openspectrum {
 
 WaterfallDisplay::WaterfallDisplay(size_t width, size_t height,
                                    size_t history_lines)
-    : m_width(width), m_height(height),
-      m_pixels(width * height * 4),
+    : m_width(width), m_height(height), m_pixels(width * height * 4),
       m_history(history_lines),
       m_new_line(width * std::max<size_t>(1UL, height / history_lines) * 4),
-      m_line_buf(width),
-      m_quantized_buf(width) {
+      m_line_buf(width), m_quantized_buf(width) {
   rebuild_rgba_lut();
 }
 
@@ -41,21 +39,25 @@ void WaterfallDisplay::set_db_range(float min_db, float max_db) {
 }
 
 void WaterfallDisplay::rebuild_rgba_lut() {
-  m_needs_full_render = true; // existing GPU texture is stale after a LUT change
+  m_needs_full_render =
+      true; // existing GPU texture is stale after a LUT change
   for (size_t q = 0; q < 256; ++q) {
     float const db = dequantize_db(static_cast<uint8_t>(q));
     RgbColor const color = m_palette.get_color(db);
-    m_rgba_lut[q] = static_cast<uint32_t>(color.red)
-                  | (static_cast<uint32_t>(color.green) << 8)
-                  | (static_cast<uint32_t>(color.blue)  << 16)
-                  | (static_cast<uint32_t>(color.alpha) << 24);
+    m_rgba_lut[q] = static_cast<uint32_t>(color.red) |
+                    (static_cast<uint32_t>(color.green) << 8) |
+                    (static_cast<uint32_t>(color.blue) << 16) |
+                    (static_cast<uint32_t>(color.alpha) << 24);
   }
 }
 
 uint8_t WaterfallDisplay::quantize_db(float db) noexcept {
-  if (db <= HIST_DB_MIN) return 0;
-  if (db >= HIST_DB_MAX) return 255;
-  return static_cast<uint8_t>((db - HIST_DB_MIN) * (255.0F / HIST_DB_RANGE) + 0.5F);
+  if (db <= HIST_DB_MIN)
+    return 0;
+  if (db >= HIST_DB_MAX)
+    return 255;
+  return static_cast<uint8_t>((db - HIST_DB_MIN) * (255.0F / HIST_DB_RANGE) +
+                              0.5F);
 }
 
 float WaterfallDisplay::dequantize_db(uint8_t q) noexcept {
@@ -77,8 +79,10 @@ void WaterfallDisplay::update_global_range() {
     const uint8_t *ptr = m_history[i].data();
     const size_t n = m_history[i].size();
     for (size_t j = 0; j < n; ++j) {
-      if (ptr[j] < q_min) q_min = ptr[j];
-      if (ptr[j] > q_max) q_max = ptr[j];
+      if (ptr[j] < q_min)
+        q_min = ptr[j];
+      if (ptr[j] > q_max)
+        q_max = ptr[j];
     }
   }
 
@@ -113,24 +117,26 @@ void WaterfallDisplay::reset() {
   m_global_max = m_max_db;
   m_palette.set_db_range(m_global_min, m_global_max);
   m_needs_full_render = true; // GPU scroll texture must be re-seeded
-  m_dirty_rects.push_back({0, 0, static_cast<int>(m_width), static_cast<int>(m_height)});
+  m_dirty_rects.push_back(
+      {0.0f, 0.0f, static_cast<float>(m_width), static_cast<float>(m_height)});
 }
 
-SDL_Rect WaterfallDisplay::line_to_rect(size_t line_index) const {
+SDL_FRect WaterfallDisplay::line_to_rect(size_t line_index) const {
   if (line_index >= m_history.size()) {
     return {0, 0, 0, 0};
   }
-  
+
   size_t line_height = std::max<size_t>(1UL, m_height / m_history.capacity());
   size_t y_offset = line_index * line_height;
-  
+
   // Handle last line
   size_t actual_height = line_height;
   if (y_offset + line_height > m_height) {
     actual_height = m_height - y_offset;
   }
-  
-  return {0, static_cast<int>(y_offset), static_cast<int>(m_width), static_cast<int>(actual_height)};
+
+  return {0.0f, static_cast<float>(y_offset), static_cast<float>(m_width),
+          static_cast<float>(actual_height)};
 }
 
 void WaterfallDisplay::add_spectrum_line(const std::vector<float> &db_values) {
@@ -187,12 +193,14 @@ void WaterfallDisplay::add_spectrum_line(const std::vector<float> &db_values) {
       m_dirty_rects.push_back(line_to_rect(old_size));
     } else {
       // First line - mark all
-      m_dirty_rects.push_back({0, 0, static_cast<int>(m_width), static_cast<int>(m_height)});
+      m_dirty_rects.push_back({0.0f, 0.0f, static_cast<float>(m_width),
+                               static_cast<float>(m_height)});
     }
   } else if (was_full) {
-    // Buffer was full - all logical indices have shifted due to circular overwrite
-    // Need to mark entire waterfall as dirty since all lines moved
-    m_dirty_rects.push_back({0, 0, static_cast<int>(m_width), static_cast<int>(m_height)});
+    // Buffer was full - all logical indices have shifted due to circular
+    // overwrite Need to mark entire waterfall as dirty since all lines moved
+    m_dirty_rects.push_back({0.0f, 0.0f, static_cast<float>(m_width),
+                             static_cast<float>(m_height)});
   }
 
   // Update ranges if autoscale
@@ -205,9 +213,8 @@ void WaterfallDisplay::add_spectrum_line(const std::vector<float> &db_values) {
 
 // Render one quantized history line into a raw RGBA destination buffer.
 // dst must have at least m_width * rows * 4 bytes capacity.
-void WaterfallDisplay::render_line_into(const std::vector<uint8_t>& hist_line,
-                                         uint8_t* dst_base,
-                                         size_t rows) const {
+void WaterfallDisplay::render_line_into(const std::vector<uint8_t> &hist_line,
+                                        uint8_t *dst_base, size_t rows) const {
   const size_t row_stride = m_width * 4;
   const uint8_t *line_ptr = hist_line.data();
   for (size_t y = 0; y < rows; ++y) {
@@ -216,8 +223,9 @@ void WaterfallDisplay::render_line_into(const std::vector<uint8_t>& hist_line,
     const int *lut = reinterpret_cast<const int *>(m_rgba_lut);
     size_t x = 0;
     for (; x + 8 <= m_width; x += 8, dst += 32) {
-      __m128i idx8   = _mm_loadl_epi64(reinterpret_cast<const __m128i *>(line_ptr + x));
-      __m256i idx32  = _mm256_cvtepu8_epi32(idx8);
+      __m128i idx8 =
+          _mm_loadl_epi64(reinterpret_cast<const __m128i *>(line_ptr + x));
+      __m256i idx32 = _mm256_cvtepu8_epi32(idx8);
       __m256i colors = _mm256_i32gather_epi32(lut, idx32, 4);
       _mm256_storeu_si256(reinterpret_cast<__m256i *>(dst), colors);
     }
@@ -235,18 +243,21 @@ void WaterfallDisplay::render_line_into(const std::vector<uint8_t>& hist_line,
 void WaterfallDisplay::render() {
   if (m_history.empty()) {
     m_pixels.clear();
-    m_dirty_rects.push_back({0, 0, static_cast<int>(m_width), static_cast<int>(m_height)});
+    m_dirty_rects.push_back({0.0f, 0.0f, static_cast<float>(m_width),
+                             static_cast<float>(m_height)});
     return;
   }
 
   const float db_range = m_global_max - m_global_min;
   if (db_range <= 0) {
     m_pixels.clear();
-    m_dirty_rects.push_back({0, 0, static_cast<int>(m_width), static_cast<int>(m_height)});
+    m_dirty_rects.push_back({0.0f, 0.0f, static_cast<float>(m_width),
+                             static_cast<float>(m_height)});
     return;
   }
 
-  const size_t line_height = std::max<size_t>(1UL, m_height / m_history.capacity());
+  const size_t line_height =
+      std::max<size_t>(1UL, m_height / m_history.capacity());
 
   // Steady-state scroll path: render only the newest line into m_new_line.
   // SdlRenderer::render_displays_scroll() shifts the GPU texture and uploads
@@ -263,17 +274,22 @@ void WaterfallDisplay::render() {
   size_t y_offset = 0;
 
   for (size_t i = 0; i < m_history.size(); ++i) {
-    if (y_offset >= m_height) break;
+    if (y_offset >= m_height)
+      break;
     size_t const actual_lh = (y_offset + line_height <= m_height)
-                                 ? line_height : (m_height - y_offset);
-    render_line_into(m_history[i], m_pixels.data() + y_offset * row_stride, actual_lh);
+                                 ? line_height
+                                 : (m_height - y_offset);
+    render_line_into(m_history[i], m_pixels.data() + y_offset * row_stride,
+                     actual_lh);
     y_offset += line_height;
   }
 
   if (m_history.full()) {
-    m_needs_full_render = false; // next frame: scroll path (m_wf_scroll_tex now seeded)
+    m_needs_full_render =
+        false; // next frame: scroll path (m_wf_scroll_tex now seeded)
   }
-  m_dirty_rects.push_back({0, 0, static_cast<int>(m_width), static_cast<int>(m_height)});
+  m_dirty_rects.push_back(
+      {0.0f, 0.0f, static_cast<float>(m_width), static_cast<float>(m_height)});
 }
 
 } // namespace openspectrum

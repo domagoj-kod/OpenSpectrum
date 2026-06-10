@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build a self-contained Linux AppImage: a single executable file that bundles
-# SDL2/librtlsdr/libusb so it runs on any modern x86-64 distro with no install
+# SDL3/librtlsdr/libusb so it runs on any modern x86-64 distro with no install
 # (the user just needs RTL-SDR udev permissions, same as any SDR tool).
 #
 # Run on Linux (locally or in CI). Requires: build deps, curl. The app icon is

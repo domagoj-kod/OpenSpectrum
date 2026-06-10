@@ -36,10 +36,11 @@ public:
                               const std::vector<int> &spec_idx,
                               const uint8_t *waterfall_data,
                               size_t spectrum_height,
-                              const std::vector<SDL_Rect> &wf_dirty_rects);
+                              const std::vector<SDL_FRect> &wf_dirty_rects);
 
-  // Re-present the last rendered texture with updated overlays (no texture upload).
-  // Use when no new pixel data is available (e.g. waiting for samples).
+  // Re-present the last rendered texture with updated overlays (no texture
+  // upload). Use when no new pixel data is available (e.g. waiting for
+  // samples).
   OS_HOT void present_frame();
 
   // Steady-state render: GPU-shifts the waterfall texture up by line_height,
@@ -49,8 +50,7 @@ public:
   OS_HOT bool render_displays_scroll(const std::vector<SDL_Vertex> &spec_verts,
                                      const std::vector<int> &spec_idx,
                                      const uint8_t *new_wf_line_rgba,
-                                     size_t spectrum_height,
-                                     size_t wf_height,
+                                     size_t spectrum_height, size_t wf_height,
                                      size_t line_height);
 
   // Process events. Returns true if should continue, false if quit requested
@@ -70,7 +70,7 @@ public:
   // Labels span center_hz ± sample_rate_hz/2. Caches textures; rebuilds only
   // when center_hz or sample_rate_hz changes.
   void render_frequency_scale(uint32_t center_hz, uint32_t sample_rate_hz,
-                               size_t spectrum_height);
+                              size_t spectrum_height);
 
   // Get dimensions
   [[nodiscard]] size_t width() const noexcept { return m_width; }
@@ -82,13 +82,17 @@ public:
   }
 
   // Get the SDL renderer (for text rendering)
-  [[nodiscard]] SDL_Renderer *get_sdl_renderer() const noexcept { return m_renderer; }
+  [[nodiscard]] SDL_Renderer *get_sdl_renderer() const noexcept {
+    return m_renderer;
+  }
 
   // DEBUG (frame-timing branch): wall-clock duration in milliseconds of the
   // most recent SDL_RenderPresent call. Lets the main loop split the SDL
   // present/swap/flush cost out of the total render time. One present per
   // frame, so this is overwritten (not accumulated) each render call.
-  [[nodiscard]] double last_present_ms() const noexcept { return m_last_present_ms; }
+  [[nodiscard]] double last_present_ms() const noexcept {
+    return m_last_present_ms;
+  }
 
   // DEBUG: supply the latest per-second timing snapshot for the on-screen
   // overlay (toggled with 'T'). When enabled, render_overlays() draws it
@@ -109,8 +113,9 @@ private:
   // Compose the base frame into m_frame_tex: clear, blit the waterfall source
   // region to the bottom, then draw the spectrum bars over the top region.
   // wf_src may be null to copy the whole source texture.
-  void compose_base(SDL_Texture *wf_tex, const SDL_Rect *wf_src,
-                    const SDL_Rect &wf_dst, const std::vector<SDL_Vertex> &verts,
+  void compose_base(SDL_Texture *wf_tex, const SDL_FRect *wf_src,
+                    const SDL_FRect &wf_dst,
+                    const std::vector<SDL_Vertex> &verts,
                     const std::vector<int> &indices);
 
   // RenderClear + blit m_frame_tex + overlays + present. Shared by all paths.
@@ -138,11 +143,12 @@ private:
   // VSYNC control
   bool m_enable_vsync = false;
 
-  // DEBUG (frame-timing branch): duration of the last present, see last_present_ms().
+  // DEBUG (frame-timing branch): duration of the last present, see
+  // last_present_ms().
   double m_last_present_ms = 0.0;
 
   // DEBUG: latest timing snapshot + visibility for the 'T' overlay.
-  bool   m_timing_overlay_enabled = false;
+  bool m_timing_overlay_enabled = false;
   double m_timing_fps = 0.0;
   double m_timing_cpu_ms = 0.0;
   double m_timing_build_ms = 0.0;
@@ -153,7 +159,7 @@ private:
 
   // Texture cache to avoid recreating textures every frame
   struct CachedTexture {
-    SDL_Texture* texture = nullptr;
+    SDL_Texture *texture = nullptr;
     std::string content;
     SDL_Color color;
     bool valid = false;
@@ -177,11 +183,11 @@ private:
   // m_wf_scroll_tex: the current display frame (TEXTUREACCESS_TARGET).
   // m_wf_scroll_aux: the scratch frame for the next shift+composite.
   // m_wf_line_tex:   narrow streaming texture for the new-line CPU upload.
-  SDL_Texture *m_wf_scroll_tex  = nullptr;
-  SDL_Texture *m_wf_scroll_aux  = nullptr;
-  SDL_Texture *m_wf_line_tex    = nullptr;
-  bool         m_wf_scroll_valid = false;
-  size_t       m_wf_scroll_line_height = 0;
+  SDL_Texture *m_wf_scroll_tex = nullptr;
+  SDL_Texture *m_wf_scroll_aux = nullptr;
+  SDL_Texture *m_wf_line_tex = nullptr;
+  bool m_wf_scroll_valid = false;
+  size_t m_wf_scroll_line_height = 0;
 
   bool ensure_wf_scroll_textures(size_t wf_height, size_t line_height);
 

@@ -2,15 +2,15 @@
 #pragma once
 
 #include "openspectrum/attributes.h"
-#include "spectrum_display.h"
 #include "ring_buffer.h"
+#include "spectrum_display.h"
 
 #include <cstdint>
 #include <memory>
 #include <vector>
 
 // Forward declaration for SDL types (to avoid including SDL.h in header)
-struct SDL_Rect;
+struct SDL_FRect;
 
 namespace openspectrum {
 
@@ -47,16 +47,22 @@ public:
   void reset();
 
   // Get dirty rectangles for incremental rendering
-  [[nodiscard]] const std::vector<SDL_Rect>& get_dirty_rects() const { return m_dirty_rects; }
+  [[nodiscard]] const std::vector<SDL_FRect> &get_dirty_rects() const {
+    return m_dirty_rects;
+  }
   void clear_dirty_rects() { m_dirty_rects.clear(); }
 
   // GPU scroll support: true after reset/LUT-rebuild (full upload needed once),
   // false in steady state where only the newest line changes.
-  [[nodiscard]] bool needs_full_render() const noexcept { return m_needs_full_render || !m_history.full(); }
+  [[nodiscard]] bool needs_full_render() const noexcept {
+    return m_needs_full_render || !m_history.full();
+  }
 
-  // Pixel data for just the newest history line (m_width * get_line_height() * 4 bytes).
-  // Valid when needs_full_render() == false.
-  [[nodiscard]] const uint8_t* get_new_line_rgba() const noexcept { return m_new_line.data(); }
+  // Pixel data for just the newest history line (m_width * get_line_height() *
+  // 4 bytes). Valid when needs_full_render() == false.
+  [[nodiscard]] const uint8_t *get_new_line_rgba() const noexcept {
+    return m_new_line.data();
+  }
 
   [[nodiscard]] size_t get_line_height() const noexcept {
     return std::max<size_t>(1UL, m_height / m_history.capacity());
@@ -79,14 +85,15 @@ private:
   float m_global_max = 0.0f;
 
   // Dirty rectangles for incremental rendering
-  mutable std::vector<SDL_Rect> m_dirty_rects;
+  mutable std::vector<SDL_FRect> m_dirty_rects;
 
   // GPU scroll state
   bool m_needs_full_render = true;
   std::vector<uint8_t> m_new_line; // m_width * get_line_height() * 4 bytes
 
-  // Reusable scratch buffers for add_spectrum_line — avoids per-frame heap alloc
-  std::vector<float>   m_line_buf;
+  // Reusable scratch buffers for add_spectrum_line — avoids per-frame heap
+  // alloc
+  std::vector<float> m_line_buf;
   std::vector<uint8_t> m_quantized_buf;
 
   // Fixed quantization range: -120..0 dB → 0..255
@@ -104,11 +111,11 @@ private:
   void rebuild_rgba_lut();
 
   void render();
-  void render_line_into(const std::vector<uint8_t>& hist_line,
-                        uint8_t* dst_base, size_t rows) const;
+  void render_line_into(const std::vector<uint8_t> &hist_line,
+                        uint8_t *dst_base, size_t rows) const;
   void update_global_range();
 
-  [[nodiscard]] SDL_Rect line_to_rect(size_t line_index) const;
+  [[nodiscard]] SDL_FRect line_to_rect(size_t line_index) const;
 };
 
 } // namespace openspectrum
