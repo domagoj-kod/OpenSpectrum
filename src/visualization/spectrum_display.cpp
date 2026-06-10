@@ -177,9 +177,39 @@ void SpectrumDisplay::update_spectrum(const std::vector<float> &db_values,
   m_sample_rate_hz = sample_rate_hz;
   m_spectrum_data = db_values;
 
+  const size_t n = db_values.size();
+
+  // Video averaging: EMA over the per-bin dB values. Seed (or re-seed after an
+  // FFT-size change) by copying the first frame. Simple fma loop —
+  // auto-vectorizes under -O3 -march=haswell.
+  if (m_avg_enabled) {
+    if (m_avg_data.size() != n) {
+      m_avg_data = db_values;
+    } else {
+      float *avg = m_avg_data.data();
+      const float *cur = db_values.data();
+      for (size_t i = 0; i < n; ++i) {
+        avg[i] += kAvgAlpha * (cur[i] - avg[i]);
+      }
+    }
+  }
+
+  // Max-hold tracks the *raw* spectrum (true peak detector semantics, even
+  // while averaging smooths the drawn bars).
+  if (m_max_hold_enabled) {
+    if (m_max_hold_data.size() != n) {
+      m_max_hold_data = db_values;
+    } else {
+      float *hold = m_max_hold_data.data();
+      const float *cur = db_values.data();
+      for (size_t i = 0; i < n; ++i) {
+        hold[i] = std::max(hold[i], cur[i]);
+      }
+    }
+  }
+
   if (m_autoscale && !db_values.empty()) {
     const float *ptr = db_values.data();
-    const size_t n = db_values.size();
     float min_val = ptr[0];
     float max_val = ptr[0];
     for (size_t i = 1; i < n; ++i) {
@@ -204,7 +234,14 @@ void SpectrumDisplay::build_vertices(float region_w, float region_h,
   verts.clear();
   indices.clear();
 
-  const size_t num_bins = m_spectrum_data.size();
+  // Averaging swaps the bar source; the raw spectrum still drives autoscale
+  // and the max-hold trace (see update_spectrum).
+  const std::vector<float> &bars =
+      (m_avg_enabled && m_avg_data.size() == m_spectrum_data.size())
+          ? m_avg_data
+          : m_spectrum_data;
+
+  const size_t num_bins = bars.size();
   const float db_range = m_max_db - m_min_db;
   if (num_bins == 0 || db_range <= 0.0F || region_w <= 0.0F || region_h <= 0.0F) {
     return;
@@ -213,11 +250,13 @@ void SpectrumDisplay::build_vertices(float region_w, float region_h,
   const float bin_width = region_w / static_cast<float>(num_bins);
   const float db_to_height = region_h / db_range;
 
-  verts.reserve(num_bins * 4);
-  indices.reserve(num_bins * 6);
+  const bool draw_hold =
+      m_max_hold_enabled && m_max_hold_data.size() == num_bins;
+  verts.reserve(num_bins * (draw_hold ? 8 : 4));
+  indices.reserve(num_bins * (draw_hold ? 12 : 6));
 
   for (size_t i = 0; i < num_bins; ++i) {
-    float const db = m_spectrum_data[i];
+    float const db = bars[i];
     float const bar_height =
         std::clamp((db - m_min_db) * db_to_height, 0.0F, region_h);
 
@@ -246,6 +285,35 @@ void SpectrumDisplay::build_vertices(float region_w, float region_h,
     indices.push_back(base + 0);
     indices.push_back(base + 2);
     indices.push_back(base + 3);
+  }
+
+  // Max-hold overlay: one thin horizontal segment per bin at the held peak,
+  // drawn after (= on top of) the bars in the same SDL_RenderGeometry call.
+  // White reads against every palette; the stepped segments mirror bar tops.
+  if (draw_hold) {
+    constexpr float kHoldThickness = 2.0F;
+    constexpr SDL_FColor kHoldColor = {1.0F, 1.0F, 1.0F, 1.0F};
+    for (size_t i = 0; i < num_bins; ++i) {
+      float const hold_height = std::clamp(
+          (m_max_hold_data[i] - m_min_db) * db_to_height, 0.0F, region_h);
+      float const x0 = static_cast<float>(i) * bin_width;
+      float const x1 = x0 + bin_width;
+      float const y0 = std::max(region_h - hold_height - kHoldThickness, 0.0F);
+      float const y1 = y0 + kHoldThickness;
+
+      auto const base = static_cast<int>(verts.size());
+      verts.push_back({SDL_FPoint{x0, y0}, kHoldColor, SDL_FPoint{0.0F, 0.0F}});
+      verts.push_back({SDL_FPoint{x1, y0}, kHoldColor, SDL_FPoint{0.0F, 0.0F}});
+      verts.push_back({SDL_FPoint{x1, y1}, kHoldColor, SDL_FPoint{0.0F, 0.0F}});
+      verts.push_back({SDL_FPoint{x0, y1}, kHoldColor, SDL_FPoint{0.0F, 0.0F}});
+
+      indices.push_back(base + 0);
+      indices.push_back(base + 1);
+      indices.push_back(base + 2);
+      indices.push_back(base + 0);
+      indices.push_back(base + 2);
+      indices.push_back(base + 3);
+    }
   }
 }
 

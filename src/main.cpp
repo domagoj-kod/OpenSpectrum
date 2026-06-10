@@ -410,7 +410,8 @@ auto main(int argc, char *argv[]) -> int {
     LOG_INFO("Starting main loop. Press ESC or Ctrl+C to stop.");
     LOG_INFO(
         "Controls: +/- Frequency, r/f Gain, 1-5 FFT size, UP/DOWN Window, "
-        "c/Shift+C Palette, Ctrl+S Toggle IQ logging, e Export spectrogram, "
+        "c/Shift+C Palette, m Max-hold, a Average, x Reset traces, "
+        "Ctrl+S Toggle IQ logging, e Export spectrogram, "
         "Shift/Ctrl for fine/coarse");
 
     std::vector<std::complex<float>> fft_output;
@@ -492,6 +493,16 @@ auto main(int argc, char *argv[]) -> int {
         spectrum_display.set_color_map(map);  // recolors next frame
         waterfall_display.set_color_map(map); // repaints full history via LUT
         control_state.clear_palette_change_flag();
+      }
+
+      // === 1.1c. Trace modes ('m' max-hold, 'a' averaging, 'x' reset) ===
+      // Plain bool pushes; the display resets its trace state only on an
+      // actual transition, so doing this every frame costs nothing.
+      spectrum_display.set_max_hold(control_state.max_hold_enabled());
+      spectrum_display.set_averaging(control_state.averaging_enabled());
+      if (control_state.trace_reset_requested()) {
+        control_state.clear_trace_reset();
+        spectrum_display.reset_traces();
       }
 
       // === 1.2. Check for FFT size change and reinitialize if needed ===

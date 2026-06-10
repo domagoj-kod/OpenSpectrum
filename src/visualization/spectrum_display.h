@@ -171,6 +171,27 @@ public:
   [[nodiscard]] float min_db() const noexcept { return m_min_db; }
   [[nodiscard]] float max_db() const noexcept { return m_max_db; }
 
+  // Trace modes. Averaging replaces the drawn bars with an exponential moving
+  // average of the per-bin dB values (video averaging); max-hold overlays a
+  // line at the running per-bin maximum of the *raw* spectrum. Both traces
+  // re-seed automatically when the bin count changes (FFT size switch).
+  void set_averaging(bool on) {
+    if (on != m_avg_enabled) {
+      m_avg_enabled = on;
+      m_avg_data.clear(); // re-seed from the next update
+    }
+  }
+  void set_max_hold(bool on) {
+    if (on != m_max_hold_enabled) {
+      m_max_hold_enabled = on;
+      m_max_hold_data.clear();
+    }
+  }
+  void reset_traces() {
+    m_avg_data.clear();
+    m_max_hold_data.clear();
+  }
+
 private:
   size_t m_width;
   size_t m_height;
@@ -178,6 +199,16 @@ private:
 
   std::vector<float> m_spectrum_data;
   SpectrumPalette m_palette;
+
+  // Trace state. m_avg_data is the EMA accumulator; m_max_hold_data the
+  // running raw-spectrum maximum. Empty vector == not yet seeded.
+  std::vector<float> m_avg_data;
+  std::vector<float> m_max_hold_data;
+  bool m_avg_enabled = false;
+  bool m_max_hold_enabled = false;
+  // EMA weight for new data: ~6-frame settling, smooths the noise floor
+  // without visibly lagging real signal changes at 60 fps.
+  static constexpr float kAvgAlpha = 0.25F;
 
   float m_center_freq_hz = 0.0f;
   float m_sample_rate_hz = 0.0f;

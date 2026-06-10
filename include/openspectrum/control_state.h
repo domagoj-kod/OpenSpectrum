@@ -110,6 +110,22 @@ public:
   bool timing_overlay_enabled() const noexcept { return m_timing_overlay; }
   void toggle_timing_overlay() noexcept { m_timing_overlay = !m_timing_overlay; }
 
+  // Spectrum trace modes ('m' max-hold, 'a' video averaging, 'x' reset).
+  // SDL/display-agnostic flags; main.cpp pushes them into SpectrumDisplay.
+  bool max_hold_enabled() const noexcept { return m_max_hold; }
+  void toggle_max_hold() noexcept {
+    m_max_hold = !m_max_hold;
+    mark_status_dirty();
+  }
+  bool averaging_enabled() const noexcept { return m_averaging; }
+  void toggle_averaging() noexcept {
+    m_averaging = !m_averaging;
+    mark_status_dirty();
+  }
+  bool trace_reset_requested() const noexcept { return m_trace_reset; }
+  void request_trace_reset() noexcept { m_trace_reset = true; }
+  void clear_trace_reset() noexcept { m_trace_reset = false; }
+
   // Apply all pending changes to device (batch update)
   void apply_to_device(RtlSdrDevice &dev) const;
 
@@ -143,6 +159,9 @@ private:
   bool m_iq_logging_toggle = false;
   bool m_spectrogram_export_requested = false;
   bool m_timing_overlay = false;
+  bool m_max_hold = false;
+  bool m_averaging = false;
+  bool m_trace_reset = false;
 
   // Status string caching for performance
   mutable std::string m_cached_status;
