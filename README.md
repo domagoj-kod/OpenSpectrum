@@ -9,7 +9,7 @@ OpenSpectrum is a **modular Software-Defined Radio (SDR) spectrum analyzer** bui
 Inspired by GNU Radio's pipeline architecture, OpenSpectrum provides a lightweight, real-time spectrum analysis platform that is both performant and maintainable.
 
 <p align="center" width="100%">
-    <img src="./assets/ui-layout.png">
+    <img src="./assets/layout.png">
 </p>
 
 > [!IMPORTANT]
@@ -40,6 +40,7 @@ all simultaneously in the IQ stream.
 | **Multi-Device Support** | RTL2832U (via librtlsdr) with architecture ready for proprietary SDR hardware |
 | **Real-Time FFT Analysis** | Configurable FFT size (1024–16384), six window functions, and DC removal |
 | **Dual Visualization** | GPU-rendered spectrum display + waterfall display, with five color palettes |
+| **Cursor Readout** | Hover the spectrum for a marker reading the frequency and amplitude under the cursor |
 | **Trace Modes** | Max-hold and video (EMA) averaging traces overlaid on the live spectrum |
 | **HF Reception** | `--ppm` correction, `--bias-t` antenna power, and `--direct-sampling` for the HF range |
 | **IQ Capture & Playback** | Record raw IQ to disk (`Ctrl+S`) and replay captures with `--play` — no hardware needed |
@@ -225,6 +226,8 @@ Apart from command-line arguments, the program is driven by keyboard shortcuts f
 | `e` | Export spectrogram as PNG |
 | `ESC` / `q` | Exit the program |
 | `Ctrl+C` | Graceful shutdown (terminal) |
+
+**Mouse:** hover the spectrum to drop a marker — a vertical cursor with a fixed top-left readout of the frequency and amplitude at that point.
 
 ### Command-Line Configuration (Future)
 
