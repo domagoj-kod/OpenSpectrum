@@ -305,9 +305,11 @@ int main() {
 
 ## Testing
 
-### Run Unit Tests
-
-At the moment test suites are excluded from Makefile and standalone compilation is required.
+There is no automated test suite. OpenSpectrum is a real-time GUI/SDR
+application whose behavior is verified by running it against live hardware (or a
+recorded `.iq` capture via `--play`); the former standalone test probes were
+removed before v3.0.0. Validation is manual — build, run, and confirm the
+spectrum/waterfall and controls behave as expected.
 
 ### Verify Hardware
 
