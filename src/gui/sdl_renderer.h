@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <SDL3/SDL.h>
@@ -122,6 +123,37 @@ public:
   [[nodiscard]] float cursor_x() const noexcept { return m_cursor_x; }
   [[nodiscard]] float cursor_y() const noexcept { return m_cursor_y; }
 
+  // Persistent frequency markers (vertical reference lines through both panes).
+  // main() owns the marker list (they're frequencies); each frame it sends the
+  // on-screen positions + live levels here for drawing. The clicks that
+  // create/remove them are captured in poll_events and drained by main().
+  struct Marker {
+    int index = 0;          // 1-based, for the "Mn" tag
+    float x = 0.0F;         // render-space x (valid when on_screen)
+    bool on_screen = false; // false when tuned out of the current span
+    double freq_hz = 0.0;
+    float db = 0.0F; // live amplitude at the marker (when on_screen)
+  };
+  void set_markers(std::vector<Marker> markers) {
+    m_markers = std::move(markers);
+  }
+
+  // A mouse click captured in poll_events, in render coordinates.
+  struct ClickEvent {
+    float x = 0.0F;
+    float y = 0.0F;
+    bool right = false; // true = right button (remove), false = left (drop)
+  };
+  // Drain the clicks accumulated since the last call.
+  [[nodiscard]] std::vector<ClickEvent> take_clicks() {
+    return std::exchange(m_clicks, {});
+  }
+  // True once if the clear-all-markers key (Delete) was pressed since last
+  // call.
+  [[nodiscard]] bool take_clear_markers() noexcept {
+    return std::exchange(m_clear_markers, false);
+  }
+
 private:
   // Render overlays (status bar, peak indicator, IQ status, freq scale)
   // Called after rendering the main texture
@@ -131,6 +163,11 @@ private:
   // small box with frequency + amplitude. No-op when m_cursor_readout.active is
   // false. Called at the end of render_overlays so it sits on top.
   void draw_cursor_readout();
+
+  // Draw the persistent frequency markers: vertical lines + "Mn" tags, and the
+  // bottom-left list panel (frequency + live level). Called from
+  // render_overlays before the cursor readout so the live cursor sits on top.
+  void draw_markers();
 
   // Draw the spectrum bars on the GPU (one SDL_RenderGeometry call, solid-color
   // geometry, no texture). Called into the active render target.
@@ -232,6 +269,11 @@ private:
   float m_cursor_x = 0.0F;
   float m_cursor_y = 0.0F;
   CursorReadout m_cursor_readout;
+
+  // Frequency markers to draw, and the click/clear input drained by main().
+  std::vector<Marker> m_markers;
+  std::vector<ClickEvent> m_clicks;
+  bool m_clear_markers = false;
 };
 
 } // namespace openspectrum
