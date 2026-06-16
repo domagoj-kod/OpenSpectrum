@@ -25,10 +25,13 @@ Release / PGO targets enable: `-march=haswell` (AVX2 + FMA3), `-flto`, `-ffuncti
 
 There is no test suite. The former `test/` directory (standalone SDL2-era hardware-acceleration probes, never part of any build) was removed before v3.0.0.
 
-Linting (clang-tidy config in `.clang-tidy`):
+Linting is **gradual** (clang-tidy config in `.clang-tidy`, clang-format in `.clang-format`): format and tidy only the lines changed since a base ref, never the whole tree. A one-time full pass would reflow the hand-tuned AVX2 blocks and the 8x16 font bitmap table for no benefit. Use the wrapper:
 ```bash
-clang-tidy src/**/*.cpp -- $(pkg-config --cflags sdl3) -Isrc -Iinclude -Ithird_party/pocketfft -std=c++20
+./lint.sh                # format changed lines (vs main) in place + clang-tidy the diff
+./lint.sh --check        # non-mutating; exits non-zero if formatting or tidy flags anything
+./lint.sh HEAD~3         # diff against an arbitrary base ref
 ```
+It runs `git clang-format <base>` + `clang-tidy-diff`. The include flags it passes mirror the Makefile's `INCLUDES` — the **per-module dirs are required** (e.g. `include/openspectrum/control_state.h` does `#include "signal_processor.h"`, which lives in `src/signal/`), so a bare `-Isrc -Iinclude` is not enough and yields a `file not found` clang-diagnostic-error.
 
 **Header-dependency tracking**: the per-object compile rules pass `DEPFLAGS := -MMD -MP`, emitting a `.d` file beside each `.o` that lists the headers it pulled in; these are `-included` at the bottom of the Makefile, so editing a header rebuilds every `.cpp` that includes it. `DEPFLAGS` is kept **separate from `CXXFLAGS` on purpose** — `release` / `profile` / `profile-gen` / `profile-use` override `CXXFLAGS` via recursive make, which would strip `-MMD -MP` if it lived there. If you add a new compile rule, append `$(DEPFLAGS)` to it.
 
