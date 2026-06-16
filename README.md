@@ -40,7 +40,8 @@ all simultaneously in the IQ stream.
 | **Multi-Device Support** | RTL2832U (via librtlsdr) with architecture ready for proprietary SDR hardware |
 | **Real-Time FFT Analysis** | Configurable FFT size (1024–16384), six window functions, and DC removal |
 | **Dual Visualization** | GPU-rendered spectrum display + waterfall display, with five color palettes |
-| **Cursor Readout** | Hover the spectrum for a marker reading the frequency and amplitude under the cursor |
+| **Cursor Readout** | Hover the spectrum or waterfall for a live frequency + amplitude (or time-ago) readout under the cursor |
+| **Frequency Markers** | Click to drop persistent reference lines (with live level) that track frequency as you tune — mark and watch known channels |
 | **Trace Modes** | Max-hold and video (EMA) averaging traces overlaid on the live spectrum |
 | **HF Reception** | `--ppm` correction, `--bias-t` antenna power, and `--direct-sampling` for the HF range |
 | **IQ Capture & Playback** | Record raw IQ to disk (`Ctrl+S`) and replay captures with `--play` — no hardware needed |
@@ -227,7 +228,11 @@ Apart from command-line arguments, the program is driven by keyboard shortcuts f
 | `ESC` / `q` | Exit the program |
 | `Ctrl+C` | Graceful shutdown (terminal) |
 
-**Mouse:** hover the spectrum to drop a marker — a vertical cursor with a fixed top-left readout of the frequency and amplitude at that point.
+### Mouse Controls
+
+- **Hover** the spectrum or waterfall for a live readout: a cursor at that frequency showing the amplitude (spectrum) or how long ago the line was captured (waterfall), in a fixed panel.
+- **Left-click** drops a persistent frequency marker — a vertical reference line through both panes, tagged `Mn`, with its frequency and live level listed in the bottom-left panel. Markers track frequency as you retune (up to 16).
+- **Right-click** removes the nearest marker; **Delete** clears all.
 
 ### Command-Line Configuration (Future)
 
