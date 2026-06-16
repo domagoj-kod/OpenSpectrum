@@ -506,6 +506,12 @@ auto main(int argc, char *argv[]) -> int {
     std::vector<SDL_Vertex> spec_verts;
     std::vector<int> spec_idx;
 
+    // Persistent frequency markers (Hz). Anchored to absolute frequency, so
+    // they slide with retuning and hide when tuned out of the current span.
+    // Left-click drops, right-click removes nearest, Delete clears all.
+    constexpr size_t kMaxMarkers = 16;
+    std::vector<double> markers;
+
     // Track peak amplitude for display
     float peak_db = -140.0F;
 
@@ -768,6 +774,72 @@ auto main(int argc, char *argv[]) -> int {
       // render_overlays) on whichever present path runs this frame.
       renderer.set_timing_overlay(control_state.timing_overlay_enabled(),
                                   ov_fps, ov_cpu, ov_build, ov_present);
+
+      // === Frequency markers (persistent vertical reference lines) ===
+      {
+        const double rate = static_cast<double>(effective_rate);
+        const double center =
+            static_cast<double>(control_state.get_frequency());
+        const double left_hz = center - rate / 2.0;
+        const float region_w = static_cast<float>(renderer.width());
+        const float total_h = static_cast<float>(spectrum_display.height() +
+                                                 waterfall_display.height());
+
+        if (renderer.take_clear_markers()) {
+          markers.clear();
+        }
+        for (const auto &click : renderer.take_clicks()) {
+          if (click.x < 0.0F || click.x >= region_w || click.y < 0.0F ||
+              click.y >= total_h) {
+            continue;
+          }
+          if (click.right) {
+            // Remove the nearest on-screen marker within a small pixel radius.
+            double best = 12.0;
+            int best_i = -1;
+            for (size_t i = 0; i < markers.size(); ++i) {
+              const double mx = ((markers[i] - left_hz) / rate) *
+                                static_cast<double>(region_w);
+              if (mx < 0.0 || mx >= static_cast<double>(region_w)) {
+                continue;
+              }
+              const double d = std::abs(mx - static_cast<double>(click.x));
+              if (d < best) {
+                best = d;
+                best_i = static_cast<int>(i);
+              }
+            }
+            if (best_i >= 0) {
+              markers.erase(markers.begin() + best_i);
+            }
+          } else if (markers.size() < kMaxMarkers) {
+            markers.push_back(left_hz + (static_cast<double>(click.x) /
+                                         static_cast<double>(region_w)) *
+                                            rate);
+          }
+        }
+
+        const float spec_h = static_cast<float>(spectrum_display.height());
+        std::vector<SdlRenderer::Marker> draw_markers;
+        draw_markers.reserve(markers.size());
+        int idx = 1;
+        for (const double f : markers) {
+          SdlRenderer::Marker m;
+          m.index = idx++;
+          m.freq_hz = f;
+          const double xrel = (f - left_hz) / rate;
+          m.on_screen = (xrel >= 0.0 && xrel < 1.0);
+          m.x = static_cast<float>(xrel * static_cast<double>(region_w));
+          if (m.on_screen) {
+            SpectrumDisplay::CursorSample s;
+            if (spectrum_display.sample_at_x(m.x, region_w, spec_h, s)) {
+              m.db = s.db;
+            }
+          }
+          draw_markers.push_back(m);
+        }
+        renderer.set_markers(std::move(draw_markers));
+      }
 
       // === Cursor readout (mouse hover over the spectrum pane) ===
       // Marker style: cursor X -> frequency; amplitude = the trace's dB at that

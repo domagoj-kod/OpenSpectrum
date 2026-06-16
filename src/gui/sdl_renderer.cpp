@@ -404,7 +404,106 @@ void SdlRenderer::render_overlays() {
     }
   }
 
+  draw_markers();
   draw_cursor_readout();
+}
+
+void SdlRenderer::draw_markers() {
+  if (m_markers.empty() || !m_text_renderer) {
+    return;
+  }
+  // Magenta reads against every palette (JET/VIRIDIS/HOT/GRAY/BLU-RED) and is
+  // distinct from the gray hover cursor and the white max-hold trace.
+  constexpr SDL_Color kClr = {255, 80, 255, 255};
+
+  Uint8 r;
+  Uint8 g;
+  Uint8 b;
+  Uint8 a;
+  SDL_GetRenderDrawColor(m_renderer, &r, &g, &b, &a);
+
+  // Vertical reference lines spanning both panes, with an "Mn" tag at the top.
+  SDL_SetRenderDrawColor(m_renderer, kClr.r, kClr.g, kClr.b, 220);
+  for (const auto &m : m_markers) {
+    if (m.on_screen) {
+      SDL_RenderLine(m_renderer, m.x, 0.0F, m.x,
+                     static_cast<float>(m_height) - 1.0F);
+    }
+  }
+  for (const auto &m : m_markers) {
+    if (!m.on_screen) {
+      continue;
+    }
+    char tag[8];
+    std::snprintf(tag, sizeof(tag), "M%d", m.index);
+    SDL_Texture *t = m_text_renderer->render_text(tag, kClr);
+    if (t != nullptr) {
+      int w = 0;
+      int h = 0;
+      m_text_renderer->get_text_size(tag, &w, &h);
+      SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
+      SDL_FRect const d = {m.x + 2.0F, 2.0F, static_cast<float>(w),
+                           static_cast<float>(h)};
+      SDL_RenderTexture(m_renderer, t, nullptr, &d);
+      SDL_DestroyTexture(t);
+    }
+  }
+
+  // Bottom-left list panel: frequency + live level (or "off-screen") per
+  // marker.
+  std::vector<std::string> lines;
+  lines.reserve(m_markers.size());
+  for (const auto &m : m_markers) {
+    char line[48];
+    if (m.on_screen) {
+      std::snprintf(line, sizeof(line), "M%d  %.3f MHz  %.1f dB", m.index,
+                    m.freq_hz / 1.0e6, static_cast<double>(m.db));
+    } else {
+      std::snprintf(line, sizeof(line), "M%d  %.3f MHz  (off-screen)", m.index,
+                    m.freq_hz / 1.0e6);
+    }
+    lines.emplace_back(line);
+  }
+
+  int line_h = 0;
+  int text_w = 0;
+  for (const auto &s : lines) {
+    int w = 0;
+    int h = 0;
+    m_text_renderer->get_text_size(s, &w, &h);
+    text_w = std::max(text_w, w);
+    line_h = std::max(line_h, h);
+  }
+
+  const int pad = 5;
+  const auto box_w = static_cast<float>(text_w + 2 * pad);
+  const auto box_h =
+      static_cast<float>(static_cast<int>(lines.size()) * line_h + 2 * pad);
+  const float bx = 8.0F;
+  const float by = static_cast<float>(m_height) - box_h - 8.0F;
+
+  SDL_FRect const bg = {bx, by, box_w, box_h};
+  SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 200);
+  SDL_RenderFillRect(m_renderer, &bg);
+
+  for (size_t i = 0; i < lines.size(); ++i) {
+    SDL_Texture *t = m_text_renderer->render_text(lines[i], kClr);
+    if (t != nullptr) {
+      int w = 0;
+      int h = 0;
+      m_text_renderer->get_text_size(lines[i], &w, &h);
+      SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
+      SDL_FRect const d = {bx + static_cast<float>(pad),
+                           by + static_cast<float>(pad) +
+                               static_cast<float>(i) *
+                                   static_cast<float>(line_h),
+                           static_cast<float>(w), static_cast<float>(h)};
+      SDL_RenderTexture(m_renderer, t, nullptr, &d);
+      SDL_DestroyTexture(t);
+    }
+  }
+
+  SDL_SetRenderDrawColor(m_renderer, r, g, b, a);
 }
 
 void SdlRenderer::draw_cursor_readout() {
@@ -637,6 +736,9 @@ auto SdlRenderer::poll_events(ControlState *state) -> bool {
       if (event.key.key == SDLK_ESCAPE || event.key.key == SDLK_Q) {
         return false;
       }
+      if (event.key.key == SDLK_DELETE) {
+        m_clear_markers = true; // clear all frequency markers
+      }
 
       // Handle control state if provided
       if (state != nullptr) {
@@ -666,6 +768,17 @@ auto SdlRenderer::poll_events(ControlState *state) -> bool {
       m_cursor_x = event.motion.x;
       m_cursor_y = event.motion.y;
       m_cursor_active = true;
+      break;
+
+    case SDL_EVENT_MOUSE_BUTTON_DOWN:
+      // Left = drop a frequency marker, right = remove the nearest. main()
+      // owns the marker list and processes these via take_clicks().
+      SDL_ConvertEventToRenderCoordinates(m_renderer, &event);
+      m_cursor_x = event.button.x;
+      m_cursor_y = event.button.y;
+      m_cursor_active = true;
+      m_clicks.push_back({event.button.x, event.button.y,
+                          event.button.button == SDL_BUTTON_RIGHT});
       break;
 
     case SDL_EVENT_WINDOW_MOUSE_LEAVE:
