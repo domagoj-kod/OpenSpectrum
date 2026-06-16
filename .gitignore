@@ -157,3 +157,7 @@ compile_commands.json
 /pgo-data/
 /build/
 /dist/
+
+# Runtime output (IQ captures can be hundreds of MB; spectrogram exports)
+/data/
+/spectrograms/

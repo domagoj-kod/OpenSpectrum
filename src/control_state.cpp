@@ -165,6 +165,15 @@ auto ControlState::get_status_string() const -> std::string {
                       " | FFT: " + std::to_string(fft_size) +
                       " | WINDOW: " + format_window(window_function) +
                       " | PAL: " + palette_name(palette_index);
+    if (m_averaging || m_max_hold) {
+      m_cached_status += " | TRC:";
+      if (m_averaging) {
+        m_cached_status += " AVG";
+      }
+      if (m_max_hold) {
+        m_cached_status += " MAX";
+      }
+    }
   }
   m_status_dirty = false;
   return m_cached_status;

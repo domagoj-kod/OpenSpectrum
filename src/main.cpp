@@ -2,6 +2,7 @@
 
 #include "fft/fft_analyzer.h"
 #include "gui/sdl_renderer.h"
+#include "hardware/iq_playback.h"
 #include "hardware/rtl_sdr_device.h"
 #include "openspectrum/control_state.h"
 #include "openspectrum/frame_pool.h"
@@ -75,6 +76,15 @@ static std::mutex g_accumulator_mutex;
 // weak_ptr<FramePool> and safely no-op when the pool has been destroyed.
 static std::shared_ptr<FramePool> g_frame_pool;
 
+// IQ capture tap. The logger lives in main(); the callback writes raw samples
+// to it BEFORE the drain-to-newest throttle, so captures are full-rate rather
+// than the ~1-frame-per-render-tick decimation the old render-loop tap produced.
+// g_iq_capturing gates the hot path so an idle callback never touches the
+// logger's mutex; the logger's own mutex remains the correctness boundary
+// (write_samples no-ops if a concurrent stop_capture already closed the file).
+static IqLogger *g_iq_logger = nullptr;
+static std::atomic<bool> g_iq_capturing{false};
+
 // Memory leak fix: Maximum queue size to prevent unbounded growth
 // At 8ms timeout and typical sample rates, 32 buffers is ~256ms of data
 // Each buffer at FFT 4096 = 4096 * 8 bytes = 32KB
@@ -115,6 +125,13 @@ static void async_sample_callback(FrameHandle samples_frame) {
   if (g_async_fft_size == 0 || !samples_frame) {
     // FFT size not set yet, skip
     return;
+  }
+
+  // Faithful IQ capture: tap the full producer stream here, before the render
+  // loop's drain-to-newest throttle discards any backlog. Allocation-free
+  // pointer overload — this is the hot device-callback thread.
+  if (g_iq_capturing.load(std::memory_order_relaxed) && g_iq_logger != nullptr) {
+    g_iq_logger->write_samples(samples_frame.data(), samples_frame.size());
   }
 
   std::unique_lock<std::mutex> acc_lock(g_accumulator_mutex);
@@ -291,13 +308,43 @@ auto main(int argc, char *argv[]) -> int {
     control_state.set_window(config.window_function);
     LOG_INFO("Runtime controls initialized");
 
+    // 1.55 Playback mode (--play): replay a .iq capture instead of opening
+    // hardware. The .meta.json sidecar (written by the IQ logger) overrides
+    // center frequency and sample rate so the freq scale matches the capture;
+    // effective_rate is what every downstream consumer uses from here on.
+    const bool playback_mode = !config.play_file.empty();
+    uint32_t effective_rate = static_cast<uint32_t>(config.sample_rate_hz);
+    if (playback_mode) {
+      // No tuner: lift the RTL2832U tuning limits so a capture's center
+      // frequency (e.g. an HF recording) displays unclamped.
+      DeviceConstraints unconstrained = control_state.get_constraints();
+      unconstrained.min_frequency_hz = 0;
+      unconstrained.max_frequency_hz = 0xFFFFFFFFU;
+      control_state.set_constraints(unconstrained);
+
+      uint32_t meta_freq = 0;
+      uint32_t meta_rate = 0;
+      if (IqPlaybackSource::read_meta_sidecar(config.play_file, meta_freq,
+                                              meta_rate)) {
+        control_state.set_frequency(meta_freq);
+        effective_rate = meta_rate;
+        LOG_INFO("Playback metadata: freq=" +
+                 ControlState::format_frequency(meta_freq) +
+                 ", rate=" + std::to_string(meta_rate) + " Hz");
+      } else {
+        LOG_WARNING("No .meta.json sidecar for " + config.play_file +
+                    " — using command-line freq/rate");
+      }
+      control_state.mark_status_dirty();
+    }
+
     // 1.6 Initialize IQ logger (if enabled)
     IqLoggerConfig iq_logger_config;
     if (!config.iq_output_file.empty()) {
       iq_logger_config.filename_prefix = config.iq_output_file;
     }
     IqLogger iq_logger(iq_logger_config);
-    bool iq_capturing = false;
+    g_iq_logger = &iq_logger; // producer-thread capture tap (see callback)
     std::chrono::steady_clock::time_point iq_capture_start;
 
     // Set up callback for when capture completes
@@ -309,12 +356,11 @@ auto main(int argc, char *argv[]) -> int {
     // Start IQ capture if enabled via command line
     if (config.iq_logging_enabled) {
       iq_logger.start_capture(
-          static_cast<uint32_t>(config.center_freq_hz),
-          static_cast<uint32_t>(config.sample_rate_hz), config.gain_db,
+          control_state.get_frequency(), effective_rate, config.gain_db,
           config.fft_size,
           SignalProcessor::window_function_to_string(config.window_function),
           "Command-line capture");
-      iq_capturing = true;
+      g_iq_capturing.store(true, std::memory_order_relaxed);
       iq_capture_start = std::chrono::steady_clock::now();
       LOG_INFO("IQ logging enabled: " + iq_logger.get_data_filename());
     }
@@ -332,25 +378,9 @@ auto main(int argc, char *argv[]) -> int {
     g_frame_pool = std::make_shared<FramePool>(FFT_SIZE, 32);
     LOG_INFO("FramePool initialized for FFT size: " + std::to_string(FFT_SIZE));
 
-    // 2. Initialize hardware
-    LOG_INFO("Initializing RTL-SDR device...");
-    RtlSdrDevice dev;
-    if (!dev.open()) {
-      LOG_ERROR("Failed to open RTL-SDR device");
-      return 1;
-    }
-
-    dev.set_sample_rate(static_cast<uint32_t>(config.sample_rate_hz));
-    dev.set_frequency(control_state.get_frequency());
-    dev.set_gain(control_state.get_gain());
-    dev.set_fft_size(FFT_SIZE); // Set FFT size for frame pool
-
-    // CRITICAL: flush USB buffer before starting
-    dev.reset_buffer();
-
-    // Set up async callback and start streaming
-    // Note: FFT_SIZE is used here, will be updated if FFT size changes
-    // dynamically
+    // 2. Initialize the sample source: RTL-SDR hardware, or file playback.
+    // Both feed the same FrameHandle callback path; everything downstream is
+    // source-agnostic.
     g_async_fft_size = FFT_SIZE;
 
     // Use frame-based callback for zero-allocation
@@ -358,16 +388,66 @@ auto main(int argc, char *argv[]) -> int {
     auto frame_callback = [](FrameHandle samples_frame) {
       async_sample_callback(std::move(samples_frame));
     };
-    dev.set_frame_callback(frame_callback);
-    dev.start_streaming(STREAM_BUFF);
-    LOG_INFO("RTL-SDR async streaming started with " +
-             std::to_string(STREAM_BUFF) +
-             " buffers, FFT size: " + std::to_string(FFT_SIZE));
 
-    LOGS_INFO << "RTL-SDR initialized: freq="
-              << static_cast<int>(config.center_freq_hz)
-              << "Hz, rate=" << static_cast<int>(config.sample_rate_hz)
-              << "Hz, gain=" << config.gain_db << "dB";
+    std::unique_ptr<RtlSdrDevice> dev;
+    std::unique_ptr<IqPlaybackSource> playback;
+
+    if (playback_mode) {
+      playback =
+          std::make_unique<IqPlaybackSource>(config.play_file, effective_rate);
+      if (!playback->open()) {
+        LOG_ERROR("Failed to open IQ playback file");
+        return 1;
+      }
+      playback->set_frame_callback(frame_callback);
+      playback->start(FFT_SIZE, g_frame_pool);
+      LOG_INFO("IQ playback started: " + config.play_file +
+               ", FFT size: " + std::to_string(FFT_SIZE));
+    } else {
+      LOG_INFO("Initializing RTL-SDR device...");
+      dev = std::make_unique<RtlSdrDevice>();
+      if (!dev->open()) {
+        LOG_ERROR("Failed to open RTL-SDR device");
+        return 1;
+      }
+
+      // One-shot device options (CLI-only by design: bias-T accidentally
+      // toggled into a shorted antenna is a hardware risk, and direct sampling
+      // needs the tuner reconfigured before streaming starts).
+      dev->set_freq_correction(config.ppm_correction);
+      if (config.bias_tee) {
+        dev->set_bias_tee(true);
+      }
+      if (config.direct_sampling && dev->set_direct_sampling(2)) {
+        // Q-branch samples the RTL2832U ADC directly: usable 0 - 14.4 MHz
+        // (Nyquist of the 28.8 MHz crystal). Re-constrain tuning so +/- keys
+        // stay inside the HF range; set_constraints clamps the current freq.
+        DeviceConstraints hf = control_state.get_constraints();
+        hf.min_frequency_hz = 0;
+        hf.max_frequency_hz = 14'400'000;
+        control_state.set_constraints(hf);
+        control_state.mark_status_dirty();
+      }
+
+      dev->set_sample_rate(effective_rate);
+      dev->set_frequency(control_state.get_frequency());
+      dev->set_gain(control_state.get_gain());
+      dev->set_fft_size(FFT_SIZE); // Set FFT size for frame pool
+
+      // CRITICAL: flush USB buffer before starting
+      dev->reset_buffer();
+
+      dev->set_frame_callback(frame_callback);
+      dev->start_streaming(STREAM_BUFF);
+      LOG_INFO("RTL-SDR async streaming started with " +
+               std::to_string(STREAM_BUFF) +
+               " buffers, FFT size: " + std::to_string(FFT_SIZE));
+
+      LOGS_INFO << "RTL-SDR initialized: freq="
+                << static_cast<int>(config.center_freq_hz)
+                << "Hz, rate=" << static_cast<int>(effective_rate)
+                << "Hz, gain=" << config.gain_db << "dB";
+    }
 
     // 3. Initialize signal processor
     SignalProcessor signal_processor(FFT_SIZE);
@@ -408,10 +488,10 @@ auto main(int argc, char *argv[]) -> int {
 
     // Main processing loop
     LOG_INFO("Starting main loop. Press ESC or Ctrl+C to stop.");
-    LOG_INFO(
-        "Controls: +/- Frequency, r/f Gain, 1-5 FFT size, UP/DOWN Window, "
-        "c/Shift+C Palette, Ctrl+S Toggle IQ logging, e Export spectrogram, "
-        "Shift/Ctrl for fine/coarse");
+    LOG_INFO("Controls: +/- Frequency, r/f Gain, 1-5 FFT size, UP/DOWN Window, "
+             "c/Shift+C Palette, m Max-hold, a Average, x Reset traces, "
+             "Ctrl+S Toggle IQ logging, e Export spectrogram, "
+             "Shift/Ctrl for fine/coarse");
 
     std::vector<std::complex<float>> fft_output;
     size_t current_fft_size = config.fft_size;
@@ -494,6 +574,16 @@ auto main(int argc, char *argv[]) -> int {
         control_state.clear_palette_change_flag();
       }
 
+      // === 1.1c. Trace modes ('m' max-hold, 'a' averaging, 'x' reset) ===
+      // Plain bool pushes; the display resets its trace state only on an
+      // actual transition, so doing this every frame costs nothing.
+      spectrum_display.set_max_hold(control_state.max_hold_enabled());
+      spectrum_display.set_averaging(control_state.averaging_enabled());
+      if (control_state.trace_reset_requested()) {
+        control_state.clear_trace_reset();
+        spectrum_display.reset_traces();
+      }
+
       // === 1.2. Check for FFT size change and reinitialize if needed ===
       if (control_state.fft_size_changed()) {
         size_t const new_fft_size = control_state.get_fft_size();
@@ -506,8 +596,13 @@ auto main(int argc, char *argv[]) -> int {
         // Reinitialize FFT-dependent components
         current_fft_size = new_fft_size;
 
-        // Stop async streaming while reconfiguring
-        dev.stop_streaming();
+        // Stop the sample source while reconfiguring
+        if (dev) {
+          dev->stop_streaming();
+        }
+        if (playback) {
+          playback->stop();
+        }
 
         // Clear the sample queue and accumulator
         {
@@ -528,14 +623,19 @@ auto main(int argc, char *argv[]) -> int {
 
         // Now safe to destroy old pools and create new ones
         g_frame_pool = std::make_shared<FramePool>(current_fft_size, 32);
-        dev.set_fft_size(current_fft_size);
 
-        // Update async FFT size and restart streaming
+        // Update async FFT size and restart the sample source
         g_async_fft_size = current_fft_size;
 
-        // Reuse the outer frame_callback lambda (identical body).
-        dev.set_frame_callback(frame_callback);
-        dev.start_streaming(STREAM_BUFF);
+        if (dev) {
+          dev->set_fft_size(current_fft_size);
+          // Reuse the outer frame_callback lambda (identical body).
+          dev->set_frame_callback(frame_callback);
+          dev->start_streaming(STREAM_BUFF);
+        }
+        if (playback) {
+          playback->start(current_fft_size, g_frame_pool);
+        }
 
         fft_output.resize(current_fft_size);
 
@@ -558,18 +658,17 @@ auto main(int argc, char *argv[]) -> int {
       // === 1.2.5. Check for IQ logging toggle request ===
       if (control_state.iq_logging_toggle_requested()) {
         control_state.clear_iq_logging_toggle();
-        if (iq_capturing) {
+        if (g_iq_capturing.load(std::memory_order_relaxed)) {
+          g_iq_capturing.store(false, std::memory_order_relaxed);
           iq_logger.stop_capture();
-          iq_capturing = false;
           LOG_INFO("IQ logging stopped");
         } else {
-          iq_logger.start_capture(control_state.get_frequency(),
-                                  static_cast<uint32_t>(config.sample_rate_hz),
+          iq_logger.start_capture(control_state.get_frequency(), effective_rate,
                                   control_state.get_gain(), current_fft_size,
                                   SignalProcessor::window_function_to_string(
                                       control_state.get_window()),
                                   "Manual capture");
-          iq_capturing = true;
+          g_iq_capturing.store(true, std::memory_order_relaxed);
           iq_capture_start = std::chrono::steady_clock::now();
           LOG_INFO("IQ logging started: " + iq_logger.get_data_filename());
         }
@@ -593,8 +692,7 @@ auto main(int argc, char *argv[]) -> int {
             spectrum_display.get_pixels(), waterfall_display.get_pixels(),
             DISPLAY_WIDTH, spectrum_display.height(),
             waterfall_display.height(), control_state.get_frequency(),
-            static_cast<uint32_t>(config.sample_rate_hz),
-            control_state.get_gain(), current_fft_size,
+            effective_rate, control_state.get_gain(), current_fft_size,
             SignalProcessor::window_function_to_string(
                 control_state.get_window()),
             color_map_name, "");
@@ -613,10 +711,12 @@ auto main(int argc, char *argv[]) -> int {
       }
 
       // === 1.3. Apply control state changes to device (batch update) ===
-      {
+      // Playback mode has no tuner: freq/gain keys only move the on-screen
+      // labels, and there is no stale-channel backlog to drop.
+      if (dev) {
         static uint32_t s_last_freq = 0;
         uint32_t const now_freq = control_state.get_frequency();
-        control_state.apply_to_device(dev);
+        control_state.apply_to_device(*dev);
         if (s_last_freq != 0 && s_last_freq != now_freq) {
           // Frequency tuned — discard buffered samples from the old channel.
           // Scale label updates immediately (render_frequency_scale sees new
@@ -640,7 +740,7 @@ auto main(int argc, char *argv[]) -> int {
       // Update IQ logging status indicator periodically
       static size_t frame_count = 0;
       if (++frame_count % 60 == 0) { // Update every ~60 frames (~1 second)
-        if (iq_capturing) {
+        if (g_iq_capturing.load(std::memory_order_relaxed)) {
           auto stats = iq_logger.get_stats();
           std::string const iq_status =
               "LOGGING: " +
@@ -660,10 +760,9 @@ auto main(int argc, char *argv[]) -> int {
 
       // Update frequency scale (caches rebuild only when center_hz or rate
       // changes)
-      renderer.render_frequency_scale(
-          control_state.get_frequency(),
-          static_cast<uint32_t>(config.sample_rate_hz),
-          spectrum_display.height());
+      renderer.render_frequency_scale(control_state.get_frequency(),
+                                      effective_rate,
+                                      spectrum_display.height());
 
       // Push the latest timing snapshot so the 'T' overlay is drawn (inside
       // render_overlays) on whichever present path runs this frame.
@@ -722,14 +821,8 @@ auto main(int argc, char *argv[]) -> int {
       std::span<std::complex<float>> samples(async_samples_frame.data(),
                                              current_fft_size);
 
-      // === 2.5. IQ logging (if enabled) ===
-      // Log the raw samples before remove_dc / windowing mutate them in place.
-      if (iq_capturing) {
-        // Convert to vector for IQ logger (it expects vector)
-        std::vector<std::complex<float>> iq_samples(samples.begin(),
-                                                    samples.end());
-        iq_logger.write_samples(iq_samples);
-      }
+      // IQ logging happens in async_sample_callback (full-rate producer tap),
+      // not here — the render loop only sees the post-throttle newest frame.
 
       // === 3. Signal processing ===
       auto t_cpu_start = timing_clock::now();
@@ -750,7 +843,7 @@ auto main(int argc, char *argv[]) -> int {
       spectrum_display.update_spectrum(
           db_spectrum, freq_bins,
           static_cast<float>(control_state.get_frequency()),
-          config.sample_rate_hz);
+          static_cast<float>(effective_rate));
 
       waterfall_display.add_spectrum_line(db_spectrum);
       auto t_cpu_end = timing_clock::now();
@@ -827,25 +920,33 @@ auto main(int argc, char *argv[]) -> int {
       }
 
       // === 9. Check for IQ capture duration expiry ===
-      if (iq_capturing && config.iq_capture_duration > 0.0) {
+      if (g_iq_capturing.load(std::memory_order_relaxed) &&
+          config.iq_capture_duration > 0.0) {
         double const elapsed =
             std::chrono::duration<double>(std::chrono::steady_clock::now() -
                                           iq_capture_start)
                 .count();
         if (elapsed >= config.iq_capture_duration) {
+          g_iq_capturing.store(false, std::memory_order_relaxed);
           iq_logger.stop_capture();
-          iq_capturing = false;
           LOG_INFO("IQ capture stopped after duration: " +
                    std::to_string(config.iq_capture_duration) + " seconds");
         }
       }
     }
 
-    // Stop async streaming before cleanup
-    dev.stop_streaming();
+    // Stop the sample source before cleanup
+    if (dev) {
+      dev->stop_streaming();
+    }
+    if (playback) {
+      playback->stop();
+    }
 
-    // Stop IQ capture if still running
-    if (iq_capturing) {
+    // Stop IQ capture if still running. The producer (device/playback) is
+    // already stopped above, so no callback can race the gate here.
+    if (g_iq_capturing.load(std::memory_order_relaxed)) {
+      g_iq_capturing.store(false, std::memory_order_relaxed);
       iq_logger.stop_capture();
     }
 

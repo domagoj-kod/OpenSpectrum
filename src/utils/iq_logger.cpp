@@ -17,6 +17,14 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+// Build version stamped into capture metadata. Defined by the Makefile
+// (VERSION_DEF, from git describe); fall back to "dev" for ad-hoc builds.
+#ifndef OPENSPECTRUM_VERSION
+#define OPENSPECTRUM_VERSION dev
+#endif
+#define OS_STRINGIFY2(x) #x
+#define OS_STRINGIFY(x) OS_STRINGIFY2(x)
+
 #ifdef _WIN32
 #include <direct.h>
 #define mkdir(dir, mode) _mkdir(dir)
@@ -234,18 +242,22 @@ void IqLogger::flush_buffer() {
 }
 
 void IqLogger::write_samples(const std::vector<std::complex<float>> &samples) {
+  write_samples(samples.data(), samples.size());
+}
+
+void IqLogger::write_samples(const std::complex<float> *samples, size_t count) {
   std::lock_guard<std::mutex> lock(m_mutex);
 
-  if (!m_capturing || m_data_file == nullptr) {
+  if (!m_capturing || m_data_file == nullptr || count == 0) {
     return;
   }
 
   // Update statistics
-  update_stats(samples);
+  update_stats(samples, count);
 
   // Write samples to buffer
-  const uint8_t *data_ptr = reinterpret_cast<const uint8_t *>(samples.data());
-  size_t data_size = samples.size() * sizeof(std::complex<float>);
+  const uint8_t *data_ptr = reinterpret_cast<const uint8_t *>(samples);
+  size_t data_size = count * sizeof(std::complex<float>);
   size_t remaining = data_size;
 
   while (remaining > 0) {
@@ -395,7 +407,7 @@ std::string IqLogger::generate_metadata_json() const {
   // Environment
   ss << "  \"environment\": {\n";
   ss << "    \"application\": \"OpenSpectrum\",\n";
-  ss << "    \"version\": \"1.0.0-nightly\",\n";
+  ss << "    \"version\": \"" << OS_STRINGIFY(OPENSPECTRUM_VERSION) << "\",\n";
 #ifdef _WIN32
   ss << "    \"platform\": \"Windows\"\n";
 #elif __APPLE__
@@ -433,12 +445,13 @@ void IqLogger::write_metadata() {
   }
 }
 
-void IqLogger::update_stats(const std::vector<std::complex<float>> &samples) {
+void IqLogger::update_stats(const std::complex<float> *samples, size_t count) {
   // Welford-style online mean: increment count per sample so the divisor in
   // avg += (x - avg) / n is the correct running sample index. The previous
   // implementation incremented sample_count once for the whole batch, which
   // made the divisor constant inside the loop and biased the average.
-  for (const auto &sample : samples) {
+  for (size_t i = 0; i < count; ++i) {
+    std::complex<float> const &sample = samples[i];
     float const magnitude = std::abs(sample);
     float const mag_db =
         magnitude > 0.00001f ? 20.0f * std::log10(magnitude) : -140.0f;

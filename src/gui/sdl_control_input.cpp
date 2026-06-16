@@ -199,6 +199,35 @@ auto SdlControlInput::handle_keyboard(SDL_Keycode key, bool shift_held,
       m_state.mark_status_dirty();
     }
     break;
+
+  // Max-hold trace toggle (m key)
+  case SDLK_M:
+    if (!ctrl_held && !shift_held) {
+      m_state.toggle_max_hold();
+      LOG_INFO(std::string("[TRACE] Max-hold ") +
+               (m_state.max_hold_enabled() ? "ON" : "OFF"));
+      changed = true;
+    }
+    break;
+
+  // Video averaging toggle (a key)
+  case SDLK_A:
+    if (!ctrl_held && !shift_held) {
+      m_state.toggle_averaging();
+      LOG_INFO(std::string("[TRACE] Averaging ") +
+               (m_state.averaging_enabled() ? "ON" : "OFF"));
+      changed = true;
+    }
+    break;
+
+  // Reset traces (x key): clears the max-hold peaks and re-seeds the average
+  case SDLK_X:
+    if (!ctrl_held && !shift_held) {
+      m_state.request_trace_reset();
+      LOG_INFO("[TRACE] Reset");
+      changed = true;
+    }
+    break;
   }
 
   return changed;

@@ -42,10 +42,10 @@ The app icon (`packaging/openspectrum.png`, with `openspectrum.svg` source) is *
 
 ## Architecture
 
-The pipeline is a single-threaded render loop fed by an async RTL-SDR callback thread. Both threads call `enable_ftz_daz()` on first entry (per-thread MXCSR; the render thread sets it at the top of `main`, the callback thread via a `thread_local` guard on first sample). This eliminates the ~100-cycle microcode trap on denormal floats that show up near the dB noise floor.
+The pipeline is a single-threaded render loop fed by a producer thread: either the async RTL-SDR callback or, with `--play file.iq`, an `IqPlaybackSource` reader (`src/hardware/iq_playback.{h,cpp}`) that replays an IqLogger capture paced in real time and loops at EOF. Both feed the same `async_sample_callback`, so everything downstream is source-agnostic; in playback mode `main()` holds no device (`dev` is a null `unique_ptr` — tuner writes and the retune queue-drain are skipped). Producer and render threads call `enable_ftz_daz()` on first entry (per-thread MXCSR; the render thread sets it at the top of `main`, the producer via a `thread_local` guard on first sample). This eliminates the ~100-cycle microcode trap on denormal floats that show up near the dB noise floor.
 
 ```
-RTL-SDR callback thread
+Producer thread (RTL-SDR callback  OR  IqPlaybackSource reader)
   └─ async_sample_callback()
        ├─ FTZ/DAZ set once per thread
        ├─ accumulates IQ samples into g_sample_accumulator_frame
@@ -131,6 +131,8 @@ History is stored as `RingBuffer<vector<uint8_t>>` — dB values are quantized t
 Keyboard input (`SdlControlInput`) writes into `ControlState` (frequency, gain, FFT size, window function). Main loop polls `control_state.fft_size_changed()`, `window_changed()`, etc. each iteration. `control_state.apply_to_device(dev)` is the single place hardware registers are updated. On frequency change, the sample queue is drained immediately so the spectrum snaps in sync with the freq-scale overlay.
 
 **Palette cycling** (`c` cycles forward, `Shift+C` backward): `SdlControlInput` calls `ControlState::cycle_palette(±1)` over `PALETTE_COUNT` maps. Main loop polls `control_state.palette_changed()`, looks up `kPaletteMap[get_palette_index()]`, and pushes it to both displays via `set_color_map()`. On the waterfall, `set_color_map()` → `rebuild_rgba_lut()` → sets `m_needs_full_render = true`, so the *entire* waterfall is recolored from the quantized `uint8_t` history on the next frame (no re-acquisition needed — the LUT is the only thing that changed).
+
+**Trace modes** (`m` max-hold, `a` video averaging, `x` reset): flags live in `ControlState`; the main loop pushes them into `SpectrumDisplay` every frame (the display resets trace state only on actual transitions). Averaging swaps the drawn bars for an EMA (`kAvgAlpha = 0.25`) of the per-bin dB values; autoscale and max-hold keep tracking the *raw* spectrum. Max-hold renders as white per-bin segments appended to the same `SDL_RenderGeometry` vertex buffer as the bars — no extra draw call. Both traces re-seed automatically when the bin count changes (FFT-size switch); the waterfall always shows raw data.
 
 ### Frequency scale overlay
 

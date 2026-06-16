@@ -41,6 +41,15 @@ auto parse_size_t(const char *str, size_t &value) -> bool {
   }
 }
 
+auto parse_int(const char *str, int &value) -> bool {
+  try {
+    value = std::stoi(str);
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
+
 } // namespace
 
 void print_usage(const char *argv0) {
@@ -59,11 +68,20 @@ void print_usage(const char *argv0) {
       << "  -W, --window NAME   Window function: rectangle, hann, hamming,\n"
       << "                      blackman, blackman-harris, flat-top\n"
       << "                      (default: blackman-harris)\n"
+      << "  --ppm N             Crystal frequency correction in ppm "
+         "(default: 0)\n"
+      << "  --bias-t            Power the antenna port (4.5 V bias tee)\n"
+      << "  --direct-sampling   Q-branch direct sampling for HF "
+         "(tunes 0-14.4 MHz)\n"
       << "  --iq-log            Enable IQ data logging to file\n"
       << "  --iq-duration SEC   Capture duration in seconds (default: 0 = "
          "manual)\n"
       << "  --iq-output FILE    Output filename prefix (default: "
          "auto-generated)\n"
+      << "  --play FILE.iq      Replay a recorded IQ capture instead of "
+         "opening\n"
+      << "                      hardware (loops; reads freq/rate from the\n"
+      << "                      .meta.json sidecar when present)\n"
       << "  --help              Show this help message\n"
       << "\n"
       << "Examples:\n"
@@ -150,6 +168,17 @@ auto parse_arguments(int argc, char *argv[]) -> AppConfig {
         print_usage(argv[0]);
         std::exit(1);
       }
+    } else if (arg == "--ppm") {
+      if (i + 1 >= argc || !parse_int(argv[i + 1], config.ppm_correction)) {
+        std::cerr << "Error: Invalid ppm value\n";
+        print_usage(argv[0]);
+        std::exit(1);
+      }
+      ++i;
+    } else if (arg == "--bias-t") {
+      config.bias_tee = true;
+    } else if (arg == "--direct-sampling") {
+      config.direct_sampling = true;
     } else if (arg == "--iq-log") {
       config.iq_logging_enabled = true;
     } else if (arg == "--iq-duration") {
@@ -169,6 +198,13 @@ auto parse_arguments(int argc, char *argv[]) -> AppConfig {
       }
       config.iq_output_file = argv[++i];
       config.iq_logging_enabled = true; // Enable logging if output is set
+    } else if (arg == "--play") {
+      if (i + 1 >= argc) {
+        std::cerr << "Error: IQ playback filename required\n";
+        print_usage(argv[0]);
+        std::exit(1);
+      }
+      config.play_file = argv[++i];
     } else if (arg == "--help" || arg == "-h") {
       config.show_help = true;
       print_usage(argv[0]);
