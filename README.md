@@ -2,7 +2,7 @@
 
 *Divide et impera — Modular architecture for SDR signal processing*
 
-[![GPL v3 License](https://img.shields.io/badge/License-LGPL%20v3-green.svg)](LICENSE)
+[![GPL v3 License](https://img.shields.io/badge/License-GPL%20v3-green.svg)](LICENSE)
 
 OpenSpectrum is a **modular Software-Defined Radio (SDR) spectrum analyzer** built with extensibility at its core. Designed with the **divide et impera** (divide and conquer) principle, the project separates concerns into distinct modules — hardware abstraction, signal processing, FFT analysis, visualization, and rendering — enabling seamless integration of future SDR devices, from RTL2832U to proprietary hardware.
 
@@ -38,8 +38,12 @@ all simultaneously in the IQ stream.
 | Feature | Description |
 |--------|-------------|
 | **Multi-Device Support** | RTL2832U (via librtlsdr) with architecture ready for proprietary SDR hardware |
-| **Real-Time FFT Analysis** | Configurable FFT size, window functions, and DC removal |
-| **Dual Visualization** | Spectrum display + waterfall display for temporal signal analysis |
+| **Real-Time FFT Analysis** | Configurable FFT size (1024–16384), six window functions, and DC removal |
+| **Dual Visualization** | GPU-rendered spectrum display + waterfall display, with five color palettes |
+| **Trace Modes** | Max-hold and video (EMA) averaging traces overlaid on the live spectrum |
+| **HF Reception** | `--ppm` correction, `--bias-t` antenna power, and `--direct-sampling` for the HF range |
+| **IQ Capture & Playback** | Record raw IQ to disk (`Ctrl+S`) and replay captures with `--play` — no hardware needed |
+| **PNG Spectrogram Export** | One-key export of the current spectrum + waterfall to an image |
 | **SDL3 GUI** | Hardware-accelerated rendering with responsive design |
 | **Modular Design** | Plug-and-play architecture: swap hardware backends without modifying core logic |
 | **Security-Hardened** | Compiled with `-D_FORTIFY_SOURCE=2`, stack protection, RELRO, and more |
@@ -65,7 +69,7 @@ OpenSpectrum/
 │   └── utils/             # Logging, configuration, utilities
 ├── include/
 ├── third_party/
-|   ├── stb/               # Writing images to C stdio
+|   ├── stb/               # stb_image_write — PNG spectrogram export
 │   └── pocketfft/         # High-performing FFT library
 └── Makefile               # Security-hardened build system
 ```
@@ -74,10 +78,20 @@ OpenSpectrum/
 
 ## Installation
 
-> [!WARNING]
-> Skip this step when using macOS on Unix-like OS.
+> [!NOTE]
+> This driver step is Windows-only. On Linux and macOS, librtlsdr talks to the
+> device directly — skip ahead to [Prerequisites](#prerequisites).
 
-To install RTL2832U device drivers on **Windows 10**+ follow the official [start guide](https://www.rtl-sdr.com/rtl-sdr-quick-start-guide/). This is the **Step 0**. Windows users might need to disable *Memory Integrity Protection* setting option as Windows update tends to replace the original drivers with generic Realtek ones. See **Troubleshooting** section of the [start guide](https://www.rtl-sdr.com/rtl-sdr-quick-start-guide/).
+On **Windows 10 and later**, install the RTL2832U driver before building or
+running OpenSpectrum. Follow the official
+[RTL-SDR quick-start guide](https://www.rtl-sdr.com/rtl-sdr-quick-start-guide/),
+which walks through replacing the default driver with the Zadig WinUSB driver.
+
+If the device stops being detected after a Windows Update, the update has likely
+reinstalled the generic Realtek DVB-T driver over WinUSB. Re-running Zadig fixes
+it; on some systems you may also need to disable **Core Isolation → Memory
+Integrity**, which can block the driver swap. The guide's **Troubleshooting**
+section covers both cases.
 
 ## Prebuilt binaries
 
@@ -85,7 +99,7 @@ Check out the Releases page for latest Windows and Linux compatible releases.
 
 ### Prerequisites
 
-OpenSpectrum is **platform-agnostic** and supports Linux, macOS (in theory at least), and Windows (native support or via `WSL2`).
+OpenSpectrum runs on **Linux** and **Windows** (native, or via `WSL2`). **macOS** builds are supported in principle (Homebrew dependencies below) but are currently untested — reports welcome.
 
 | Dependency | Purpose | Installation Command (Ubuntu/Debian) |
 |-----------|---------|--------------------------------------|
@@ -112,7 +126,7 @@ pacman -S mingw-w64-x86_64-gcc mingw-w64-x86_64-make \
 
 This project compiles with `-march=haswell` as the architectural baseline, targeting CPUs from 2013+ with support for:
 - **SSE4.1 / SSE4.2** — Advanced SIMD instructions
-- **AVX2** - Expands integer commands to 256 bits
+- **AVX2** — 256-bit integer/float SIMD
 - **POPCNT** — Population count instruction
 - **CX16** — Compare and exchange 16-byte
 - **SAHF / FXSR** — Legacy x87 state management
@@ -188,7 +202,7 @@ Examples:
   ./openspectrum --play data/capture_20260610.iq   # no hardware needed
 ```
 
-Apart from command line arguments the program uses keyboard shortcuts for frequency tuning, gain control, Fast Fourier Transform size & window functions change. Shift modifer allows for fine control fine control (0.1 MHz, 0.1 dB), while Ctrl modifier is used for coarse control (1 MHz, 10 dB).
+Apart from command-line arguments, the program is driven by keyboard shortcuts for frequency tuning, gain control, FFT size, and window-function selection. By default each tuning step is **1 MHz / 1 dB**; hold **Shift** for fine control (**0.1 MHz / 0.1 dB**) or **Ctrl** for coarse control (**10 MHz / 10 dB**).
 
 ### Keyboard Controls
 
@@ -198,18 +212,18 @@ Apart from command line arguments the program uses keyboard shortcuts for freque
 | `-/_` | Decrease the center frequency |
 | `r` | Increase gain |
 | `f` | Decrease gain |
-| `1-5` | Set FFT size (1024, 2048, 4096, 8192, 16384) |
-| `Ctrl` | Coarse control (10 MHz, 10 dB) |
-| `Shift` | Fine control (0.1 MHz, 0.1 dB) |
-| `UP` | Cycle through supported window functions |
-| `DOWN` | Reverse through supported window functions |
+| `1`–`5` | Set FFT size (1024, 2048, 4096, 8192, 16384) |
+| `Ctrl` (modifier) | Coarse control (10 MHz, 10 dB) |
+| `Shift` (modifier) | Fine control (0.1 MHz, 0.1 dB) |
+| `UP` / `DOWN` | Cycle window functions forward / backward |
 | `c` / `Shift+C` | Cycle color palette forward / backward (JET, VIRIDIS, HOT, GRAY, BLU-RED) |
 | `m` | Toggle max-hold trace (white line at the per-bin running peak) |
 | `a` | Toggle video averaging (EMA-smoothed spectrum bars) |
 | `x` | Reset traces (clear held peaks, re-seed the average) |
+| `t` | Toggle the frame-timing overlay (HUD) |
 | `Ctrl+S` | Toggle IQ logging |
 | `e` | Export spectrogram as PNG |
-| `ESC/q` | Exit the program |
+| `ESC` / `q` | Exit the program |
 | `Ctrl+C` | Graceful shutdown (terminal) |
 
 ### Command-Line Configuration (Future)
@@ -229,75 +243,62 @@ Apart from command line arguments the program uses keyboard shortcuts for freque
 ## Supported Window Functions
 
 - `RECTANGLE`
-- `HAMMING`
 - `HANN`
+- `HAMMING`
 - `BLACKMAN`
 - `BLACKMAN_HARRIS` (default)
-- `NUTTALL`
-- `FLATTOP`
+- `FLAT_TOP`
 
 ---
 
 ## Adding New SDR Devices
 
-The modular design makes it straightforward to add support for new SDR hardware. Follow these steps:
+The modular design keeps the device behind a narrow surface, so adding hardware
+doesn't touch the rest of the pipeline. OpenSpectrum currently ships one concrete
+backend, `RtlSdrDevice` (`src/hardware/rtl_sdr_device.{h,cpp}`). There is no
+abstract base class yet — extracting an `SdrDeviceBase` is the natural refactor
+once a second device lands; until then, a new backend simply mirrors
+`RtlSdrDevice`'s public interface.
 
-### 1. Create a New Hardware Backend
+### 1. Mirror the device interface
+
+A backend exposes lifecycle, tuning, and streaming. The pipeline is fed
+**asynchronously**: you register a callback, and the device's producer thread
+pushes pooled `FrameHandle`s of IQ samples as they arrive (rather than the
+pipeline pulling fixed-size reads).
 
 ```cpp
 // src/hardware/new_sdr_device.h
 #pragma once
-#include "hardware/sdr_device_base.h"
+#include "openspectrum/frame_pool.h"
+#include <functional>
 
-class NewSdrDevice : public SdrDeviceBase {
+class NewSdrDevice {
 public:
-    bool open() override;
-    void close() override;
-    void set_frequency(uint32_t freq_hz) override;
-    void set_sample_rate(uint32_t rate_hz) override;
-    std::vector<std::complex<float>> read_samples(size_t count) override;
-    // ... additional device-specific methods
+    bool open();
+    void close();
+    bool is_open() const;
+
+    void set_frequency(uint32_t freq_hz);
+    void set_sample_rate(uint32_t rate_hz);
+    void set_gain(float gain_db);
+
+    // Streaming: register a sink, then start. The device owns its producer
+    // thread and hands the pipeline cache-aligned FrameHandles.
+    using FrameCallback = std::function<void(openspectrum::FrameHandle)>;
+    void set_frame_callback(FrameCallback cb);
+    void start_streaming(size_t buffer_count = 8);
+    void stop_streaming();
 };
 ```
 
-### 2. Implement the Interface
+### 2. Wire it into the pipeline
 
-All hardware backends must implement the `SdrDeviceBase` interface:
-
-```cpp
-// include/hardware/sdr_device_base.h (recommended addition)
-class SdrDeviceBase {
-public:
-    virtual ~SdrDeviceBase() = default;
-    virtual bool open() = 0;
-    virtual void close() = 0;
-    virtual bool is_open() const = 0;
-    virtual void set_frequency(uint32_t freq_hz) = 0;
-    virtual void set_sample_rate(uint32_t rate_hz) = 0;
-    virtual void set_gain(float gain_db) = 0;
-    virtual std::vector<std::complex<float>> read_samples(size_t count) = 0;
-};
-```
-
-### 3. Integrate into Main Program
-
-```cpp
-// src/main.cpp
-#include "hardware/new_sdr_device.h"
-
-int main() {
-    // Use polymorphism for device selection
-    std::unique_ptr<SdrDeviceBase> device;
-    
-    device = std::make_unique<RtlSdrDevice>();
-    
-    if (!device->open()) {
-        LOG_ERROR("Failed to open device");
-        return 1;
-    }
-    // Rest of pipeline remains unchanged!
-}
-```
+`main.cpp` constructs the device, points its frame callback at
+`async_sample_callback`, and starts streaming. Swapping in your backend is the
+only change — everything downstream consumes `FrameHandle`s and is
+source-agnostic. (The `--play` IQ-playback path proves the point: it drives the
+same callback with no device at all.)
 
 **The rest of the signal chain — processor, FFT, visualization — remains untouched.** This is the power of *divide et impera*.
 
@@ -385,7 +386,7 @@ OpenSpectrum is compiled with **security-hardened flags** by default:
 
 ## License
 
-This project is licensed under the **LGPL v3 License** — see [LICENSE](LICENSE) for details.
+This project is licensed under the **GNU General Public License v3.0 (or later)** — see [LICENSE](LICENSE) for details.
 
 ```
                     GNU GENERAL PUBLIC LICENSE
@@ -409,7 +410,7 @@ Contributions are welcome! Please follow these guidelines:
 
 1. **Modularity First:** New features should be added as separate modules when possible.
 2. **Security:** Maintain the existing security flags in the Makefile.
-3. **Testing:** Add tests for new functionality.
+3. **Validation:** There is no automated test suite — verify changes by building and running against live hardware or a recorded capture (`--play`), and note what you checked.
 4. **Documentation:** Update this README for significant changes.
 
 ### Development Workflow
