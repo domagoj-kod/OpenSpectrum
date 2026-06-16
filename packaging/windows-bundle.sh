@@ -13,7 +13,12 @@ cd "$ROOT"
 
 echo ">> Building release (clean)…"
 make clean
-make release
+# Pass VERSION through so it is compiled into the binary (-DOPENSPECTRUM_VERSION
+# for the capture/export metadata). Don't rely on make's own `git describe`: on
+# this MSYS2 runner the inner git fails on the host-checked-out repo ("dubious
+# ownership") and falls back to "dev". The workflow already resolved the correct
+# version and handed it to us as $1.
+make release VERSION="$VERSION"
 
 NAME="OpenSpectrum-${VERSION}-windows-x86_64"
 STAGE="dist/${NAME}"
