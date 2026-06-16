@@ -403,6 +403,90 @@ void SdlRenderer::render_overlays() {
       }
     }
   }
+
+  draw_cursor_readout();
+}
+
+void SdlRenderer::draw_cursor_readout() {
+  if (!m_cursor_readout.active || !m_text_renderer) {
+    return;
+  }
+  const float spec_h = static_cast<float>(m_freq_scale_spectrum_height);
+  if (spec_h <= 0.0F) {
+    return;
+  }
+  const float x = m_cursor_readout.x;
+
+  Uint8 r;
+  Uint8 g;
+  Uint8 b;
+  Uint8 a;
+  SDL_GetRenderDrawColor(m_renderer, &r, &g, &b, &a);
+
+  // Vertical marker spanning the spectrum pane.
+  SDL_SetRenderDrawColor(m_renderer, 200, 200, 200, 180);
+  SDL_RenderLine(m_renderer, x, 0.0F, x, spec_h - 1.0F);
+
+  // Dot snapped onto the trace.
+  constexpr float kDot = 3.0F;
+  SDL_FRect const dot_rect = {x - kDot, m_cursor_readout.dot_y - kDot,
+                              kDot * 2.0F, kDot * 2.0F};
+  SDL_SetRenderDrawColor(m_renderer, 255, 255, 255, 255);
+  SDL_RenderFillRect(m_renderer, &dot_rect);
+
+  // Readout box: frequency + amplitude.
+  char l0[32];
+  char l1[32];
+  std::snprintf(l0, sizeof(l0), "%.3f MHz", m_cursor_readout.freq_hz / 1.0e6);
+  std::snprintf(l1, sizeof(l1), "%.1f dB",
+                static_cast<double>(m_cursor_readout.db));
+
+  int w0 = 0;
+  int h0 = 0;
+  int w1 = 0;
+  int h1 = 0;
+  m_text_renderer->get_text_size(l0, &w0, &h0);
+  m_text_renderer->get_text_size(l1, &w1, &h1);
+  const int line_h = std::max(h0, h1);
+  const int text_w = std::max(w0, w1);
+  const int pad = 5;
+  const auto box_w = static_cast<float>(text_w + 2 * pad);
+  const auto box_h = static_cast<float>(2 * line_h + 2 * pad);
+
+  // Fixed top-left panel. Anchoring it to the cursor/trace made it ride the
+  // fast spectrum refresh — vibrating and ghosting. A static position keeps the
+  // text readable; the marker line + dot still convey the measured location.
+  const float bx = 8.0F;
+  float by = 8.0F;
+  // Don't collide with the frame-timing overlay (also top-left) when it's on.
+  if (m_timing_overlay_enabled) {
+    int th = 0;
+    m_text_renderer->get_text_size("pres 00.00 ms", nullptr, &th);
+    by += static_cast<float>(4 * th + 2 * pad + 6);
+  }
+
+  SDL_FRect const bg = {bx, by, box_w, box_h};
+  SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 200);
+  SDL_RenderFillRect(m_renderer, &bg);
+
+  SDL_Color const col = {255, 255, 255, 255};
+  const char *lines[2] = {l0, l1};
+  const int ws[2] = {w0, w1};
+  const int hs[2] = {h0, h1};
+  for (int i = 0; i < 2; ++i) {
+    SDL_Texture *t = m_text_renderer->render_text(lines[i], col);
+    if (t != nullptr) {
+      SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
+      SDL_FRect const d = {bx + static_cast<float>(pad),
+                           by + static_cast<float>(pad + i * line_h),
+                           static_cast<float>(ws[i]),
+                           static_cast<float>(hs[i])};
+      SDL_RenderTexture(m_renderer, t, nullptr, &d);
+      SDL_DestroyTexture(t);
+    }
+  }
+
+  SDL_SetRenderDrawColor(m_renderer, r, g, b, a);
 }
 
 void SdlRenderer::set_timing_overlay(bool enabled, double fps, double cpu_ms,
@@ -561,6 +645,19 @@ auto SdlRenderer::poll_events(ControlState *state) -> bool {
           m_status_dirty = true;
         }
       }
+      break;
+
+    case SDL_EVENT_MOUSE_MOTION:
+      // Convert window coords -> render (logical) coords so the marker lines up
+      // with the spectrum under logical-presentation scaling (window resize).
+      SDL_ConvertEventToRenderCoordinates(m_renderer, &event);
+      m_cursor_x = event.motion.x;
+      m_cursor_y = event.motion.y;
+      m_cursor_active = true;
+      break;
+
+    case SDL_EVENT_WINDOW_MOUSE_LEAVE:
+      m_cursor_active = false;
       break;
 
     case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
