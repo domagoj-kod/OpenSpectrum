@@ -70,6 +70,15 @@ public:
     return std::max<size_t>(1UL, m_height / m_history.capacity());
   }
 
+  // Cursor readout: how long ago the line at a vertical position was captured.
+  // y_in_region is 0 at the top of the waterfall pane; returns false when the
+  // position is outside the filled history (e.g. blank area during fill-up).
+  struct CursorTime {
+    double seconds_ago = 0.0;
+    bool newest = false; // hovering the live (bottom) line
+  };
+  [[nodiscard]] bool sample_at_y(float y_in_region, CursorTime &out) const;
+
 private:
   size_t m_width;
   size_t m_height;
@@ -77,6 +86,11 @@ private:
 
   // Ring buffer for history — stored as uint8 (0.47 dB/step over -120..0 dB)
   RingBuffer<std::vector<uint8_t>> m_history;
+
+  // Capture wall-clock time (steady_clock seconds) per history line, pushed in
+  // lockstep with m_history so the cursor readout can report an accurate
+  // time-ago regardless of the (variable) line rate. Index matches m_history.
+  RingBuffer<double> m_line_times;
 
   SpectrumPalette m_palette;
 
