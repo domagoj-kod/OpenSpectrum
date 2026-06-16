@@ -100,10 +100,35 @@ public:
   void set_timing_overlay(bool enabled, double fps, double cpu_ms,
                           double render_build_ms, double present_ms) noexcept;
 
+  // Mouse cursor readout over the spectrum pane. main() computes the values (it
+  // owns the spectrum data + frequency mapping); the renderer captures the raw
+  // pointer position in poll_events and draws the marker/dot/box every frame.
+  struct CursorReadout {
+    bool active = false;  // false -> nothing is drawn
+    float x = 0.0F;       // render-space x of the marker (spectrum pane)
+    float dot_y = 0.0F;   // render-space y of the trace point under the cursor
+    double freq_hz = 0.0; // frequency at x
+    float db = 0.0F;      // trace amplitude at x
+  };
+  void set_cursor_readout(const CursorReadout &readout) noexcept {
+    m_cursor_readout = readout;
+  }
+
+  // Raw pointer position from poll_events, in render (logical) coordinates.
+  // cursor_active() is false while the pointer is outside the window.
+  [[nodiscard]] bool cursor_active() const noexcept { return m_cursor_active; }
+  [[nodiscard]] float cursor_x() const noexcept { return m_cursor_x; }
+  [[nodiscard]] float cursor_y() const noexcept { return m_cursor_y; }
+
 private:
   // Render overlays (status bar, peak indicator, IQ status, freq scale)
   // Called after rendering the main texture
   void render_overlays();
+
+  // Draw the cursor readout: vertical marker, dot snapped on the trace, and a
+  // small box with frequency + amplitude. No-op when m_cursor_readout.active is
+  // false. Called at the end of render_overlays so it sits on top.
+  void draw_cursor_readout();
 
   // Draw the spectrum bars on the GPU (one SDL_RenderGeometry call, solid-color
   // geometry, no texture). Called into the active render target.
@@ -198,6 +223,13 @@ private:
   uint32_t m_freq_scale_center_hz = 0;
   uint32_t m_freq_scale_sample_rate_hz = 0;
   size_t m_freq_scale_spectrum_height = 0;
+
+  // Mouse cursor (render-space) captured in poll_events, and the readout main()
+  // asks us to draw.
+  bool m_cursor_active = false;
+  float m_cursor_x = 0.0F;
+  float m_cursor_y = 0.0F;
+  CursorReadout m_cursor_readout;
 };
 
 } // namespace openspectrum

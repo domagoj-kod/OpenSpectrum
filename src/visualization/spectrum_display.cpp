@@ -317,6 +317,38 @@ void SpectrumDisplay::build_vertices(float region_w, float region_h,
   }
 }
 
+bool SpectrumDisplay::sample_at_x(float x, float region_w, float region_h,
+                                  CursorSample &out) const {
+  // Use the same source the bars draw from (averaged when averaging is on).
+  const std::vector<float> &bars =
+      (m_avg_enabled && m_avg_data.size() == m_spectrum_data.size())
+          ? m_avg_data
+          : m_spectrum_data;
+
+  const size_t num_bins = bars.size();
+  const float db_range = m_max_db - m_min_db;
+  if (num_bins == 0 || db_range <= 0.0F || region_w <= 0.0F ||
+      region_h <= 0.0F || x < 0.0F || x >= region_w) {
+    return false;
+  }
+
+  const float bin_width = region_w / static_cast<float>(num_bins);
+  size_t bin = static_cast<size_t>(x / bin_width);
+  if (bin >= num_bins) {
+    bin = num_bins - 1;
+  }
+
+  const float db = bars[bin];
+  const float db_to_height = region_h / db_range;
+  const float bar_height =
+      std::clamp((db - m_min_db) * db_to_height, 0.0F, region_h);
+
+  out.db = db;
+  out.dot_y = region_h - bar_height;
+  out.bin = bin;
+  return true;
+}
+
 void SpectrumDisplay::render_to_pixels() {
   if (m_spectrum_data.empty()) {
     clear();

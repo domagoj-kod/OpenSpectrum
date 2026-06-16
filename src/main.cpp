@@ -769,6 +769,55 @@ auto main(int argc, char *argv[]) -> int {
       renderer.set_timing_overlay(control_state.timing_overlay_enabled(),
                                   ov_fps, ov_cpu, ov_build, ov_present);
 
+      // === Cursor readout (mouse hover over the spectrum pane) ===
+      // Marker style: cursor X -> frequency; amplitude = the trace's dB at that
+      // frequency, with the dot snapped onto the drawn curve (mouse Y ignored).
+      // Computed every frame so it tracks the pointer on both the sample and
+      // no-sample present paths; uses the spectrum's current data.
+      {
+        // Smoothed amplitude: the raw spectrum is noisy, so the displayed dB is
+        // EMA'd to stop the digits churning. Snap (reset) when the cursor moves
+        // to a new bin or re-enters, so it stays responsive rather than lagging.
+        static double s_db_ema = 0.0;
+        static size_t s_db_bin = 0;
+        static bool s_db_valid = false;
+
+        SdlRenderer::CursorReadout readout;
+        const float spec_h = static_cast<float>(spectrum_display.height());
+        const float region_w = static_cast<float>(renderer.width());
+        SpectrumDisplay::CursorSample sample;
+        if (renderer.cursor_active() && renderer.cursor_x() >= 0.0F &&
+            renderer.cursor_x() < region_w && renderer.cursor_y() >= 0.0F &&
+            renderer.cursor_y() < spec_h &&
+            spectrum_display.sample_at_x(renderer.cursor_x(), region_w, spec_h,
+                                         sample)) {
+          const double rate = static_cast<double>(effective_rate);
+          const double center =
+              static_cast<double>(control_state.get_frequency());
+
+          if (!s_db_valid || sample.bin != s_db_bin) {
+            s_db_ema = sample.db; // snap on new bin / re-entry
+          } else {
+            s_db_ema += 0.2 * (static_cast<double>(sample.db) - s_db_ema);
+          }
+          s_db_bin = sample.bin;
+          s_db_valid = true;
+
+          readout.active = true;
+          readout.x = renderer.cursor_x();
+          readout.dot_y = sample.dot_y;
+          readout.freq_hz =
+              center - rate / 2.0 +
+              (static_cast<double>(renderer.cursor_x()) /
+               static_cast<double>(region_w)) *
+                  rate;
+          readout.db = static_cast<float>(s_db_ema);
+        } else {
+          s_db_valid = false; // pointer left the pane; next entry snaps
+        }
+        renderer.set_cursor_readout(readout);
+      }
+
       // === 2. Read samples from async queue (non-blocking) ===
       // Wait for samples with timeout (8ms = ~125fps max, reduced from 16ms)
       FrameHandle async_samples_frame;

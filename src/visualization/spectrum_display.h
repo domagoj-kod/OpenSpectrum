@@ -150,6 +150,18 @@ public:
   // live render path uses build_vertices() instead.
   OS_COLD void render_to_pixels();
 
+  // Cursor readout sample: the displayed amplitude and the snapped trace point
+  // for a horizontal cursor position. Mirrors build_vertices() exactly (same
+  // averaging source, dB range, and bin->x / dB->y mapping) so the marker dot
+  // lands on the drawn curve.
+  struct CursorSample {
+    float db = 0.0F;     // displayed dB at the cursor's bin
+    float dot_y = 0.0F;  // y of the trace point within [0, region_h]
+    size_t bin = 0;      // bin index under the cursor
+  };
+  [[nodiscard]] bool sample_at_x(float x, float region_w, float region_h,
+                                 CursorSample &out) const;
+
   // Get rendered pixel buffer (RGB32 format: RGBA interleaved). Only valid after
   // render_to_pixels(); consumed by the spectrogram exporter.
   [[nodiscard]] const PixelBuffer &get_pixels() const { return m_pixels; }
