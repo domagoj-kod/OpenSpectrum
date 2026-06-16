@@ -784,36 +784,50 @@ auto main(int argc, char *argv[]) -> int {
 
         SdlRenderer::CursorReadout readout;
         const float spec_h = static_cast<float>(spectrum_display.height());
+        const float wf_h = static_cast<float>(waterfall_display.height());
         const float region_w = static_cast<float>(renderer.width());
-        SpectrumDisplay::CursorSample sample;
-        if (renderer.cursor_active() && renderer.cursor_x() >= 0.0F &&
-            renderer.cursor_x() < region_w && renderer.cursor_y() >= 0.0F &&
-            renderer.cursor_y() < spec_h &&
-            spectrum_display.sample_at_x(renderer.cursor_x(), region_w, spec_h,
-                                         sample)) {
-          const double rate = static_cast<double>(effective_rate);
-          const double center =
-              static_cast<double>(control_state.get_frequency());
+        const float cx = renderer.cursor_x();
+        const float cy = renderer.cursor_y();
+        const double rate = static_cast<double>(effective_rate);
+        const double center =
+            static_cast<double>(control_state.get_frequency());
+        // Cursor X -> frequency: shared by both panes.
+        const double freq_hz =
+            center - rate / 2.0 +
+            (static_cast<double>(cx) / static_cast<double>(region_w)) * rate;
 
-          if (!s_db_valid || sample.bin != s_db_bin) {
-            s_db_ema = sample.db; // snap on new bin / re-entry
-          } else {
-            s_db_ema += 0.2 * (static_cast<double>(sample.db) - s_db_ema);
+        bool in_spectrum = false;
+        if (renderer.cursor_active() && cx >= 0.0F && cx < region_w) {
+          SpectrumDisplay::CursorSample sample;
+          if (cy >= 0.0F && cy < spec_h &&
+              spectrum_display.sample_at_x(cx, region_w, spec_h, sample)) {
+            in_spectrum = true;
+            if (!s_db_valid || sample.bin != s_db_bin) {
+              s_db_ema = sample.db; // snap on new bin / re-entry
+            } else {
+              s_db_ema += 0.2 * (static_cast<double>(sample.db) - s_db_ema);
+            }
+            s_db_bin = sample.bin;
+            s_db_valid = true;
+
+            readout.pane = SdlRenderer::CursorReadout::Pane::Spectrum;
+            readout.x = cx;
+            readout.dot_y = sample.dot_y;
+            readout.freq_hz = freq_hz;
+            readout.db = static_cast<float>(s_db_ema);
+          } else if (cy >= spec_h && cy < spec_h + wf_h) {
+            WaterfallDisplay::CursorTime when;
+            if (waterfall_display.sample_at_y(cy - spec_h, when)) {
+              readout.pane = SdlRenderer::CursorReadout::Pane::Waterfall;
+              readout.x = cx;
+              readout.dot_y = cy; // render-space row for the horizontal marker
+              readout.freq_hz = freq_hz;
+              readout.seconds_ago = when.seconds_ago;
+            }
           }
-          s_db_bin = sample.bin;
-          s_db_valid = true;
-
-          readout.active = true;
-          readout.x = renderer.cursor_x();
-          readout.dot_y = sample.dot_y;
-          readout.freq_hz =
-              center - rate / 2.0 +
-              (static_cast<double>(renderer.cursor_x()) /
-               static_cast<double>(region_w)) *
-                  rate;
-          readout.db = static_cast<float>(s_db_ema);
-        } else {
-          s_db_valid = false; // pointer left the pane; next entry snaps
+        }
+        if (!in_spectrum) {
+          s_db_valid = false; // left the spectrum pane; next entry snaps
         }
         renderer.set_cursor_readout(readout);
       }

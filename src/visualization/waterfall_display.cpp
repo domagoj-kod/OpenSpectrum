@@ -3,6 +3,7 @@
 #include "waterfall_display.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -17,10 +18,17 @@
 
 namespace openspectrum {
 
+// steady_clock seconds; used both to stamp lines and to compute time-ago.
+static double steady_now_s() {
+  return std::chrono::duration<double>(
+             std::chrono::steady_clock::now().time_since_epoch())
+      .count();
+}
+
 WaterfallDisplay::WaterfallDisplay(size_t width, size_t height,
                                    size_t history_lines)
     : m_width(width), m_height(height), m_pixels(width * height * 4),
-      m_history(history_lines),
+      m_history(history_lines), m_line_times(history_lines),
       m_new_line(width * std::max<size_t>(1UL, height / history_lines) * 4),
       m_line_buf(width), m_quantized_buf(width) {
   rebuild_rgba_lut();
@@ -111,8 +119,28 @@ void WaterfallDisplay::update_global_range() {
   rebuild_rgba_lut();
 }
 
+bool WaterfallDisplay::sample_at_y(float y_in_region, CursorTime &out) const {
+  const size_t lines = m_history.size();
+  if (lines == 0 || y_in_region < 0.0F ||
+      y_in_region >= static_cast<float>(m_height)) {
+    return false;
+  }
+  const size_t line_height =
+      std::max<size_t>(1UL, m_height / m_history.capacity());
+  const size_t row = static_cast<size_t>(y_in_region) / line_height;
+  if (row >= lines) {
+    return false; // blank area below the filled history (during fill-up)
+  }
+  // render() lays out history[i] at screen row i (0 = oldest = top), so the
+  // hovered row maps straight to the same index in the lockstep time buffer.
+  out.seconds_ago = std::max(0.0, steady_now_s() - m_line_times[row]);
+  out.newest = (row == lines - 1);
+  return true;
+}
+
 void WaterfallDisplay::reset() {
   m_history.clear();
+  m_line_times.clear();
   m_global_min = m_min_db;
   m_global_max = m_max_db;
   m_palette.set_db_range(m_global_min, m_global_max);
@@ -185,6 +213,7 @@ void WaterfallDisplay::add_spectrum_line(const std::vector<float> &db_values) {
   }
 
   m_history.push(m_quantized_buf);
+  m_line_times.push(steady_now_s()); // lockstep with m_history
 
   // Mark dirty rectangles
   if (old_size < m_history.capacity()) {

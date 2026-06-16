@@ -104,11 +104,13 @@ public:
   // owns the spectrum data + frequency mapping); the renderer captures the raw
   // pointer position in poll_events and draws the marker/dot/box every frame.
   struct CursorReadout {
-    bool active = false;  // false -> nothing is drawn
-    float x = 0.0F;       // render-space x of the marker (spectrum pane)
-    float dot_y = 0.0F;   // render-space y of the trace point under the cursor
-    double freq_hz = 0.0; // frequency at x
-    float db = 0.0F;      // trace amplitude at x
+    enum class Pane { None, Spectrum, Waterfall };
+    Pane pane = Pane::None; // None -> nothing is drawn
+    float x = 0.0F;         // render-space x of the marker (both panes)
+    float dot_y = 0.0F;     // Spectrum: trace dot y. Waterfall: hovered row y.
+    double freq_hz = 0.0;   // frequency at x (both panes)
+    float db = 0.0F;        // Spectrum: trace amplitude at x
+    double seconds_ago = 0.0; // Waterfall: capture age of the hovered line
   };
   void set_cursor_readout(const CursorReadout &readout) noexcept {
     m_cursor_readout = readout;

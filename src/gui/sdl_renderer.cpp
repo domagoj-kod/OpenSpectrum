@@ -408,7 +408,8 @@ void SdlRenderer::render_overlays() {
 }
 
 void SdlRenderer::draw_cursor_readout() {
-  if (!m_cursor_readout.active || !m_text_renderer) {
+  using Pane = CursorReadout::Pane;
+  if (m_cursor_readout.pane == Pane::None || !m_text_renderer) {
     return;
   }
   const float spec_h = static_cast<float>(m_freq_scale_spectrum_height);
@@ -423,23 +424,34 @@ void SdlRenderer::draw_cursor_readout() {
   Uint8 a;
   SDL_GetRenderDrawColor(m_renderer, &r, &g, &b, &a);
 
-  // Vertical marker spanning the spectrum pane.
+  // Markers + box text differ per pane; the box itself is shared (below).
+  char l0[40];
+  char l1[40];
   SDL_SetRenderDrawColor(m_renderer, 200, 200, 200, 180);
-  SDL_RenderLine(m_renderer, x, 0.0F, x, spec_h - 1.0F);
-
-  // Dot snapped onto the trace.
-  constexpr float kDot = 3.0F;
-  SDL_FRect const dot_rect = {x - kDot, m_cursor_readout.dot_y - kDot,
-                              kDot * 2.0F, kDot * 2.0F};
-  SDL_SetRenderDrawColor(m_renderer, 255, 255, 255, 255);
-  SDL_RenderFillRect(m_renderer, &dot_rect);
-
-  // Readout box: frequency + amplitude.
-  char l0[32];
-  char l1[32];
-  std::snprintf(l0, sizeof(l0), "%.3f MHz", m_cursor_readout.freq_hz / 1.0e6);
-  std::snprintf(l1, sizeof(l1), "%.1f dB",
-                static_cast<double>(m_cursor_readout.db));
+  if (m_cursor_readout.pane == Pane::Spectrum) {
+    // Vertical marker over the spectrum pane + a dot snapped onto the trace.
+    SDL_RenderLine(m_renderer, x, 0.0F, x, spec_h - 1.0F);
+    constexpr float kDot = 3.0F;
+    SDL_FRect const dot_rect = {x - kDot, m_cursor_readout.dot_y - kDot,
+                                kDot * 2.0F, kDot * 2.0F};
+    SDL_SetRenderDrawColor(m_renderer, 255, 255, 255, 255);
+    SDL_RenderFillRect(m_renderer, &dot_rect);
+    std::snprintf(l0, sizeof(l0), "%.3f MHz", m_cursor_readout.freq_hz / 1.0e6);
+    std::snprintf(l1, sizeof(l1), "%.1f dB",
+                  static_cast<double>(m_cursor_readout.db));
+  } else {
+    // Waterfall: crosshair pinpointing the frequency (vertical) and the
+    // hovered time-row (horizontal) across the waterfall pane.
+    SDL_RenderLine(m_renderer, x, spec_h, x, static_cast<float>(m_height) - 1.0F);
+    SDL_RenderLine(m_renderer, 0.0F, m_cursor_readout.dot_y,
+                   static_cast<float>(m_width) - 1.0F, m_cursor_readout.dot_y);
+    std::snprintf(l0, sizeof(l0), "%.3f MHz", m_cursor_readout.freq_hz / 1.0e6);
+    if (m_cursor_readout.seconds_ago < 0.05) {
+      std::snprintf(l1, sizeof(l1), "now");
+    } else {
+      std::snprintf(l1, sizeof(l1), "%.2f s ago", m_cursor_readout.seconds_ago);
+    }
+  }
 
   int w0 = 0;
   int h0 = 0;
