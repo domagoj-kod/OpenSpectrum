@@ -222,26 +222,37 @@ void RtlSdrDevice::process_callback_with_pool(unsigned char *buf,
     return;
   }
 
-  size_t const count = len / 2;
+  size_t const count = len / 2; // interleaved 8-bit IQ -> complex samples
 
-  // Acquire frame from pool
-  openspectrum::FrameHandle frame_handle = m_frame_pool->acquire();
-  if (!frame_handle) {
-    LOG_DEBUG("process_callback_with_pool: pool exhausted, dropping buffer");
-    return;
+  // Forward the ENTIRE USB transfer. A 64 KB buffer is 32768 complex samples,
+  // but pool frames hold capacity() (= FFT size, e.g. 4096), so emit the buffer
+  // as a run of capacity-sized frames. The async callback's accumulator
+  // reassembles them into FFT-sized chunks for the display, and the IQ capture
+  // tap sees the full-rate stream. (This previously truncated to a single frame
+  // via min(count, capacity), silently dropping ~7/8 of every transfer — fine
+  // for the display, which only consumes the newest frame per render, but it
+  // made IQ captures a heavily decimated record. Display line rate is unchanged
+  // because the render loop's drain-to-newest throttle still governs it.)
+  size_t offset = 0;
+  while (offset < count) {
+    openspectrum::FrameHandle frame_handle = m_frame_pool->acquire();
+    if (!frame_handle) {
+      LOG_DEBUG("process_callback_with_pool: pool exhausted, dropping buffer");
+      return;
+    }
+
+    size_t const chunk = std::min(count - offset, frame_handle.capacity());
+    frame_handle.resize(chunk);
+
+    for (size_t i = 0; i < chunk; ++i) {
+      size_t const j = offset + i;
+      frame_handle[i] = std::complex<float>(
+          (static_cast<float>(buf[j * 2]) - 127.5F) / 127.5F,
+          (static_cast<float>(buf[(j * 2) + 1]) - 127.5F) / 127.5F);
+    }
+
+    // Pass to callback - handle returns to pool automatically when consumed.
+    m_frame_callback(std::move(frame_handle));
+    offset += chunk;
   }
-
-  // Fill frame with samples
-  // Use min to prevent overflow if buffer is larger than frame capacity
-  size_t const actual_count = std::min(count, frame_handle.capacity());
-  frame_handle.resize(actual_count);
-
-  for (size_t i = 0; i < actual_count; ++i) {
-    frame_handle[i] = std::complex<float>(
-        (static_cast<float>(buf[i * 2]) - 127.5F) / 127.5F,
-        (static_cast<float>(buf[(i * 2) + 1]) - 127.5F) / 127.5F);
-  }
-
-  // Pass to callback - handle will be returned to pool automatically
-  m_frame_callback(std::move(frame_handle));
 }

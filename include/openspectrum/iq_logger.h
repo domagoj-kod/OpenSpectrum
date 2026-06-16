@@ -52,8 +52,10 @@ public:
                      const std::string &window_function = "",
                      const std::string &notes = "");
 
-  // Write IQ samples (thread-safe)
+  // Write IQ samples (thread-safe). The pointer overload is the allocation-free
+  // path used by the producer thread; the vector overload delegates to it.
   void write_samples(const std::vector<std::complex<float>> &samples);
+  void write_samples(const std::complex<float> *samples, size_t count);
 
   // Stop current capture and finalize files
   void stop_capture();
@@ -82,7 +84,7 @@ private:
   void open_files();
   void close_files();
   void write_metadata();
-  void update_stats(const std::vector<std::complex<float>> &samples);
+  void update_stats(const std::complex<float> *samples, size_t count);
   void flush_buffer();
   std::string generate_metadata_json() const;
 

@@ -5,6 +5,13 @@
 CC := gcc
 CXX := g++
 
+# Build version stamped into the binary (IqLogger capture metadata) and reused
+# by `make dist`. git-describe at the top level; override with `make VERSION=v3.0.1`.
+# Passed as a bare token and stringized in C++ (OS_STRINGIFY) so the recursive
+# CXXFLAGS overrides in the release/profile targets don't fight nested quoting.
+VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
+VERSION_DEF := -DOPENSPECTRUM_VERSION=$(VERSION)
+
 # SDL3 flags (detect via pkg-config, fallback to manual)
 SDL3_CFLAGS := $(shell pkg-config --cflags sdl3 2>/dev/null || echo "")
 SDL3_LDFLAGS := $(shell pkg-config --libs sdl3 2>/dev/null || echo "-lSDL3")
@@ -21,7 +28,8 @@ ifeq ($(OS),Windows_NT)
                     -Wformat-nonliteral \
                     -D_FORTIFY_SOURCE=2 \
                     -fstack-protector-strong \
-                    -static-libgcc -static-libstdc++
+                    -static-libgcc -static-libstdc++ \
+                    $(VERSION_DEF)
 
     BASE_LDFLAGS := -lrtlsdr $(SDL3_LDFLAGS) -static-libgcc -static-libstdc++
 else
@@ -34,7 +42,8 @@ else
                     -Wformat=2 -Wformat-security \
                     -Wformat-nonliteral \
                     -D_FORTIFY_SOURCE=2 \
-                    -fstack-protector-strong -fPIE
+                    -fstack-protector-strong -fPIE \
+                    $(VERSION_DEF)
 
     BASE_LDFLAGS := -lrtlsdr -lpthread -lm $(SDL3_LDFLAGS) \
                    -Wl,-z,now \
@@ -198,8 +207,8 @@ $(TARGET): $(ALL_OBJS)
 # Package a release into a distributable, self-contained bundle for the current
 # platform (Linux -> AppImage, Windows/MSYS2 -> zip with bundled DLLs). Output
 # lands in dist/. Same scripts CI runs, so local and CI packaging stay identical.
-# Override the version with: make dist VERSION=v2.5.0
-VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
+# Override the version with: make dist VERSION=v2.5.0 (VERSION is defined at the
+# top of this file so it's also compiled into the binary).
 dist:
 ifeq ($(OS),Windows_NT)
 	bash packaging/windows-bundle.sh "$(VERSION)"

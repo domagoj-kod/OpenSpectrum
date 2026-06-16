@@ -14,6 +14,13 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+// Build version stamped into exported metadata (see Makefile VERSION_DEF).
+#ifndef OPENSPECTRUM_VERSION
+#define OPENSPECTRUM_VERSION dev
+#endif
+#define OS_STRINGIFY2(x) #x
+#define OS_STRINGIFY(x) OS_STRINGIFY2(x)
+
 // stb_image_write keeps its implementation block outside the include guard,
 // so one #include with STB_IMAGE_WRITE_IMPLEMENTATION defined is sufficient
 // to get both the declarations and the implementation in this TU.
@@ -232,7 +239,7 @@ void SpectrogramExporter::write_metadata(
   // Application info
   ss << "  \"application\": {\n";
   ss << "    \"name\": \"OpenSpectrum\",\n";
-  ss << "    \"version\": \"1.0.0-nightly\",\n";
+  ss << "    \"version\": \"" << OS_STRINGIFY(OPENSPECTRUM_VERSION) << "\",\n";
 #ifdef _WIN32
   ss << "    \"platform\": \"Windows\"\n";
 #elif __APPLE__
