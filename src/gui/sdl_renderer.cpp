@@ -493,11 +493,19 @@ void SdlRenderer::draw_left_axes() {
   // Translucent strip matching the bottom frequency bar (alpha 180 over the
   // plot). SDL_RenderFillRect honors the *draw* blend mode, which defaults to
   // NONE (alpha ignored → solid black); switch to BLEND so the data shows
-  // through like the freq bar does.
+  // through like the freq bar does. Drawn as two segments — spectrum pane
+  // (above the freq bar) + waterfall pane — leaving the 22px freq-bar band
+  // clear so the vertical strip doesn't double-darken / collide with the
+  // horizontal bar at the bottom-left corner.
+  constexpr float kFreqBar = 22.0F;
   SDL_SetRenderDrawBlendMode(m_renderer, SDL_BLENDMODE_BLEND);
-  SDL_FRect const strip = {0.0F, 0.0F, strip_w, static_cast<float>(m_height)};
   SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 180);
-  SDL_RenderFillRect(m_renderer, &strip);
+  SDL_FRect const strip_top = {0.0F, 0.0F, strip_w,
+                               std::max(0.0F, spec_h - kFreqBar)};
+  SDL_FRect const strip_bot = {0.0F, spec_h, strip_w,
+                               static_cast<float>(m_height) - spec_h};
+  SDL_RenderFillRect(m_renderer, &strip_top);
+  SDL_RenderFillRect(m_renderer, &strip_bot);
   SDL_SetRenderDrawBlendMode(m_renderer, prev_blend);
 
   constexpr SDL_Color kLabel = {200, 200, 200, 255};
