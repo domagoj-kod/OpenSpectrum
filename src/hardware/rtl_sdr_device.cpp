@@ -11,6 +11,19 @@
 #include <utility>
 #include <vector>
 
+// Convert interleaved unsigned-8-bit IQ to float in [-1, 1): out = x/127.5 - 1.
+// Both I and Q take the same transform, so it's a flat uint8->float run (n =
+// 2 * sample count). A free function with __restrict params so the compiler
+// emits full-width AVX2 with no alias-versioning — the inline form versioned
+// through the pooled-buffer pointer's provenance. This is the program's
+// highest-volume loop (full sample rate, on the producer thread).
+static void convert_iq_u8_to_f32(const unsigned char *__restrict src,
+                                 float *__restrict dst, size_t n) {
+  for (size_t k = 0; k < n; ++k) {
+    dst[k] = static_cast<float>(src[k]) * (1.0F / 127.5F) - 1.0F;
+  }
+}
+
 RtlSdrDevice::RtlSdrDevice(uint32_t index, size_t pool_capacity)
     : m_index(index), m_fft_size(pool_capacity) {
   m_frame_pool = std::make_shared<openspectrum::FramePool>(m_fft_size, 16);
@@ -135,13 +148,10 @@ auto RtlSdrDevice::read_samples(size_t count)
     throw std::runtime_error("RTL-SDR read failed or short read");
   }
 
+  // RTL2832U outputs unsigned 8-bit; centre 127.5 = DC.
   std::vector<std::complex<float>> samples(count);
-  for (size_t i = 0; i < count; ++i) {
-    // RTL2832U outputs unsigned 8-bit; centre value 127/128 = DC
-    samples[i] = std::complex<float>(
-        (static_cast<float>(buf[i * 2]) - 127.5F) / 127.5F,
-        (static_cast<float>(buf[(i * 2) + 1]) - 127.5F) / 127.5F);
-  }
+  convert_iq_u8_to_f32(buf.data(), reinterpret_cast<float *>(samples.data()),
+                       count * 2);
   return samples;
 }
 
@@ -244,12 +254,11 @@ void RtlSdrDevice::process_callback_with_pool(unsigned char *buf,
     size_t const chunk = std::min(count - offset, frame_handle.capacity());
     frame_handle.resize(chunk);
 
-    for (size_t i = 0; i < chunk; ++i) {
-      size_t const j = offset + i;
-      frame_handle[i] = std::complex<float>(
-          (static_cast<float>(buf[j * 2]) - 127.5F) / 127.5F,
-          (static_cast<float>(buf[(j * 2) + 1]) - 127.5F) / 127.5F);
-    }
+    // complex<float> is layout-compatible with float[2]; convert the whole
+    // chunk as one contiguous uint8->float run (see convert_iq_u8_to_f32).
+    convert_iq_u8_to_f32(buf + offset * 2,
+                         reinterpret_cast<float *>(frame_handle.data()),
+                         chunk * 2);
 
     // Pass to callback - handle returns to pool automatically when consumed.
     m_frame_callback(std::move(frame_handle));
