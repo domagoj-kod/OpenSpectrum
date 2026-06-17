@@ -1,18 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
-#include <atomic>
 #include <cassert>
 #include <complex>
 #include <cstddef>
-#include <cstdint>
 #include <cstdlib>
 #include <functional>
 #include <memory>
 #include <mutex>
 #include <queue>
 #include <utility>
-#include <vector>
 
 #ifdef _WIN32
 #include <malloc.h> // For _aligned_malloc, _aligned_free

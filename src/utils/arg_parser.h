@@ -4,7 +4,6 @@
 #include "openspectrum/attributes.h"
 #include "signal_processor.h"
 
-#include <cstdint>
 #include <string>
 
 namespace openspectrum {

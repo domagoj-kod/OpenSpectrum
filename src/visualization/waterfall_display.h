@@ -6,7 +6,6 @@
 #include "spectrum_display.h"
 
 #include <cstdint>
-#include <memory>
 #include <vector>
 
 // Forward declaration for SDL types (to avoid including SDL.h in header)

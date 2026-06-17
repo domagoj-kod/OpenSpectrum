@@ -2,7 +2,6 @@
 
 #include "fft_analyzer.h"
 
-#include <algorithm>
 #include <cmath>
 #include <complex>
 #include <cstddef>
