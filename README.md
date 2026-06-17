@@ -33,6 +33,49 @@ effective observed bandwidth we receive corresponds to:
 
 all simultaneously in the IQ stream.
 
+### FFT size, resolution, and where the data stops being real
+
+The **span you see is set only by the sample rate** (`fs`) — the FFT size never adds
+bandwidth, it only slices that fixed span more finely:
+
+```bash
+bin resolution   Δf   = fs / N          # N = FFT size
+frame time       Δt   = N  / fs          # how long one FFT covers
+```
+
+| fs | N | Δf (resolution) | Δt (latency) |
+|----|---|-----------------|--------------|
+| 2.048 MS/s | 2048 | 1000 Hz/bin | 1 ms |
+| 2.048 MS/s | 16384 | 125 Hz/bin | 8 ms |
+| 1.024 MS/s | 16384 | 62.5 Hz/bin | 16 ms |
+
+Bigger `N` → finer frequency, coarser time, more latency. That trade is fixed; you
+cannot get both. Past the point where `Δt` exceeds the signal's coherence time, extra
+bins just show the same noise at tighter spacing — no new information.
+
+**Where you stop seeing the device and start seeing artifacts:**
+
+- **`fs` above ~2.4 MS/s** — USB 2.0 can't keep up, buffers drop, and the dropouts
+  show up as broadband glitches and spurs. This is the practical ceiling.
+- **Band edges** — the R820T2 tuner's analog IF filter (auto-set, roughly tracks `fs`)
+  rolls off the outer ~10–20 % of the span. The edges are filter shape, not flat
+  response.
+- **Center bin** — DC offset and LO leakage put a spike at `fc` regardless of tuning.
+- **Valid `fs` ranges** — the RTL only accepts **225–300 kS/s** and **900 kS/s–3.2 MS/s**;
+  the gap in between is rejected.
+
+So the clean working window is roughly **0.9–2.4 MHz**: the middle ~80 % of the span is
+real device data, the edges are tuner roll-off, and the center is the DC artifact.
+
+### What the PEAK readout means
+
+The top-right `PEAK` value is **dBFS — decibels relative to full scale**, not watts or
+dBm. The IQ samples are normalized to `[-1, 1]`, so `0 dB` corresponds to the ADC's full
+scale; everything real reads below it (the noise floor typically lands around
+`-70…-100 dBFS` depending on FFT size, window, and gain). It is an **uncalibrated
+relative** level — there is no antenna gain, impedance, or cable-loss term, so it cannot
+be converted to absolute power (dBm) without a per-gain calibration offset.
+
 ## Features
 
 | Feature | Description |
