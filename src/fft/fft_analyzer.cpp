@@ -54,13 +54,15 @@ static inline __m256 fast_log10_avx2(__m256 x) {
 #endif
 
 FftAnalyzer::FftAnalyzer(size_t fft_size, bool inverse)
-    : m_fft_size(fft_size), m_inverse(inverse),
-      m_input_buffer(fft_size), m_output_buffer(fft_size),
-      m_power_spectrum((fft_size / 2) + 1),
-      m_magnitude_spectrum((fft_size / 2) + 1),
-      m_db_spectrum((fft_size / 2) + 1),
-      m_phase_spectrum((fft_size / 2) + 1),
-      m_freq_bins((fft_size / 2) + 1) {
+    : m_fft_size(fft_size), m_inverse(inverse), m_input_buffer(fft_size),
+      m_output_buffer(fft_size),
+      // Complex IQ input → the FFT is two-sided: all N bins are meaningful and
+      // span the full [center-rate/2, center+rate/2]. (A real-input rfft would
+      // only need N/2+1, but truncating a complex transform to N/2+1 drops half
+      // the band and makes the spectrum 2x-zoomed vs the frequency axis.)
+      m_power_spectrum(fft_size), m_magnitude_spectrum(fft_size),
+      m_db_spectrum(fft_size), m_phase_spectrum(fft_size),
+      m_freq_bins(fft_size) {
   // Security: validate FFT size is a power of 2
   if (fft_size == 0 || (fft_size & (fft_size - 1)) != 0) {
     throw std::invalid_argument("FFT size must be a power of 2");
@@ -161,25 +163,24 @@ void FftAnalyzer::execute(std::span<const std::complex<float>> input,
     pocketfft_forward(m_input_buffer, m_output_buffer);
   }
 
-  // --- 3. DC-center fixup: rotate output left by N/2 ---------------------
-  // Lets the downstream loops read contiguously without (i + N/2) % N.
-  // Equivalent to fftshift on the output; mathematically redundant with the
-  // pre-FFT sign trick above but kept for behavior parity with the prior code.
-  if (m_center_dc) {
-    size_t const half = m_fft_size / 2;
-    for (size_t i = 0; i < half; ++i) {
-      std::swap(m_output_buffer[i], m_output_buffer[i + half]);
-    }
-  }
+  // --- 3. DC centering is done by the pre-FFT sign trick -----------------
+  // Multiplying the input by (-1)^n shifts the spectrum by N/2, so DC already
+  // lands at bin N/2 (screen center) and bin 0 = center-rate/2. Do NOT also
+  // swap the output halves: that is a second fftshift, which cancels the first
+  // and leaves DC at bin 0 — misaligning the spectrum with the frequency axis
+  // by half the span. The full N two-sided bins below then map 1:1 onto the
+  // axis [center-rate/2, center+rate/2].
 
   // --- 4. Power / dB (no sqrt) -------------------------------------------
   // dB is computed directly from power: 20·log10(sqrt(p)·c) = 10·log10(p·c²).
   // Epsilon also squared so the power=0 case matches the prior formula.
-  size_t const half_size = (m_fft_size / 2) + 1;
+  // Two-sided complex spectrum: every one of the N bins is single-sided
+  // (scale=1). There is no negative-frequency mirror to fold in, so the
+  // real-rfft +6 dB doubling on bins 1..N/2-1 does NOT apply here.
+  size_t const out_bins = m_fft_size;
   float const inv_ng =
       1.0F / (static_cast<float>(m_fft_size) * m_window_coherent_gain);
-  float const c_sq_x4 = 4.0F * inv_ng * inv_ng; // (scale·inv_ng)² for scale=2
-  float const c_sq_x1 = inv_ng * inv_ng;        // for DC / Nyquist (scale=1)
+  float const c_sq = inv_ng * inv_ng;
   float const eps_sq = 1e-24F;
   bool const extras = m_extra_spectra_enabled;
 
@@ -188,14 +189,14 @@ void FftAnalyzer::execute(std::span<const std::complex<float>> input,
 #ifdef __AVX2__
   const auto *out_data =
       reinterpret_cast<const float *>(m_output_buffer.data());
-  __m256 const c_sq_v = _mm256_set1_ps(c_sq_x4);
+  __m256 const c_sq_v = _mm256_set1_ps(c_sq);
   __m256 const eps_sq_v = _mm256_set1_ps(eps_sq);
   __m256 const ten_v = _mm256_set1_ps(10.0F);
 
-  // Process 8 bins (16 floats / 2 AVX regs) per iteration.
-  // half_size = N/2 + 1; we cover [0, simd_bins) here and patch DC + Nyquist
-  // below since they need scale=1 instead of scale=2.
-  simd_bins = (half_size / 8) * 8;
+  // Process 8 bins (16 floats / 2 AVX regs) per iteration over all N bins; the
+  // scalar tail below covers the remainder. No DC/Nyquist patch is needed since
+  // every bin uses the same scale.
+  simd_bins = (out_bins / 8) * 8;
 
   // Manually unswitched on `extras` — GCC -O3 did not hoist the branch.
   // Fast path (default) skips the sqrt and two stores entirely.
@@ -231,7 +232,7 @@ void FftAnalyzer::execute(std::span<const std::complex<float>> input,
 #endif
 
   // Scalar tail (also covers the entire range on non-AVX2 builds).
-  for (size_t i = simd_bins; i < half_size; ++i) {
+  for (size_t i = simd_bins; i < out_bins; ++i) {
     float const r = m_output_buffer[i].real();
     float const im = m_output_buffer[i].imag();
     float const power = r * r + im * im;
@@ -239,29 +240,12 @@ void FftAnalyzer::execute(std::span<const std::complex<float>> input,
       m_power_spectrum[i] = power;
       m_magnitude_spectrum[i] = std::sqrt(power);
     }
-    float const c_sq = (i != 0 && i != m_fft_size / 2) ? c_sq_x4 : c_sq_x1;
     m_db_spectrum[i] = 10.0F * std::log10(power * c_sq + eps_sq);
-  }
-
-  // Patch DC and Nyquist dB values: bulk SIMD loop used scale=2; these two
-  // single-sided bins need scale=1. Power/magnitude are scale-independent so
-  // they don't need re-storing.
-  if (simd_bins > 0) {
-    auto patch_db = [&](size_t idx) {
-      float const r = m_output_buffer[idx].real();
-      float const im = m_output_buffer[idx].imag();
-      float const p = r * r + im * im;
-      m_db_spectrum[idx] = 10.0F * std::log10(p * c_sq_x1 + eps_sq);
-    };
-    patch_db(0);
-    size_t const nyq = m_fft_size / 2;
-    if (nyq < simd_bins)
-      patch_db(nyq);
   }
 
   // --- 5. Phase (scalar, gated) -----------------------------------------
   if (extras) {
-    for (size_t i = 0; i < half_size; ++i) {
+    for (size_t i = 0; i < out_bins; ++i) {
       m_phase_spectrum[i] =
           std::atan2(m_output_buffer[i].imag(), m_output_buffer[i].real());
     }
@@ -270,7 +254,7 @@ void FftAnalyzer::execute(std::span<const std::complex<float>> input,
   // --- 6. Optional output copy (buffer is already rotated) --------------
   if (output.size() >= m_fft_size) {
     std::memcpy(output.data(), m_output_buffer.data(),
-                half_size * sizeof(std::complex<float>));
+                m_fft_size * sizeof(std::complex<float>));
   }
 }
 
