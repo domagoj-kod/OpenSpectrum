@@ -775,6 +775,18 @@ auto main(int argc, char *argv[]) -> int {
       renderer.set_timing_overlay(control_state.timing_overlay_enabled(),
                                   ov_fps, ov_cpu, ov_build, ov_present);
 
+      // Left-margin axes: live dB range from the spectrum, and the age of the
+      // oldest visible waterfall row (0 while history is still too short → the
+      // time axis stays hidden until there is something to label).
+      {
+        WaterfallDisplay::CursorTime oldest;
+        const double wf_top_seconds =
+            waterfall_display.sample_at_y(0.0F, oldest) ? oldest.seconds_ago
+                                                        : 0.0;
+        renderer.set_left_axes(true, spectrum_display.min_db(),
+                               spectrum_display.max_db(), wf_top_seconds);
+      }
+
       // === Frequency markers (persistent vertical reference lines) ===
       {
         const double rate = static_cast<double>(effective_rate);

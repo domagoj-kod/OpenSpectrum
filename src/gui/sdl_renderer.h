@@ -138,6 +138,20 @@ public:
     m_markers = std::move(markers);
   }
 
+  // Left-margin axes overlay: a dB scale on the spectrum pane and an elapsed
+  // "seconds-ago" scale on the waterfall pane. main() feeds the live spectrum
+  // dB range and the age of the oldest visible waterfall row each frame. Drawn
+  // as an overlay over the left edge — no change to the freq<->x or bin
+  // mapping. wf_top_seconds <= 0 hides the time axis (not enough history
+  // captured yet).
+  void set_left_axes(bool enabled, float db_min, float db_max,
+                     double wf_top_seconds) noexcept {
+    m_axes_enabled = enabled;
+    m_axis_db_min = db_min;
+    m_axis_db_max = db_max;
+    m_axis_wf_top_seconds = wf_top_seconds;
+  }
+
   // A mouse click captured in poll_events, in render coordinates.
   struct ClickEvent {
     float x = 0.0F;
@@ -168,6 +182,17 @@ private:
   // bottom-left list panel (frequency + live level). Called from
   // render_overlays before the cursor readout so the live cursor sits on top.
   void draw_markers();
+
+  // Draw the left-margin dB axis (spectrum pane) and seconds-ago axis
+  // (waterfall pane). Overlay only; called from render_overlays before the
+  // markers/cursor so those sit on top.
+  void draw_left_axes();
+
+  // Width (px) of the left axes strip, or 0 when axes are disabled. Stable
+  // (sized to the widest possible label, not the live values) so the left HUD
+  // boxes can shift clear of it without jitter. Used as the left inset for the
+  // timing overlay, cursor readout, and marker panel.
+  [[nodiscard]] int axis_strip_width() const;
 
   // Draw the spectrum bars on the GPU (one SDL_RenderGeometry call, solid-color
   // geometry, no texture). Called into the active render target.
@@ -274,6 +299,12 @@ private:
   std::vector<Marker> m_markers;
   std::vector<ClickEvent> m_clicks;
   bool m_clear_markers = false;
+
+  // Left-margin axes overlay state (fed per frame by main()).
+  bool m_axes_enabled = false;
+  float m_axis_db_min = -120.0F;
+  float m_axis_db_max = 0.0F;
+  double m_axis_wf_top_seconds = 0.0;
 };
 
 } // namespace openspectrum

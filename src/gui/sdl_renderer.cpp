@@ -372,7 +372,7 @@ void SdlRenderer::render_overlays() {
     }
 
     const int pad = 5;
-    const int x0 = 8;
+    const int x0 = 8 + axis_strip_width();
     const int y0 = 8;
     SDL_FRect const bg = {static_cast<float>(x0 - pad),
                           static_cast<float>(y0 - pad),
@@ -404,8 +404,125 @@ void SdlRenderer::render_overlays() {
     }
   }
 
+  draw_left_axes();
   draw_markers();
   draw_cursor_readout();
+}
+
+int SdlRenderer::axis_strip_width() const {
+  if (!m_axes_enabled || m_text_renderer == nullptr) {
+    return 0;
+  }
+  int w = 0;
+  // "120dB" is the widest label either axis can produce (sign + space dropped).
+  m_text_renderer->get_text_size("120dB", &w, nullptr);
+  constexpr int kPad = 2;
+  constexpr int kTick = 3;
+  return 2 * kPad + w + kTick;
+}
+
+void SdlRenderer::draw_left_axes() {
+  if (!m_axes_enabled || !m_text_renderer) {
+    return;
+  }
+  const float spec_h = static_cast<float>(m_freq_scale_spectrum_height);
+  if (spec_h <= 0.0F) {
+    return;
+  }
+  const float wf_h = static_cast<float>(m_height) - spec_h;
+
+  // Tick positions are FIXED (evenly divided per pane); only the printed values
+  // change as the dB range / waterfall age drift. This makes the labels behave
+  // like a rolling coarse meter instead of jumping around as the scale
+  // oscillates. Style mirrors the bottom frequency bar (dark strip, gray ticks
+  // + labels) so the two scales read as one set.
+  constexpr int kDiv = 4; // 5 labels per pane (0..kDiv)
+  struct Label {
+    float y;
+    std::string text;
+  };
+  std::vector<Label> labels;
+
+  // dB scale over the spectrum pane (bottom 22px reserved for the freq bar).
+  const float db_usable = spec_h - 22.0F;
+  if (db_usable > 20.0F && m_axis_db_max > m_axis_db_min) {
+    const double range = m_axis_db_max - m_axis_db_min;
+    for (int i = 0; i <= kDiv; ++i) {
+      const double frac = static_cast<double>(i) / kDiv; // 0 top .. 1 bottom
+      const double v = m_axis_db_max - frac * range;     // top = max dB
+      char s[16];
+      // Drop the leading minus — the dB scale is understood as below full
+      // scale.
+      std::snprintf(s, sizeof(s), "%.0fdB", -v);
+      labels.push_back({static_cast<float>(frac) * db_usable, s});
+    }
+  }
+
+  // Seconds-ago scale over the waterfall pane (top = oldest, bottom = now).
+  if (wf_h > 20.0F && m_axis_wf_top_seconds > 0.05) {
+    const double top = m_axis_wf_top_seconds;
+    for (int i = 0; i <= kDiv; ++i) {
+      const double frac = static_cast<double>(i) / kDiv; // 0 top .. 1 bottom
+      const double age = top * (1.0 - frac);             // top = oldest
+      char s[16];
+      if (age < 0.05) {
+        std::snprintf(s, sizeof(s), "now");
+      } else {
+        std::snprintf(s, sizeof(s), "%.1fs", age);
+      }
+      labels.push_back({spec_h + static_cast<float>(frac) * wf_h, s});
+    }
+  }
+
+  if (labels.empty()) {
+    return;
+  }
+
+  constexpr int kPad = 2;
+  constexpr int kTick = 3;
+  const float strip_w = static_cast<float>(axis_strip_width());
+
+  Uint8 r;
+  Uint8 g;
+  Uint8 b;
+  Uint8 a;
+  SDL_GetRenderDrawColor(m_renderer, &r, &g, &b, &a);
+  SDL_BlendMode prev_blend = SDL_BLENDMODE_NONE;
+  SDL_GetRenderDrawBlendMode(m_renderer, &prev_blend);
+
+  // Translucent strip matching the bottom frequency bar (alpha 180 over the
+  // plot). SDL_RenderFillRect honors the *draw* blend mode, which defaults to
+  // NONE (alpha ignored → solid black); switch to BLEND so the data shows
+  // through like the freq bar does.
+  SDL_SetRenderDrawBlendMode(m_renderer, SDL_BLENDMODE_BLEND);
+  SDL_FRect const strip = {0.0F, 0.0F, strip_w, static_cast<float>(m_height)};
+  SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 180);
+  SDL_RenderFillRect(m_renderer, &strip);
+  SDL_SetRenderDrawBlendMode(m_renderer, prev_blend);
+
+  constexpr SDL_Color kLabel = {200, 200, 200, 255};
+  for (const auto &l : labels) {
+    // Tick poking out of the strip's right edge (toward the plot).
+    SDL_SetRenderDrawColor(m_renderer, 180, 180, 180, 255);
+    SDL_RenderLine(m_renderer, strip_w - kTick, l.y, strip_w, l.y);
+
+    SDL_Texture *t = m_text_renderer->render_text(l.text, kLabel);
+    if (t == nullptr) {
+      continue;
+    }
+    int w = 0;
+    int h = 0;
+    m_text_renderer->get_text_size(l.text, &w, &h);
+    float ty = l.y - static_cast<float>(h) / 2.0F; // center on the tick
+    ty = std::clamp(ty, 0.0F, static_cast<float>(m_height) - h);
+    SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
+    SDL_FRect const d = {static_cast<float>(kPad), ty, static_cast<float>(w),
+                         static_cast<float>(h)};
+    SDL_RenderTexture(m_renderer, t, nullptr, &d);
+    SDL_DestroyTexture(t);
+  }
+
+  SDL_SetRenderDrawColor(m_renderer, r, g, b, a);
 }
 
 void SdlRenderer::draw_markers() {
@@ -479,7 +596,7 @@ void SdlRenderer::draw_markers() {
   const auto box_w = static_cast<float>(text_w + 2 * pad);
   const auto box_h =
       static_cast<float>(static_cast<int>(lines.size()) * line_h + 2 * pad);
-  const float bx = 8.0F;
+  const float bx = 8.0F + static_cast<float>(axis_strip_width());
   const float by = static_cast<float>(m_height) - box_h - 8.0F;
 
   SDL_FRect const bg = {bx, by, box_w, box_h};
@@ -567,7 +684,7 @@ void SdlRenderer::draw_cursor_readout() {
   // Fixed top-left panel. Anchoring it to the cursor/trace made it ride the
   // fast spectrum refresh — vibrating and ghosting. A static position keeps the
   // text readable; the marker line + dot still convey the measured location.
-  const float bx = 8.0F;
+  const float bx = 8.0F + static_cast<float>(axis_strip_width());
   float by = 8.0F;
   // Don't collide with the frame-timing overlay (also top-left) when it's on.
   if (m_timing_overlay_enabled) {
