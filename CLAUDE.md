@@ -1,51 +1,49 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code (claude.ai/code) working in this repository.
 
-## Build Commands
+## Build
 
 ```bash
-make              # debug build (O0, symbols, OPENSPECTRUM_DEBUG defined)
+make              # debug (O0, symbols, OPENSPECTRUM_DEBUG defined)
 make release      # O3 + LTO + -march=haswell + footprint trim
 make profile      # O2 + gprof instrumentation
 make dist         # package a release bundle for the current platform → dist/
-make clean        # remove build/ and binary
+make clean
 
-# PGO pipeline (binary becomes ~15-20 % faster on the trained workload)
-make profile-gen      # build instrumented binary that writes .gcda files
-./openspectrum        # exercise the hot path for 60-180 s, exit cleanly (Ctrl-C)
+# PGO (~15-20% faster on the trained workload)
+make profile-gen      # instrumented binary, writes .gcda
+./openspectrum        # exercise hot path 60-180s, exit cleanly (Ctrl-C)
 make clean
 make profile-use      # rebuild consuming the profile
-make profile-clean    # wipe pgo-data/ before regenerating
+make profile-clean    # wipe pgo-data/
 ```
 
-The binary is `openspectrum` (Linux) or `openspectrum.exe` (Windows/MSYS2).
+Binary: `openspectrum` (Linux) / `openspectrum.exe` (Windows/MSYS2). No test suite.
 
-Release / PGO targets enable: `-march=haswell` (AVX2 + FMA3), `-flto`, `-ffunction-sections -fdata-sections -fvisibility=hidden -fvisibility-inlines-hidden` + `-Wl,--gc-sections` for footprint trim, and `-falign-functions=32 -falign-loops=32` so hot loops fit in one DSB fetch line. Trimmed flags live in `TRIM_CFLAGS` / `TRIM_LDFLAGS` in the Makefile.
+Release/PGO flags: `-march=haswell` (AVX2+FMA3), `-flto`, `-ffunction-sections -fdata-sections -fvisibility=hidden -fvisibility-inlines-hidden` + `-Wl,--gc-sections`, `-falign-functions=32 -falign-loops=32` (hot loops in one DSB fetch line). See `TRIM_CFLAGS`/`TRIM_LDFLAGS` in the Makefile.
 
-There is no test suite. The former `test/` directory (standalone SDL2-era hardware-acceleration probes, never part of any build) was removed before v3.0.0.
-
-Linting is **gradual** (clang-tidy config in `.clang-tidy`, clang-format in `.clang-format`): format and tidy only the lines changed since a base ref, never the whole tree. A one-time full pass would reflow the hand-tuned AVX2 blocks and the 8x16 font bitmap table for no benefit. Use the wrapper:
+**Linting is gradual** — format/tidy only lines changed vs a base ref, never the whole tree (a full pass would reflow the hand-tuned AVX2 blocks + the 8x16 font table). Config in `.clang-tidy` / `.clang-format`. Wrapper:
 ```bash
-./lint.sh                # format changed lines (vs main) in place + clang-tidy the diff
-./lint.sh --check        # non-mutating; exits non-zero if formatting or tidy flags anything
-./lint.sh HEAD~3         # diff against an arbitrary base ref
+./lint.sh            # format changed lines vs main + clang-tidy the diff
+./lint.sh --check    # non-mutating; non-zero exit if anything is flagged
+./lint.sh HEAD~3     # arbitrary base ref
 ```
-It runs `git clang-format <base>` + `clang-tidy-diff`. The include flags it passes mirror the Makefile's `INCLUDES` — the **per-module dirs are required** (e.g. `include/openspectrum/control_state.h` does `#include "signal_processor.h"`, which lives in `src/signal/`), so a bare `-Isrc -Iinclude` is not enough and yields a `file not found` clang-diagnostic-error.
+Its `-I` flags mirror the Makefile's `INCLUDES`; the **per-module dirs are required** (e.g. `control_state.h` includes `signal_processor.h` from `src/signal/`) — a bare `-Isrc -Iinclude` yields `file not found`.
 
-**Header-dependency tracking**: the per-object compile rules pass `DEPFLAGS := -MMD -MP`, emitting a `.d` file beside each `.o` that lists the headers it pulled in; these are `-included` at the bottom of the Makefile, so editing a header rebuilds every `.cpp` that includes it. `DEPFLAGS` is kept **separate from `CXXFLAGS` on purpose** — `release` / `profile` / `profile-gen` / `profile-use` override `CXXFLAGS` via recursive make, which would strip `-MMD -MP` if it lived there. If you add a new compile rule, append `$(DEPFLAGS)` to it.
+**Header-dep tracking**: compile rules pass `DEPFLAGS := -MMD -MP` → a `.d` beside each `.o`, `-included` at the Makefile bottom, so editing a header rebuilds dependents. `DEPFLAGS` is kept **separate from `CXXFLAGS`** because `release`/`profile*` override `CXXFLAGS` via recursive make and would strip it. A new compile rule must append `$(DEPFLAGS)`.
 
 ## Release & packaging
 
-`make dist` builds a self-contained, distributable bundle for the current platform into `dist/` — Linux → AppImage, Windows/MSYS2 → zip with bundled DLLs. It dispatches on `$(OS)` to the platform script (`packaging/linux-appimage.sh` or `packaging/windows-bundle.sh`) and stamps a version: `VERSION` defaults to `git describe --tags --always`, override with `make dist VERSION=v2.5.0`.
+`make dist` → self-contained bundle into `dist/` (Linux AppImage, Windows/MSYS2 zip with bundled DLLs). Dispatches on `$(OS)` to `packaging/{linux-appimage,windows-bundle}.sh`. Version defaults to `git describe --tags --always`; override `make dist VERSION=vX`.
 
-`.github/workflows/release.yml` runs the **same scripts** so local and CI packaging stay identical. It triggers on `push` of a `v*` tag (and has a manual `workflow_dispatch` that builds artifacts but does *not* publish a Release). Two jobs — Linux AppImage on `ubuntu-latest`, Windows zip on `windows-latest` (MSYS2 MINGW64) — build, upload a workflow artifact unconditionally, and publish to a GitHub Release (body extracted from the annotated tag message). Cutting a release = `git tag -s vX -F notes.txt && git push origin vX`; see `RELEASING.md` for the full checklist.
+`.github/workflows/release.yml` runs the **same scripts**; triggers on `v*` tag push (manual `workflow_dispatch` builds artifacts but does not publish). Two jobs (Linux `ubuntu-latest`, Windows MSYS2 MINGW64) build, upload an artifact, and publish a Release (body = annotated tag message). Cut a release: `git tag -s vX -F notes.txt && git push origin vX`; see `RELEASING.md`.
 
-The app icon (`packaging/openspectrum.png`, with `openspectrum.svg` source) is **committed**, not rasterized at build time — the packaging scripts consume the PNG directly, so there is no build-time SVG-to-PNG dependency.
+App icon (`packaging/openspectrum.png`, source `.svg`) is **committed** and consumed directly — no build-time SVG rasterization.
 
 ## Architecture
 
-The pipeline is a single-threaded render loop fed by a producer thread: either the async RTL-SDR callback or, with `--play file.iq`, an `IqPlaybackSource` reader (`src/hardware/iq_playback.{h,cpp}`) that replays an IqLogger capture paced in real time and loops at EOF. Both feed the same `async_sample_callback`, so everything downstream is source-agnostic; in playback mode `main()` holds no device (`dev` is a null `unique_ptr` — tuner writes and the retune queue-drain are skipped). Producer and render threads call `enable_ftz_daz()` on first entry (per-thread MXCSR; the render thread sets it at the top of `main`, the producer via a `thread_local` guard on first sample). This eliminates the ~100-cycle microcode trap on denormal floats that show up near the dB noise floor.
+Single-threaded render loop fed by a producer thread: the async RTL-SDR callback, or with `--play file.iq` an `IqPlaybackSource` (`src/hardware/iq_playback.*`) replaying an IqLogger capture in real time, looping at EOF. Both feed `async_sample_callback`, so downstream is source-agnostic; playback mode holds no device (`dev` is null → tuner writes and the retune queue-drain are skipped). Producer + render threads call `enable_ftz_daz()` once per thread (kills the ~100-cycle denormal trap near the dB floor).
 
 ```
 Producer thread (RTL-SDR callback  OR  IqPlaybackSource reader)
@@ -65,109 +63,83 @@ Main thread (main.cpp)
   └─ SdlRenderer: render_displays() or render_displays_scroll()
 ```
 
-The throttle (`while (!g_sample_queue.empty()) move + pop`) runs inside the dequeue lock. Each move-assignment releases the prior `FrameHandle` to the pool; only the newest survives. Prevents render-loop latency accumulation when the callback outpaces the renderer.
+The throttle (`while(!queue.empty()) move+pop`) runs inside the dequeue lock; each move releases the prior `FrameHandle` to the pool, only the newest survives — prevents latency accumulation when the callback outpaces the renderer.
 
-**Shutdown is not an error path**: `stop_streaming()` cancels the async transfer, which makes `rtlsdr_read_async` return a negative code (e.g. -5) on the callback thread. This is *expected*, not a failure — it is gated on `m_thread_running`, so do not log or re-flag it as an ERROR. Only an unexpected negative return while still running is a real fault.
+**Shutdown is not an error path**: `stop_streaming()` cancels the transfer → `rtlsdr_read_async` returns negative (e.g. -5) on the callback thread. Expected, gated on `m_thread_running`; do not log as ERROR. Only a negative return while still running is a real fault.
 
 ### Key data structures
-
-**FramePool / FrameHandle** (`include/openspectrum/frame_pool.h`): Cache-line-aligned (64-byte) pool of `complex<float>` buffers. `FrameHandle` is RAII — destruction returns the frame to its pool. Never copy; always move.
-
-**RingBuffer<T>** (`src/utils/ring_buffer.h`): Fixed-capacity circular buffer. `operator[](0)` = oldest, `back()` = newest. `full()` is the gate for the waterfall scroll path.
-
-**PixelBuffer** (`src/visualization/spectrum_display.h`): Non-copyable raw `uint8_t*` buffer for RGBA pixel data. Used by both displays.
+- **FramePool / FrameHandle** (`include/openspectrum/frame_pool.h`): 64-byte-aligned pool of `complex<float>` buffers. `FrameHandle` is RAII (destruction returns to its pool). Never copy; always move.
+- **RingBuffer<T>** (`src/utils/ring_buffer.h`): fixed-capacity circular buffer. `[0]`=oldest, `back()`=newest. `full()` gates the waterfall scroll path.
+- **PixelBuffer** (`src/visualization/spectrum_display.h`): non-copyable raw `uint8_t*` RGBA buffer, used by both displays.
 
 ### FFT backend (PocketFFT)
+`third_party/pocketfft/pocketfft_hdronly.h`; shim `src/fft/pocketfft_wrapper.h` defines `pocketfft_cpx = std::complex<float>` and `pocketfft_forward`/`_inverse`. Layout-compatible, so input fill / output copy are `memcpy`.
 
-`third_party/pocketfft/pocketfft_hdronly.h` is the backend; KissFFT was removed. The shim `src/fft/pocketfft_wrapper.h` defines `pocketfft_cpx = std::complex<float>` and exposes `pocketfft_forward` / `pocketfft_inverse`. Because `pocketfft_cpx` is layout-compatible with the caller's `std::complex<float>`, the non-DC-center input fill is a plain `memcpy` and the optional output copy is a single `memcpy`.
-
-The Windows MinGW build needs the patched `aligned_alloc` shim near line 152 of `pocketfft_hdronly.h`: on `_WIN32` it routes to `_aligned_malloc` / `_aligned_free` from `<malloc.h>`. Restoring the upstream `::aligned_alloc` will break MSYS2 compilation; do not revert that block.
+**Windows MinGW**: the patched `aligned_alloc` shim (~line 152 of the header) routes to `_aligned_malloc`/`_free` from `<malloc.h>` on `_WIN32`. Restoring upstream `::aligned_alloc` breaks MSYS2 — do not revert.
 
 ### FftAnalyzer hot loop
+`execute()` post-FFT loop is manually vectorized and *manually unswitched* on `m_extra_spectra_enabled` (GCC won't hoist the branch through the AVX2 intrinsics):
+- **Fast path (default)**: power → fma → `fast_log10_avx2` → `m_db_spectrum`. Uses `20·log10(sqrt(p)·c) ≡ 10·log10(p·c²)` (sqrt eliminated); epsilon squared (`1e-24`).
+- **Extras path** (`set_extra_spectra_enabled(true)`): also stores `m_power_spectrum`, `m_magnitude_spectrum` (`_mm256_sqrt_ps`), scalar `atan2` → `m_phase_spectrum`. Default off — nothing consumes these yet.
 
-`FftAnalyzer::execute()` post-FFT loop is manually vectorized and *manually unswitched* on `m_extra_spectra_enabled` because GCC's loop-unswitching pass refused to hoist it through the AVX2 intrinsics:
+`fast_log10_avx2` (file-local): log10 via `2·atanh((m-1)/(m+1))`, Horner through y⁶. Max rel err ~1.7e-5 (~0.00015 dB).
 
-- **Fast path (default)** computes power → fma → vectorized `fast_log10_avx2` → store `m_db_spectrum`. Uses the identity `20·log10(sqrt(p)·c) ≡ 10·log10(p·c²)`, so the sqrt is eliminated. Epsilon is squared (`1e-24`) to match the power=0 behavior of the original formula.
-- **Extras path** (when `set_extra_spectra_enabled(true)`) additionally stores `m_power_spectrum`, `m_magnitude_spectrum` (via `_mm256_sqrt_ps`), and runs a scalar `atan2` pass to fill `m_phase_spectrum`.
-
-The default is *off*. Nothing in the current pipeline consumes magnitude / power / phase, so the secondary spectra are computed only if a future consumer opts in via the setter.
-
-`fast_log10_avx2` (file-local helper) computes log10 via `2·atanh((m-1)/(m+1))` with a Horner polynomial through y⁶. Max relative error ~1.7e-5 → ~0.00015 dB, well below display resolution.
-
-The DC-center mode does a one-shot halves-swap on `m_output_buffer` after the FFT (`std::swap` over the first N/2 elements with the second N/2). The downstream power loop then reads contiguously without `(i + N/2) % N` arithmetic. The bulk loop assumes `scale=2`; DC and Nyquist bins (`scale=1`) are patched scalar after.
+**Two-sided spectrum** (complex IQ): all N bins are computed and map 1:1 onto the axis `[center-rate/2, center+rate/2]`; every bin is scale=1 — there is no real-rfft negative-mirror fold, so no +6 dB doubling. DC centering is the **pre-FFT sign trick** (input × `(-1)^n` shifts the spectrum by N/2 → DC lands at bin N/2 = screen center). Do NOT also swap output halves — a second fftshift cancels the first and misaligns the spectrum with the axis by half the span.
 
 ### SignalProcessor SIMD invariants
+`m_window_coeffs_doubled` is a 2N-float window with each coeff duplicated (`[w0,w0,w1,w1,...]`) so AVX2 `apply_window` is one `_mm256_mul_ps` against interleaved IQ, no shuffles. `precompute_window()` regenerates both arrays on size/type change — a new window must write both `m_window_coeffs` and `m_window_coeffs_doubled`.
 
-`m_window_coeffs_doubled` is a 2N-float copy of the window with each coefficient duplicated: `[w0, w0, w1, w1, ...]`. This lets the AVX2 `apply_window` issue a single `_mm256_mul_ps` against interleaved IQ data without on-the-fly shuffles. `precompute_window()` regenerates both arrays whenever size or window type changes; if you add a new window function, write into both `m_window_coeffs` and `m_window_coeffs_doubled`.
+`remove_dc`: 4 independent `__m256` accumulators (breaks the FMA latency chain on Haswell), 16 complex floats/iter, horizontal reduce, then broadcast-mean unrolled-4 subtract.
 
-`remove_dc` uses 4 independent `__m256` accumulators (breaks the FMA latency chain on Haswell — port-0 throughput 1, latency 4–5) processing 16 complex floats per iter, then a horizontal reduce. Pass 2 broadcasts the mean and unrolled-4 subtracts.
-
-Both `apply_window` and `remove_dc` keep a scalar fallback under `#ifdef __AVX2__`. Debug builds (no `-march=haswell`) exercise the scalar path.
+Both keep a scalar fallback under `#ifdef __AVX2__`; debug builds (no `-march=haswell`) exercise it.
 
 ### Render path (two modes)
+After `add_spectrum_line()`, main.cpp checks `needs_full_render()`:
+- **Full** (`true`, while `m_history` is filling or after `reset()`/`rebuild_rgba_lut()`): upload entire `m_pixels` via `render_displays()`.
+- **Scroll** (`false`, only when `m_history.full()`): render only the newest line; `render_displays_scroll()` GPU-shifts `m_wf_scroll_tex` up by `line_height` and uploads the new bottom strip via `m_wf_line_tex` (~5 KB vs ~1.5 MB/frame).
 
-After `WaterfallDisplay::add_spectrum_line()` is called, main.cpp checks `waterfall_display.needs_full_render()`:
+`needs_full_render()` returns `m_needs_full_render || !m_history.full()` — the flag alone is insufficient (cleared inside `render()` before main.cpp reads it).
 
-- **Full render** (`needs_full_render() == true`): called while `m_history` is filling or after `reset()` / `rebuild_rgba_lut()`. Uploads entire `m_pixels` (spectrum + waterfall) to the SDL texture via `render_displays()`.
+**Transition continuity**: scroll textures are allocated lazily in `render_displays_scroll()` (`ensure_wf_scroll_textures()`); on the first scroll call (`m_wf_scroll_valid` false) the seed branch copies the current waterfall from `m_texture` shifted up by `line_height` instead of clearing to black → seamless fill→scroll.
 
-- **Scroll render** (`needs_full_render() == false`, only when `m_history.full()`): waterfall renders only the newest line into `m_new_line` (~5 KB). `render_displays_scroll()` GPU-shifts `m_wf_scroll_tex` up by `line_height` pixels using a src/dst rect blit and uploads only the new bottom strip via the narrow `m_wf_line_tex` streaming texture. Replaces ~1.5 MB/frame CPU→GPU upload with ~5 KB.
-
-`needs_full_render()` returns `m_needs_full_render || !m_history.full()` — the flag alone is not sufficient because it is cleared inside `render()`, before main.cpp reads it.
-
-**Transition continuity**: the scroll textures (`m_wf_scroll_tex` / `m_wf_scroll_aux`) are not created during the fill phase — they're allocated lazily inside `render_displays_scroll()` via `ensure_wf_scroll_textures()`. On the *first* scroll call, `m_wf_scroll_valid` is false; instead of clearing to black, the seed branch in `render_displays_scroll()` copies the current waterfall content from `m_texture` (which was filled by the prior `render_displays()` passes) into the scroll target, shifted up by `line_height`. This makes the fill→scroll transition seamless.
-
-### WaterfallDisplay internals
-
-History is stored as `RingBuffer<vector<uint8_t>>` — dB values are quantized to `uint8_t` over a fixed -120..0 dB range (4:1 vs float). The RGBA LUT (`m_rgba_lut[256]`, packed `uint32_t`) maps quantized values to colors; the render inner loop is a `memcpy` per pixel (scalar) or `_mm256_i32gather_epi32` × 8 pixels (AVX2, guarded by `#ifdef __AVX2__`).
+### WaterfallDisplay
+History = `RingBuffer<vector<uint8_t>>`; dB quantized to `uint8_t` over a fixed -120..0 dB range (4:1 vs float). RGBA LUT (`m_rgba_lut[256]`, `uint32_t`) maps quantized → color; render inner loop is `memcpy`/pixel (scalar) or `_mm256_i32gather_epi32`×8 (AVX2).
 
 ### Platform differences
-
 | Concern | Windows (`_WIN32`) | Linux |
 |---------|-------------------|-------|
 | `STREAM_BUFF` | 64 buffers | 32 buffers (usbfs DMA limit) |
-| SDL render driver | `SDL_HINT_RENDER_DRIVER = "direct3d11"` set before `SDL_CreateRenderer` | default |
+| SDL render driver | `SDL_HINT_RENDER_DRIVER = "direct3d11"` pre-`SDL_CreateRenderer` | default |
 | Security linker flags | none (static libs) | `-Wl,-z,now -Wl,-z,relro -Wl,-z,noexecstack` |
-| pocketfft `aligned_alloc` | `_aligned_malloc` / `_aligned_free` from `<malloc.h>` | `::aligned_alloc` (C11) |
+| pocketfft `aligned_alloc` | `_aligned_malloc`/`_free` (`<malloc.h>`) | `::aligned_alloc` (C11) |
 
 ### ControlState flow
-
-Keyboard input (`SdlControlInput`) writes into `ControlState` (frequency, gain, FFT size, window function). Main loop polls `control_state.fft_size_changed()`, `window_changed()`, etc. each iteration. `control_state.apply_to_device(dev)` is the single place hardware registers are updated. On frequency change, the sample queue is drained immediately so the spectrum snaps in sync with the freq-scale overlay.
-
-**Palette cycling** (`c` cycles forward, `Shift+C` backward): `SdlControlInput` calls `ControlState::cycle_palette(±1)` over `PALETTE_COUNT` maps. Main loop polls `control_state.palette_changed()`, looks up `kPaletteMap[get_palette_index()]`, and pushes it to both displays via `set_color_map()`. On the waterfall, `set_color_map()` → `rebuild_rgba_lut()` → sets `m_needs_full_render = true`, so the *entire* waterfall is recolored from the quantized `uint8_t` history on the next frame (no re-acquisition needed — the LUT is the only thing that changed).
-
-**Trace modes** (`m` max-hold, `a` video averaging, `x` reset): flags live in `ControlState`; the main loop pushes them into `SpectrumDisplay` every frame (the display resets trace state only on actual transitions). Averaging swaps the drawn bars for an EMA (`kAvgAlpha = 0.25`) of the per-bin dB values; autoscale and max-hold keep tracking the *raw* spectrum. Max-hold renders as white per-bin segments appended to the same `SDL_RenderGeometry` vertex buffer as the bars — no extra draw call. Both traces re-seed automatically when the bin count changes (FFT-size switch); the waterfall always shows raw data.
+`SdlControlInput` writes `ControlState` (freq, gain, FFT size, window). Main loop polls `*_changed()` each iter; `apply_to_device(dev)` is the single hardware-register write site. A freq change drains the sample queue so the spectrum snaps in sync with the freq scale.
+- **Palette** (`c` / `Shift+C`): `cycle_palette(±1)` over `PALETTE_COUNT`; main looks up `kPaletteMap[...]`, pushes to both displays via `set_color_map()`. On the waterfall → `rebuild_rgba_lut()` → `m_needs_full_render=true`, recoloring the whole waterfall from quantized history (LUT is the only change).
+- **Trace modes** (`m` max-hold, `a` averaging, `x` reset): flags in `ControlState`, pushed to `SpectrumDisplay` each frame (display resets only on transitions). Averaging = per-bin EMA (`kAvgAlpha=0.25`); autoscale + max-hold track the raw spectrum. Max-hold = white segments in the same `SDL_RenderGeometry` buffer. Re-seed on bin-count change; the waterfall always shows raw data.
 
 ### Frequency scale overlay
-
-`SdlRenderer::render_frequency_scale()` bakes ticks + labels onto a single `SDL_TEXTUREACCESS_TARGET` texture (`m_freq_scale_texture`) only when `center_hz` or `sample_rate_hz` changes. `render_overlays()` issues one `SDL_RenderCopy` per frame. This avoids the Serializing Operations spike from per-frame blend-mode save/restore calls.
+`render_frequency_scale()` bakes ticks+labels onto one target texture (`m_freq_scale_texture`) only when `center_hz`/`sample_rate_hz` change; `render_overlays()` issues one `SDL_RenderCopy`/frame. Avoids the per-frame blend-mode save/restore spike.
 
 ### Text renderer
+`TextRenderer` (`src/gui/text_renderer.*`): bitmap font, no glyph cache — each `render_text()` returns a fresh caller-owned `SDL_Texture` (call sites cache the string-texture). Font = public-domain IBM VGA 8x16 (`BITMAP_FONT[96][16]`, 16 scanlines/glyph). **MSB = leftmost pixel** (`1 << (7 - src_x)`). Integer-only scaling (`scale = font_size / GLYPH_SRC_H`).
 
-`TextRenderer` (`src/gui/text_renderer.{h,cpp}`) is a bitmap-font renderer with no glyph cache — each `render_text()` call returns a fresh caller-owned `SDL_Texture` (call sites cache the rendered string-texture themselves). The font is the public-domain **IBM VGA 8x16** ROM typeface (ASCII 32–127, `BITMAP_FONT[96][16]` — 16 bytes = 16 scanlines per glyph). **MSB of each byte is the leftmost pixel**, matching the `1 << (7 - src_x)` test in the blit loop. Scaling is **integer-only**: `scale = font_size / GLYPH_SRC_H`, so glyphs render at native 8x16, or 16x32, etc. — never a fractional size.
+**Colour byte-order**: pack with `SDL_MapSurfaceRGBA(surface,r,g,b,a)`, never hand-rolled shifts — `RGBA32` is `ABGR8888` on LE x86, so a hand-rolled shift maps red onto alpha (any `r==0` colour → transparent). Use the `SDL_PIXELFORMAT_RGBA32` alias, never a hardcoded `8888`.
 
-**Colour byte-order gotcha (recurred once)**: build the packed pixel with `SDL_MapSurfaceRGBA(surface, r, g, b, a)` (SDL3; was `SDL_MapRGBA(surface->format, ...)` in SDL2), *not* a hand-rolled `(r<<24)|(g<<16)|(b<<8)|a`. SDL's `RGBA32` is `ABGR8888` on little-endian x86, so the hand-rolled shift maps input red onto the alpha byte — any colour with `r == 0` then renders fully transparent. `SDL_MapSurfaceRGBA` is correct on either endianness. Always use the symbolic `SDL_PIXELFORMAT_RGBA32` alias, never a hardcoded `8888` format.
-
-**SDL3 texture-default gotchas (caused the v2.6 status-bar regression)**: SDL3 creates alpha-format textures with `SDL_BLENDMODE_BLEND` and `SDL_SCALEMODE_LINEAR` by default; SDL2 used `NONE` and nearest. The text renderer fills its surface with transparent pixels, and under `BLENDMODE_NONE` those render as **opaque black — that is the black backdrop behind the FREQ status bar / PEAK / IQ text**. `render_text()` therefore sets `SDL_BLENDMODE_NONE` + `SDL_SCALEMODE_NEAREST` explicitly on every texture it returns; call sites wanting real transparency (freq-scale labels, timing overlay) opt into `BLEND` themselves. All other textures (`m_texture`, `m_frame_tex`, scroll/freq-scale textures) also set `SDL_SCALEMODE_NEAREST` so logical-presentation scaling on window resize stays pixel-crisp.
+**SDL3 texture defaults**: SDL3 defaults alpha textures to `BLENDMODE_BLEND` + `SCALEMODE_LINEAR` (SDL2 was NONE/nearest). Transparent-filled text under `BLENDMODE_NONE` renders **opaque black** (the backdrop behind status/PEAK/IQ text). `render_text()` sets `BLENDMODE_NONE` + `SCALEMODE_NEAREST` on every texture it returns; call sites wanting transparency (freq-scale labels, timing overlay) opt into `BLEND`. All textures set `SCALEMODE_NEAREST` so resize scaling stays pixel-crisp.
 
 ## Code-layout discipline
+`include/openspectrum/attributes.h` defines `OS_HOT`/`OS_COLD` (gated on GCC/Clang, else no-op):
+- **`OS_HOT`** on per-frame functions: `FftAnalyzer::execute`, `SignalProcessor::apply_window`/`remove_dc`, `WaterfallDisplay::add_spectrum_line`, `SpectrumDisplay::update_spectrum`, `SdlRenderer::render_displays`/`render_displays_scroll`/`present_frame`.
+- **`OS_COLD`** on init/one-shot: constructors, `precompute_window` + `compute_*` builders, `parse_arguments`, `print_usage`.
 
-`include/openspectrum/attributes.h` defines `OS_HOT` and `OS_COLD` macros (gated on `__GNUC__ / __clang__`, no-op otherwise). Apply them to:
-
-- **`OS_HOT`** on every function called per render frame: `FftAnalyzer::execute`, `SignalProcessor::apply_window` / `remove_dc`, `WaterfallDisplay::add_spectrum_line`, `SpectrumDisplay::update_spectrum`, `SdlRenderer::render_displays` / `render_displays_scroll` / `present_frame`.
-- **`OS_COLD`** on init / argparse / window-precompute / one-shot paths: constructors, `SignalProcessor::precompute_window` and `compute_*` window builders, `parse_arguments`, `print_usage`.
-
-These hints survive `--gc-sections` and tell the linker to cluster hot text on contiguous I-cache lines. Combined with PGO, the I-cache miss rate drops further than either alone.
+These survive `--gc-sections` and cluster hot text on contiguous I-cache lines; with PGO the I-cache miss rate drops further than either alone.
 
 ## PGO workflow
+`.gcda` data is platform/toolchain/build-path-specific. **Never share `pgo-data/` across Windows/Linux** (GCC embeds the absolute build path); `make profile-clean` before switching.
 
-The `.gcda` profile data is platform-, toolchain-, and build-path-specific. **Never share `pgo-data/` between Windows and Linux builds** — GCC embeds the absolute build path into the filename mangling. Always `make profile-clean` before switching platforms.
+Count check: `find pgo-data -name '*.gcda' | wc -l` (not `ls` — mangled paths are real nested dirs).
 
-Common pitfall: `find pgo-data -name '*.gcda' | wc -l` (not `ls pgo-data | wc -l`) is the right count check. The mangled paths are real nested directories under `pgo-data/`; `ls` shows only the top-level prefix.
+During `profile-gen`: run ≥60s with live data, change frequency a few times; **don't** hit `--help` / error paths / unused features (PGO would think them hot); exit Ctrl-C, never `kill -9` (loses `.gcda` writes).
 
-When exercising the binary during `profile-gen`:
-- Run for at least 60 seconds with live RTL-SDR data.
-- Change frequency a few times.
-- **Don't** trigger `--help`, error paths, or features you don't use routinely — PGO will think they're hot.
-- Exit with Ctrl-C; never `kill -9` (loses the `.gcda` writes).
-
-Verify `profile-use` matched files cleanly: `make profile-use 2>&1 | grep -i "not found"` should print nothing. Warnings here mean partial PGO; the build silently falls back to default heuristics for unmatched units.
+Verify: `make profile-use 2>&1 | grep -i "not found"` prints nothing (else partial PGO — silent fallback to default heuristics).
