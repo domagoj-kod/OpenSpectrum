@@ -228,6 +228,21 @@ void SpectrumDisplay::update_spectrum(const std::vector<float> &db_values,
 // reusable buffers. Positions are in spectrum-region coords: x spans the bin's
 // horizontal slice, y runs from the bar top (region_h - bar_height) down to the
 // region baseline (region_h). High dB => tall bar reaching toward the top.
+// Map display column c (0..cols) to its [lo, hi) FFT-bin range. Shared by
+// build_vertices and sample_at_x so the drawn bar and the cursor/marker readout
+// peak-pick the same bins.
+static inline void column_bins(size_t c, size_t cols, size_t num_bins,
+                               size_t &lo, size_t &hi) {
+  lo = c * num_bins / cols;
+  hi = (c + 1) * num_bins / cols;
+  if (hi <= lo) {
+    hi = lo + 1;
+  }
+  if (hi > num_bins) {
+    hi = num_bins;
+  }
+}
+
 void SpectrumDisplay::build_vertices(float region_w, float region_h,
                                      std::vector<SDL_Vertex> &verts,
                                      std::vector<int> &indices) const {
@@ -247,16 +262,28 @@ void SpectrumDisplay::build_vertices(float region_w, float region_h,
     return;
   }
 
-  const float bin_width = region_w / static_cast<float>(num_bins);
+  // More bins than pixels wastes the GPU on sub-pixel overdraw (16K FFT → ~15
+  // bars/px at the default width). Collapse to one bar per pixel column,
+  // peak-picking the max dB so spikes survive. cols == num_bins when the FFT is
+  // already narrower than the pane, so smaller sizes are unchanged.
+  const size_t cols =
+      std::min(num_bins, std::max<size_t>(1, static_cast<size_t>(region_w)));
+  const float col_w = region_w / static_cast<float>(cols);
   const float db_to_height = region_h / db_range;
 
   const bool draw_hold =
       m_max_hold_enabled && m_max_hold_data.size() == num_bins;
-  verts.reserve(num_bins * (draw_hold ? 8 : 4));
-  indices.reserve(num_bins * (draw_hold ? 12 : 6));
+  verts.reserve(cols * (draw_hold ? 8 : 4));
+  indices.reserve(cols * (draw_hold ? 12 : 6));
 
-  for (size_t i = 0; i < num_bins; ++i) {
-    float const db = bars[i];
+  for (size_t cidx = 0; cidx < cols; ++cidx) {
+    size_t lo = 0;
+    size_t hi = 0;
+    column_bins(cidx, cols, num_bins, lo, hi);
+    float db = bars[lo];
+    for (size_t i = lo + 1; i < hi; ++i) {
+      db = std::max(db, bars[i]);
+    }
     float const bar_height =
         std::clamp((db - m_min_db) * db_to_height, 0.0F, region_h);
 
@@ -268,8 +295,8 @@ void SpectrumDisplay::build_vertices(float region_w, float region_h,
                             static_cast<float>(c.blue) / 255.0f,
                             static_cast<float>(c.alpha) / 255.0f};
 
-    float const x0 = static_cast<float>(i) * bin_width;
-    float const x1 = x0 + bin_width;
+    float const x0 = static_cast<float>(cidx) * col_w;
+    float const x1 = x0 + col_w;
     float const y_top = region_h - bar_height;
     float const y_bot = region_h;
 
@@ -287,17 +314,24 @@ void SpectrumDisplay::build_vertices(float region_w, float region_h,
     indices.push_back(base + 3);
   }
 
-  // Max-hold overlay: one thin horizontal segment per bin at the held peak,
+  // Max-hold overlay: one thin horizontal segment per column at the held peak,
   // drawn after (= on top of) the bars in the same SDL_RenderGeometry call.
   // White reads against every palette; the stepped segments mirror bar tops.
   if (draw_hold) {
     constexpr float kHoldThickness = 2.0F;
     constexpr SDL_FColor kHoldColor = {1.0F, 1.0F, 1.0F, 1.0F};
-    for (size_t i = 0; i < num_bins; ++i) {
-      float const hold_height = std::clamp(
-          (m_max_hold_data[i] - m_min_db) * db_to_height, 0.0F, region_h);
-      float const x0 = static_cast<float>(i) * bin_width;
-      float const x1 = x0 + bin_width;
+    for (size_t cidx = 0; cidx < cols; ++cidx) {
+      size_t lo = 0;
+      size_t hi = 0;
+      column_bins(cidx, cols, num_bins, lo, hi);
+      float hold = m_max_hold_data[lo];
+      for (size_t i = lo + 1; i < hi; ++i) {
+        hold = std::max(hold, m_max_hold_data[i]);
+      }
+      float const hold_height =
+          std::clamp((hold - m_min_db) * db_to_height, 0.0F, region_h);
+      float const x0 = static_cast<float>(cidx) * col_w;
+      float const x1 = x0 + col_w;
       float const y0 = std::max(region_h - hold_height - kHoldThickness, 0.0F);
       float const y1 = y0 + kHoldThickness;
 
@@ -332,20 +366,30 @@ bool SpectrumDisplay::sample_at_x(float x, float region_w, float region_h,
     return false;
   }
 
-  const float bin_width = region_w / static_cast<float>(num_bins);
-  size_t bin = static_cast<size_t>(x / bin_width);
-  if (bin >= num_bins) {
-    bin = num_bins - 1;
+  // Mirror build_vertices' column decimation so the dot snaps onto the drawn
+  // bar (which is the peak of its pixel column, not a single raw bin).
+  const size_t cols =
+      std::min(num_bins, std::max<size_t>(1, static_cast<size_t>(region_w)));
+  const float col_w = region_w / static_cast<float>(cols);
+  size_t col = static_cast<size_t>(x / col_w);
+  if (col >= cols) {
+    col = cols - 1;
+  }
+  size_t lo = 0;
+  size_t hi = 0;
+  column_bins(col, cols, num_bins, lo, hi);
+  float db = bars[lo];
+  for (size_t i = lo + 1; i < hi; ++i) {
+    db = std::max(db, bars[i]);
   }
 
-  const float db = bars[bin];
   const float db_to_height = region_h / db_range;
   const float bar_height =
       std::clamp((db - m_min_db) * db_to_height, 0.0F, region_h);
 
   out.db = db;
   out.dot_y = region_h - bar_height;
-  out.bin = bin;
+  out.bin = col;
   return true;
 }
 
