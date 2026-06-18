@@ -166,13 +166,27 @@ static void async_sample_callback(FrameHandle samples_frame) {
 
   // Ensure accumulator has enough capacity
   if (new_total > g_sample_accumulator_frame.capacity()) {
-    // Need to reallocate - get a larger frame
+    // Need a bigger frame than the current accumulator. The replacement comes
+    // from the same pool, so its capacity is the FFT size.
+    //
+    // Invariant that keeps this safe: each forwarded device chunk is exactly
+    // fft_size samples — buf_len (65536 B = 32768 complex) is an exact multiple
+    // of every supported FFT size (1024..16384) — so the accumulator always
+    // drains to empty and new_total never actually exceeds one frame. The guard
+    // below is defensive: FFTFrame::resize only sets the logical size (the data
+    // block is fixed at capacity), and its assert is compiled out under NDEBUG,
+    // so a future buf_len / FFT-size change that broke the invariant would
+    // silently write past the allocation. If the data won't fit, drop this
+    // buffer rather than corrupt the heap.
     FrameHandle new_accum =
         g_frame_pool ? g_frame_pool->acquire() : FrameHandle(nullptr);
     if (!new_accum) {
       return; // Pool exhausted
     }
-    new_accum.resize(std::max(new_total, g_async_fft_size));
+    if (new_total > new_accum.capacity()) {
+      return; // invariant violated (see above) — drop, don't overrun
+    }
+    new_accum.resize(new_total);
 
     // Copy existing data to new accumulator
     if (current_accum_size > 0) {

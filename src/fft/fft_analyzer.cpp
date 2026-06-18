@@ -130,11 +130,14 @@ void FftAnalyzer::execute(std::span<const std::complex<float>> input,
     std::memcpy(m_input_buffer.data(), input.data(),
                 m_fft_size * sizeof(pocketfft_cpx));
   } else {
-    auto *dst = reinterpret_cast<float *>(m_input_buffer.data());
-    const auto *src = reinterpret_cast<const float *>(input.data());
 #ifdef __AVX2__
     // Sign pattern repeats every 2 complex samples ([+,+,-,-]) and is
-    // therefore constant across the 4-complex-wide AVX register.
+    // therefore constant across the 4-complex-wide AVX register. dst/src are
+    // declared inside the guard so scalar (non-AVX2, e.g. debug) builds don't
+    // warn on them being unused — the fallback below indexes the buffers
+    // directly.
+    auto *dst = reinterpret_cast<float *>(m_input_buffer.data());
+    const auto *src = reinterpret_cast<const float *>(input.data());
     __m256 const sign_vec =
         _mm256_setr_ps(1.0F, 1.0F, -1.0F, -1.0F, 1.0F, 1.0F, -1.0F, -1.0F);
     size_t const simd_n = m_fft_size & ~size_t{3};

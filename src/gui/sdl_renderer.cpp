@@ -522,7 +522,7 @@ void SdlRenderer::draw_left_axes() {
     int h = 0;
     m_text_renderer->get_text_size(l.text, &w, &h);
     float ty = l.y - static_cast<float>(h) / 2.0F; // center on the tick
-    ty = std::clamp(ty, 0.0F, static_cast<float>(m_height) - h);
+    ty = std::clamp(ty, 0.0F, static_cast<float>(m_height) - static_cast<float>(h));
     SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
     SDL_FRect const d = {static_cast<float>(kPad), ty, static_cast<float>(w),
                          static_cast<float>(h)};
