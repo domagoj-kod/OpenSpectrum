@@ -200,6 +200,15 @@ auto SdlControlInput::handle_keyboard(SDL_Keycode key, bool shift_held,
     }
     break;
 
+  // Amplitude-trigger resume (Space): unfreeze the display and re-arm. No-op
+  // unless main() is currently frozen.
+  case SDLK_SPACE:
+    if (!ctrl_held && !shift_held) {
+      m_state.request_unfreeze();
+      changed = true;
+    }
+    break;
+
   // Max-hold trace toggle (m key)
   case SDLK_M:
     if (!ctrl_held && !shift_held) {

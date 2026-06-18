@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -181,6 +182,28 @@ public:
     return std::exchange(m_clear_markers, false);
   }
 
+  // Amplitude trigger. main() owns the armed/threshold/frozen state and the
+  // dB<->y mapping; the renderer captures Shift+left-drag/click in the spectrum
+  // pane as a threshold-set request and draws the line + frozen indicator.
+  //
+  // Drain a Shift+left threshold-set request (render-space y); nullopt if none
+  // happened since the last call.
+  [[nodiscard]] std::optional<float> take_trigger_set() noexcept {
+    if (!m_trigger_set_pending) {
+      return std::nullopt;
+    }
+    m_trigger_set_pending = false;
+    return m_trigger_set_y;
+  }
+  // Per-frame trigger draw state from main(): armed flag, the line's
+  // render-space y, the dB it represents, and whether the display is frozen.
+  void set_trigger(bool armed, float line_y, float db, bool frozen) noexcept {
+    m_trigger_armed = armed;
+    m_trigger_line_y = line_y;
+    m_trigger_db = db;
+    m_frozen = frozen;
+  }
+
 private:
   // Render overlays (status bar, peak indicator, IQ status, freq scale)
   // Called after rendering the main texture
@@ -195,6 +218,11 @@ private:
   // bottom-left list panel (frequency + live level). Called from
   // render_overlays before the cursor readout so the live cursor sits on top.
   void draw_markers();
+
+  // Draw the amplitude-trigger horizontal threshold line across the spectrum
+  // pane (when armed) plus its dB label, and a FROZEN indicator when the
+  // display is held. Called from render_overlays. No-op when disarmed/unfrozen.
+  void draw_trigger();
 
   // Draw the left-margin dB axis (spectrum pane) and seconds-ago axis
   // (waterfall pane). Overlay only; called from render_overlays before the
@@ -333,6 +361,14 @@ private:
   float m_axis_db_min = -120.0F;
   float m_axis_db_max = 0.0F;
   double m_axis_wf_top_seconds = 0.0;
+
+  // Amplitude-trigger input (Shift+left-drag) and per-frame draw state.
+  bool m_trigger_set_pending = false;
+  float m_trigger_set_y = 0.0F;
+  bool m_trigger_armed = false;
+  float m_trigger_line_y = 0.0F;
+  float m_trigger_db = 0.0F;
+  bool m_frozen = false;
 };
 
 } // namespace openspectrum

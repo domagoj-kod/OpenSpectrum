@@ -406,6 +406,7 @@ void SdlRenderer::render_overlays() {
 
   draw_left_axes();
   draw_markers();
+  draw_trigger();
   draw_cursor_readout();
 }
 
@@ -623,6 +624,71 @@ void SdlRenderer::draw_markers() {
                                static_cast<float>(i) *
                                    static_cast<float>(line_h),
                            static_cast<float>(w), static_cast<float>(h)};
+      SDL_RenderTexture(m_renderer, t, nullptr, &d);
+      SDL_DestroyTexture(t);
+    }
+  }
+
+  SDL_SetRenderDrawColor(m_renderer, r, g, b, a);
+}
+
+void SdlRenderer::draw_trigger() {
+  if ((!m_trigger_armed && !m_frozen) || m_text_renderer == nullptr) {
+    return;
+  }
+  Uint8 r = 0;
+  Uint8 g = 0;
+  Uint8 b = 0;
+  Uint8 a = 0;
+  SDL_GetRenderDrawColor(m_renderer, &r, &g, &b, &a);
+
+  // Armed: red threshold line across the spectrum pane + a "TRIG -xx dB" tag.
+  if (m_trigger_armed) {
+    SDL_SetRenderDrawColor(m_renderer, 255, 80, 80, 255);
+    SDL_RenderLine(m_renderer, 0.0F, m_trigger_line_y,
+                   static_cast<float>(m_width) - 1.0F, m_trigger_line_y);
+
+    char buf[24];
+    std::snprintf(buf, sizeof(buf), "TRIG %.0f dB",
+                  static_cast<double>(m_trigger_db));
+    SDL_Color const kTag = {255, 140, 140, 255};
+    SDL_Texture *t = m_text_renderer->render_text(buf, kTag);
+    if (t != nullptr) {
+      int w = 0;
+      int h = 0;
+      m_text_renderer->get_text_size(buf, &w, &h);
+      SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
+      // Sit the tag just above the line, or below it if too near the top.
+      float ty = m_trigger_line_y - static_cast<float>(h) - 2.0F;
+      if (ty < 0.0F) {
+        ty = m_trigger_line_y + 2.0F;
+      }
+      SDL_FRect const d = {static_cast<float>(m_width) - static_cast<float>(w) -
+                               8.0F,
+                           ty, static_cast<float>(w), static_cast<float>(h)};
+      SDL_RenderTexture(m_renderer, t, nullptr, &d);
+      SDL_DestroyTexture(t);
+    }
+  }
+
+  // Frozen: centered top banner with a dark backdrop.
+  if (m_frozen) {
+    const char *msg = "FROZEN  -  SPACE to resume";
+    SDL_Color const kMsg = {255, 230, 120, 255};
+    SDL_Texture *t = m_text_renderer->render_text(msg, kMsg);
+    if (t != nullptr) {
+      int w = 0;
+      int h = 0;
+      m_text_renderer->get_text_size(msg, &w, &h);
+      const float bx =
+          (static_cast<float>(m_width) - static_cast<float>(w)) / 2.0F;
+      SDL_FRect const bg = {bx - 6.0F, 4.0F, static_cast<float>(w) + 12.0F,
+                            static_cast<float>(h) + 6.0F};
+      SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 200);
+      SDL_RenderFillRect(m_renderer, &bg);
+      SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
+      SDL_FRect const d = {bx, 7.0F, static_cast<float>(w),
+                           static_cast<float>(h)};
       SDL_RenderTexture(m_renderer, t, nullptr, &d);
       SDL_DestroyTexture(t);
     }
@@ -944,17 +1010,32 @@ auto SdlRenderer::poll_events(ControlState *state) -> bool {
       m_cursor_x = event.motion.x;
       m_cursor_y = event.motion.y;
       m_cursor_active = true;
+      // Shift + left button held = dragging the amplitude-trigger threshold
+      // line. Captured as a set-request (render-space y) that main() maps to
+      // dB.
+      if ((SDL_GetModState() & SDL_KMOD_SHIFT) != 0 &&
+          (event.motion.state & SDL_BUTTON_LMASK) != 0) {
+        m_trigger_set_y = event.motion.y;
+        m_trigger_set_pending = true;
+      }
       break;
 
     case SDL_EVENT_MOUSE_BUTTON_DOWN:
       // Left = drop a frequency marker, right = remove the nearest. main()
-      // owns the marker list and processes these via take_clicks().
+      // owns the marker list and processes these via take_clicks(). Shift+left
+      // instead sets the amplitude-trigger threshold (no marker dropped).
       SDL_ConvertEventToRenderCoordinates(m_renderer, &event);
       m_cursor_x = event.button.x;
       m_cursor_y = event.button.y;
       m_cursor_active = true;
-      m_clicks.push_back({event.button.x, event.button.y,
-                          event.button.button == SDL_BUTTON_RIGHT});
+      if ((SDL_GetModState() & SDL_KMOD_SHIFT) != 0 &&
+          event.button.button == SDL_BUTTON_LEFT) {
+        m_trigger_set_y = event.button.y;
+        m_trigger_set_pending = true;
+      } else {
+        m_clicks.push_back({event.button.x, event.button.y,
+                            event.button.button == SDL_BUTTON_RIGHT});
+      }
       break;
 
     case SDL_EVENT_WINDOW_MOUSE_LEAVE:

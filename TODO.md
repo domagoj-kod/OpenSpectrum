@@ -12,31 +12,30 @@ section, not here.
   the `.json` sidecar metadata. (Decision recorded: screenshot, not CPU
   composite.)
 
-- [ ] **#5 — Amplitude trigger (low priority).** Draggable horizontal threshold
-  line on the AF spectrum; when a bin peak crosses it, freeze the display (and/or
-  auto-save). Rationale: ~16 ms frame cadence vs ~150 ms human reaction makes
-  manual capture of transient (radar/drone) signals impossible. RF scanning is
-  consistent so lower urgency; transient capture is the real use.
+- [ ] **#5 — Amplitude trigger.** Horizontal threshold line on the AF spectrum;
+  a bin peak crossing it freezes the display until resumed. Rationale: ~16 ms
+  frame cadence vs ~150 ms human reaction makes manual capture of transient
+  (radar/drone) signals impossible. _IMPLEMENTED — pending hardware validation
+  (built clean debug+release, lint clean; no dongle/.iq available to runtime-test
+  here)._
 
-  _Design — DEFERRED pending usage analysis with the primary (technical) user._
-  Implementation plumbing is already mapped: `peak_db` (main.cpp, =
-  `FftAnalyzer::get_max_db()`) is the bin peak to compare; freeze = skip the
-  dequeue/update at the `got_samples` gate while still presenting; auto-save
-  reuses the v3.4.0 framebuffer capture (`SdlRenderer::request_capture` ->
-  `export_framebuffer`); the dB<->y mapping already exists in
-  `draw_left_axes` / `SpectrumDisplay::sample_at_x`.
+  As built (decisions from the primary user — freeze-only, Space to resume):
+  - **Shift+left-drag / Shift+click** in the spectrum pane sets the dB threshold
+    at the pointer and arms (no new keybinding; plain mouse keeps hover/marker).
+    Captured in `poll_events` (motion button-mask, no button-up tracking) as a
+    `take_trigger_set()` request main() maps y->dB.
+  - **Drag onto the pane bottom edge disarms** (hides the line).
+  - Fire = `trig_armed && peak_db >= threshold` (main.cpp 4.2). Freeze halts the
+    dequeue at a gate before §2 while still presenting, so the triggering frame
+    is the one held; status bar shows `TRIGGERED @ x dB`, plus a centered FROZEN
+    banner (`SdlRenderer::draw_trigger`).
+  - **Space** = `ControlState::request_unfreeze()` -> resume + re-arm (threshold
+    and armed state persist). Threshold line y recomputed each frame from the
+    autoscaled dB range so it tracks the view.
 
-  Interaction constraints (agreed):
-  - Plain mouse is taken: motion = hover readout, click = drop marker. A plain
-    drag for the trigger collides with both.
-  - **Use Shift as the modifier** — `Shift+drag` moves the threshold line,
-    `Shift+click` arms at that level. Plain mouse keeps current behavior; no new
-    keybinding (avoid shortcut bloat as features grow).
-
-  Open questions for the usage analysis:
-  1. Trigger action: freeze only / auto-save only / freeze + auto-save?
-  2. Unfreeze + re-arm gesture?
-  3. Auto-save cadence if not freezing (one PNG per crossing? debounce window?).
+  Validate on HW, then: README Mouse-Controls + key table, CLAUDE.md
+  ControlState-flow note, refreshed screenshot. Possible follow-ups if wanted:
+  optional auto-save on trigger (reuse v3.4.0 capture), edge-vs-level option.
 
 ## Performance — SIMD pass (done)
 

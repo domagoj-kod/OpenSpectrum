@@ -106,6 +106,12 @@ public:
     m_spectrogram_export_requested = true;
   }
 
+  // Amplitude-trigger resume (Space). One-shot request main() drains to
+  // unfreeze the display and re-arm the trigger.
+  bool unfreeze_requested() const noexcept { return m_unfreeze_requested; }
+  void clear_unfreeze() noexcept { m_unfreeze_requested = false; }
+  void request_unfreeze() noexcept { m_unfreeze_requested = true; }
+
   // Frame-timing overlay toggle (debug; 'T' key). Persistent on/off state.
   bool timing_overlay_enabled() const noexcept { return m_timing_overlay; }
   void toggle_timing_overlay() noexcept { m_timing_overlay = !m_timing_overlay; }
@@ -158,6 +164,7 @@ private:
   bool palette_changed_flag = false;
   bool m_iq_logging_toggle = false;
   bool m_spectrogram_export_requested = false;
+  bool m_unfreeze_requested = false;
   bool m_timing_overlay = false;
   bool m_max_hold = false;
   bool m_averaging = false;

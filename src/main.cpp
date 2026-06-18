@@ -541,6 +541,15 @@ auto main(int argc, char *argv[]) -> int {
     // Track peak amplitude for display
     float peak_db = -140.0F;
 
+    // Amplitude trigger (#5). Shift+left-drag in the spectrum pane sets a dB
+    // threshold and arms it; a bin peak crossing the threshold freezes the
+    // display until Space resumes + re-arms. The threshold is stored as a dB
+    // value; the line's screen y is recomputed each frame from the spectrum's
+    // current (autoscaled) dB range so it tracks the view.
+    float trig_threshold_db = -40.0F;
+    bool trig_armed = false;
+    bool frozen = false;
+
     // === Frame-timing instrumentation (debug branch) ===
     // Splits each rendered frame into three wall-clock phases and logs rolling
     // per-second averages + maxima, to localize the Linux-vs-Windows throughput
@@ -966,6 +975,52 @@ auto main(int argc, char *argv[]) -> int {
         renderer.set_cursor_readout(readout);
       }
 
+      // === Amplitude trigger: input + freeze state machine (#5) ===
+      {
+        const float spec_h = static_cast<float>(spectrum_display.height());
+        const float db_max = spectrum_display.max_db();
+        const float db_min = spectrum_display.min_db();
+
+        // Shift+left-drag sets the threshold from the pointer's y in the
+        // spectrum pane; dragging onto the bottom edge disarms (hides the
+        // line).
+        if (auto set_y = renderer.take_trigger_set()) {
+          const float y = std::clamp(*set_y, 0.0F, spec_h);
+          if (y >= spec_h - 4.0F) {
+            trig_armed = false;
+          } else if (db_max > db_min) {
+            const float frac = y / spec_h; // 0 = top (max dB)
+            trig_threshold_db = db_max - frac * (db_max - db_min);
+            trig_armed = true;
+          }
+        }
+
+        // Space resumes from a freeze and re-arms (threshold/armed persist).
+        if (control_state.unfreeze_requested()) {
+          control_state.clear_unfreeze();
+          frozen = false;
+        }
+
+        // Feed the renderer this frame's line position + state. Recompute the y
+        // from the (possibly autoscaled) range so the line tracks the view.
+        float line_y = 0.0F;
+        if (db_max > db_min) {
+          const float frac = (db_max - trig_threshold_db) / (db_max - db_min);
+          line_y = std::clamp(frac, 0.0F, 1.0F) * spec_h;
+        }
+        renderer.set_trigger(trig_armed, line_y, trig_threshold_db, frozen);
+      }
+
+      // While frozen, hold the last composited frame: skip dequeue/processing
+      // so the spectrum + waterfall stay put, but keep presenting so the
+      // overlays (trigger line, FROZEN banner, cursor readout) stay live and
+      // input keeps flowing. The producer keeps filling the (bounded) queue;
+      // the drain-to-newest throttle catches up on resume.
+      if (frozen) {
+        renderer.present_frame();
+        continue;
+      }
+
       // === 2. Read samples from async queue (non-blocking) ===
       // Wait for samples with timeout (8ms = ~125fps max, reduced from 16ms)
       FrameHandle async_samples_frame;
@@ -1031,6 +1086,19 @@ auto main(int argc, char *argv[]) -> int {
 
       // === 4.1. Get peak amplitude for status display ===
       peak_db = fft_analyzer.get_max_db();
+
+      // === 4.2. Amplitude trigger: fire on a threshold crossing ===
+      // Freezing halts the stream, so a level test is enough — no rising-edge
+      // tracking needed (the next armed frame after resume re-evaluates fresh).
+      // This frame still renders below, so the triggering frame is the one
+      // held.
+      if (trig_armed && peak_db >= trig_threshold_db) {
+        frozen = true;
+        char tb[56];
+        std::snprintf(tb, sizeof(tb), "TRIGGERED @ %.1f dB - SPACE to resume",
+                      static_cast<double>(peak_db));
+        renderer.render_status_bar(tb);
+      }
 
       // === 5. Get spectral data ===
       const auto &db_spectrum = fft_analyzer.get_db_spectrum();
