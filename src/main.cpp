@@ -41,14 +41,16 @@
 #include <xmmintrin.h> // _MM_SET_FLUSH_ZERO_MODE
 #endif
 
-// WinUSB has no DMA buffer limit; Linux usbfs defaults to 16 MB which
-// is exhausted at 128 KB/buf × 64 = 8 MB when other USB overhead is counted.
-// 32 buffers (4 MB) is safe on both platforms.
-#ifdef _WIN32
-#define STREAM_BUFF 64
-#else
+// USB DMA ring depth for rtlsdr_read_async (buf_len = 65536 B each, see
+// rtl_sdr_device.cpp) → 32 buffers = 2 MB in flight. Windows WinUSB has no
+// usbfs cap; Linux usbfs defaults to 16 MB, so 2 MB sits comfortably under it
+// on both — no per-platform split needed. This is a latency/robustness knob,
+// not a memory one: each 64 KB buffer is ~16 ms of samples at 2.048 Msps, so
+// 32 buffers give ~0.5 s of slack to absorb callback-thread scheduling jitter
+// before libusb runs out of submitted transfers and drops samples. Kept
+// generous (vs librtlsdr's 15 default) for slow/high-latency consumers —
+// notably WSL2 usbipd. Shrinking it saves <1 MB while narrowing that window.
 #define STREAM_BUFF 32
-#endif
 
 // Security: Use hardened compiler flags (defined in Makefile)
 // -fstack-protector-strong, -D_FORTIFY_SOURCE=2, -O2, -Wall, -Wextra
