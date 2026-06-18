@@ -9,7 +9,7 @@ OpenSpectrum is a **modular Software-Defined Radio (SDR) spectrum analyzer** bui
 Inspired by GNU Radio's pipeline architecture, OpenSpectrum provides a lightweight, real-time spectrum analysis platform that is both performant and maintainable.
 
 <p align="center" width="100%">
-    <img src="./assets/layout.png">
+    <img src="./assets/overview.png">
 </p>
 
 > [!IMPORTANT]
@@ -379,11 +379,15 @@ rtl_eeprom
 
 ## Performance Notes
 
-Dell Precision notebook with Intel® Core™ i7-12700H processor displays minimal usage under maximum size FFT computations, utilizing <1% CPU and occupying ~55 MB of system memory.
+Dell Precision notebook with Intel® Core™ i7-12700H processor displays minimal usage under maximum size FFT computations, utilizing <1.8% CPU and occupying ~57 MB of system memory.
 
 - **FFT Performance:** pocketfft provides SIMD accelerated FFT computation.
 - **Sample Rate:** Maximum stable rate depends on USB 2.0 bandwidth (~40 MB/s).
-- **Latency:** End-to-end latency is typically <50ms at 2.048 MS/s with FFT_SIZE=4096.
+- **Latency:** End-to-end latency is vsync-bound (~16.7 ms/frame at 60 FPS). The
+  actual per-frame compute (DC removal + window + FFT + render-command build) is
+  only a small fraction of that budget and stays roughly flat across FFT sizes —
+  the pipeline is present-bound, not compute-bound, so the frame rate holds at
+  the cap from 4096 through 16384.
 
 ### GPU spectrum rendering
 
@@ -394,17 +398,8 @@ texture upload and a redundant IQ-frame copy (the FFT input is now processed
 in place via `std::span`).
 
 Measured on the i7-12700H above, native Windows (Direct3D 11, vsync 60 FPS),
-against the prior CPU-painted build. Frame rate is vsync-capped in both, so
-the figure below is the **real per-frame work** (signal + FFT + render
-command build, i.e. excluding the vsync idle wait):
-
-| FFT size | CPU-painted | GPU geometry | Δ |
-|---------:|------------:|-------------:|----:|
-| 4096     | 2.76 ms     | 0.94 ms      | −66% |
-| 8192     | 4.68 ms     | 1.42 ms      | −70% |
-| 16384    | 4.34 ms     | 2.68 ms      | −38% |
-
-Intel VTune confirms the mechanism (4096 FFT):
+against the prior CPU-painted build. Intel VTune confirms the mechanism
+(4096 FFT):
 
 - **Back-end Memory Bound halved** (21.6% → 11.5% of pipeline slots) — the
   strided pixel paint + upload were memory-bandwidth/latency + DTLB bound;
@@ -415,8 +410,35 @@ Intel VTune confirms the mechanism (4096 FFT):
 - The GPU execution-unit array is idle in both builds — the cost was always
   CPU-side driver/upload, which is what was eliminated.
 
-The pipeline is now purely vsync/present-bound with ~14 ms/frame of headroom
-even at 16384-point FFTs.
+The pipeline is now purely vsync/present-bound — per-frame compute is a small
+fraction of the 16.7 ms frame budget and leaves comfortable headroom at every
+FFT size, including 16384.
+
+### Memory footprint
+
+Heap use is kept low and mostly *bounded* rather than growing freely with FFT
+size. On the i7-12700H above (native Windows, Direct3D 11), resident memory is
+**~57 MB at a 16384-point FFT** — the largest supported transform — and lower
+at smaller sizes.
+
+The buffers that do scale with FFT size are deliberately right-sized:
+
+- **Frame pools are bounded, not generous.** The FFT frame pool pre-allocates
+  12 buffers and the producer→render queue is capped at 8; the renderer drops
+  all but the newest queued frame each paint, so a deeper queue would only hold
+  backlog that gets discarded anyway. The device-side USB pool holds 4 buffers
+  (only one is ever in flight). Capping the queue bounds the pool's peak.
+- **The ~1 MB IQ write buffer is allocated only while a capture is running**
+  (`Ctrl+S`) and released on stop, so an idle session holds none of it.
+- The amplitude spectrum is GPU-drawn (see above), so there is **no CPU pixel
+  buffer** for it at all; only the waterfall keeps a CPU-side image, quantized
+  to one byte per cell — a 4:1 saving over float.
+
+> A Linux memory profile (e.g. Valgrind Massif under WSL2) reads much higher —
+> most of it is the Mesa software-OpenGL backing store, an artifact of running
+> without GPU passthrough. The Windows Direct3D 11 build keeps those surfaces in
+> video memory rather than the heap, so the ~57 MB figure is the representative
+> one.
 
 ---
 
