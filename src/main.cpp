@@ -554,7 +554,46 @@ auto main(int argc, char *argv[]) -> int {
     double ov_build = 0.0;
     double ov_present = 0.0;
 
+    // Pending spectrogram export. The 'e' key arms a renderer-side capture of
+    // the next fully composited frame (base + axis/freq/HUD overlays); the
+    // metadata snapshot is stashed here because the readback only lands after
+    // that frame presents, one iteration later. Drained at the top of the loop.
+    struct PendingExport {
+      bool armed = false;
+      uint32_t center_hz = 0;
+      uint32_t rate_hz = 0;
+      float gain_db = 0.0F;
+      size_t fft_size = 0;
+      std::string window;
+      std::string color_map;
+    } pending_export;
+    std::vector<uint8_t> capture_buf;
+    int capture_w = 0;
+    int capture_h = 0;
+
     while (g_running.load(std::memory_order_relaxed)) {
+      // === 1.0. Drain a completed export capture (armed a prior frame) ===
+      if (pending_export.armed &&
+          renderer.take_capture(capture_buf, capture_w, capture_h)) {
+        pending_export.armed = false;
+        auto result = spectrogram_exporter.export_framebuffer(
+            capture_buf.data(), static_cast<size_t>(capture_w),
+            static_cast<size_t>(capture_h), pending_export.center_hz,
+            pending_export.rate_hz, pending_export.gain_db,
+            pending_export.fft_size, pending_export.window,
+            pending_export.color_map, "");
+        if (result.success) {
+          LOG_INFO("Spectrogram exported: " + result.filename);
+          if (!result.metadata_filename.empty()) {
+            LOG_INFO("Metadata written: " + result.metadata_filename);
+          }
+          renderer.render_status_bar("Exported: " + result.filename);
+        } else {
+          LOG_ERROR("Spectrogram export failed: " + result.error_message);
+          renderer.render_status_bar("Export failed!");
+        }
+      }
+
       // === 1. Process SDL3 events (must be first in loop) ===
       if (!renderer.poll_events(&control_state)) {
         g_running = false;
@@ -681,39 +720,23 @@ auto main(int argc, char *argv[]) -> int {
       }
 
       // === 1.2.7. Check for spectrogram export request ===
+      // Arm a WYSIWYG capture: the renderer reads back the next composited
+      // frame (base + dB/time axis strip + frequency scale + HUD) just before
+      // its swap; the drain at the loop top writes the PNG once it lands. Stash
+      // the metadata now so it matches the armed frame even if controls change
+      // before the readback. Color map isn't exposed by SpectrumDisplay yet, so
+      // it stays "jet" (matching the prior export behavior).
       if (control_state.spectrogram_export_requested()) {
         control_state.clear_spectrogram_export();
-
-        // Get current color map name from spectrum display
-        std::string color_map_name = "jet"; // Default
-        // Note: SpectrumDisplay doesn't expose color map getter,
-        // so we use default. Could be enhanced later.
-
-        // The live path draws the spectrum on the GPU and no longer keeps the
-        // CPU pixel buffer current, so paint it on demand for the exporter.
-        spectrum_display.render_to_pixels();
-
-        // Export combined spectrogram (spectrum + waterfall)
-        auto result = spectrogram_exporter.export_combined(
-            spectrum_display.get_pixels(), waterfall_display.get_pixels(),
-            DISPLAY_WIDTH, spectrum_display.height(),
-            waterfall_display.height(), control_state.get_frequency(),
-            effective_rate, control_state.get_gain(), current_fft_size,
-            SignalProcessor::window_function_to_string(
-                control_state.get_window()),
-            color_map_name, "");
-
-        if (result.success) {
-          LOG_INFO("Spectrogram exported: " + result.filename);
-          if (!result.metadata_filename.empty()) {
-            LOG_INFO("Metadata written: " + result.metadata_filename);
-          }
-          // Show brief status message
-          renderer.render_status_bar("Exported: " + result.filename);
-        } else {
-          LOG_ERROR("Spectrogram export failed: " + result.error_message);
-          renderer.render_status_bar("Export failed!");
-        }
+        pending_export.armed = true;
+        pending_export.center_hz = control_state.get_frequency();
+        pending_export.rate_hz = effective_rate;
+        pending_export.gain_db = control_state.get_gain();
+        pending_export.fft_size = current_fft_size;
+        pending_export.window = SignalProcessor::window_function_to_string(
+            control_state.get_window());
+        pending_export.color_map = "jet";
+        renderer.request_capture();
       }
 
       // === 1.3. Apply control state changes to device (batch update) ===

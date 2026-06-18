@@ -5,7 +5,7 @@ section, not here.
 
 ## Features
 
-- [ ] **#4 — PNG export as a true screenshot.** Replace the composite path
+- [x] **#4 — PNG export as a true screenshot.** Replace the composite path
   (`export_combined` reconstructs from raw spectrum/waterfall `PixelBuffer`s, no
   overlays) with an `SDL_RenderReadPixels` grab of the rendered frame, so exports
   capture the left axes, bottom freq bar, markers, PEAK, and status WYSIWYG. Keep

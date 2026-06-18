@@ -769,7 +769,58 @@ void SdlRenderer::present_composited() {
   SDL_RenderClear(m_renderer);
   SDL_RenderTexture(m_renderer, m_frame_tex, nullptr, nullptr);
   render_overlays();
+  // Read back the finished frame (base + overlays) before the swap — SDL3
+  // leaves the backbuffer undefined once present runs, so this is the only
+  // valid point for a WYSIWYG export readback.
+  if (m_capture_pending)
+    capture_backbuffer();
   present_timed();
+}
+
+// Reads the composited backbuffer into m_capture_buf as tightly packed RGBA at
+// the renderer's output resolution. The readback surface format follows the
+// swapchain, so convert to RGBA32 to give the exporter a stable layout.
+void SdlRenderer::capture_backbuffer() {
+  m_capture_pending = false;
+  SDL_Surface *raw = SDL_RenderReadPixels(m_renderer, nullptr);
+  if (raw == nullptr) {
+    std::cerr << "SDL_RenderReadPixels failed: " << SDL_GetError() << '\n';
+    return;
+  }
+  SDL_Surface *rgba = raw;
+  if (raw->format != SDL_PIXELFORMAT_RGBA32) {
+    rgba = SDL_ConvertSurface(raw, SDL_PIXELFORMAT_RGBA32);
+    SDL_DestroySurface(raw);
+    if (rgba == nullptr) {
+      std::cerr << "SDL_ConvertSurface failed: " << SDL_GetError() << '\n';
+      return;
+    }
+  }
+
+  m_capture_w = rgba->w;
+  m_capture_h = rgba->h;
+  const size_t row_bytes = static_cast<size_t>(rgba->w) * 4;
+  m_capture_buf.resize(row_bytes * static_cast<size_t>(rgba->h));
+  // SDL surface pitch may exceed row_bytes (padding); pack row by row.
+  const auto *src = static_cast<const uint8_t *>(rgba->pixels);
+  for (int y = 0; y < rgba->h; ++y) {
+    memcpy(m_capture_buf.data() + static_cast<size_t>(y) * row_bytes,
+           src + static_cast<size_t>(y) * rgba->pitch, row_bytes);
+  }
+  SDL_DestroySurface(rgba);
+  m_capture_ready = true;
+}
+
+bool SdlRenderer::take_capture(std::vector<uint8_t> &out, int &width_out,
+                               int &height_out) {
+  if (!m_capture_ready)
+    return false;
+  out = std::move(m_capture_buf);
+  m_capture_buf.clear();
+  width_out = m_capture_w;
+  height_out = m_capture_h;
+  m_capture_ready = false;
+  return true;
 }
 
 auto SdlRenderer::render_displays(const std::vector<SDL_Vertex> &spec_verts,

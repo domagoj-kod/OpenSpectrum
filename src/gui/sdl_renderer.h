@@ -87,6 +87,19 @@ public:
     return m_renderer;
   }
 
+  // Spectrogram export (WYSIWYG): arm a one-shot readback of the next fully
+  // composited frame — base + overlays (dB/time axis strip, frequency scale,
+  // HUD). present_composited() does the SDL_RenderReadPixels just before the
+  // swap (the only point the backbuffer holds the finished frame; SDL3 leaves
+  // it undefined after present). Drain with take_capture() once it lands.
+  void request_capture() noexcept { m_capture_pending = true; }
+
+  // Move the captured frame (window-resolution RGBA, tightly packed) into
+  // `out` and report its dimensions. Returns false if none is ready. Clears
+  // the ready flag so each armed capture is consumed exactly once.
+  [[nodiscard]] bool take_capture(std::vector<uint8_t> &out, int &width_out,
+                                  int &height_out);
+
   // DEBUG (frame-timing branch): wall-clock duration in milliseconds of the
   // most recent SDL_RenderPresent call. Lets the main loop split the SDL
   // present/swap/flush cost out of the total render time. One present per
@@ -229,8 +242,23 @@ private:
   // needing to know whether the waterfall is in fill or scroll phase.
   SDL_Texture *m_frame_tex = nullptr;
 
+  // Read the just-composited backbuffer into m_capture_buf. Called from
+  // present_composited() after render_overlays() and before the present, the
+  // only window where the backbuffer holds the finished WYSIWYG frame.
+  void capture_backbuffer();
+
   // VSYNC control
   bool m_enable_vsync = false;
+
+  // Spectrogram capture (export): m_capture_pending armed by request_capture(),
+  // serviced once in present_composited(); m_capture_ready signals the buffer
+  // holds a frame for take_capture() to drain. Buffer is window-resolution
+  // tightly packed RGBA.
+  bool m_capture_pending = false;
+  bool m_capture_ready = false;
+  int m_capture_w = 0;
+  int m_capture_h = 0;
+  std::vector<uint8_t> m_capture_buf;
 
   // DEBUG (frame-timing branch): duration of the last present, see
   // last_present_ms().

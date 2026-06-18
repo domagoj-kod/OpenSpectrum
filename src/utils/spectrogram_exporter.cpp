@@ -339,6 +339,48 @@ ExportResult SpectrogramExporter::export_combined(
   return result;
 }
 
+ExportResult SpectrogramExporter::export_framebuffer(
+    const uint8_t *rgba, size_t width, size_t height, uint32_t center_freq_hz,
+    uint32_t sample_rate_hz, float gain_db, size_t fft_size,
+    const std::string &window_function, const std::string &color_map,
+    const std::string &notes) {
+
+  std::lock_guard<std::mutex> lock(m_mutex);
+  ExportResult result;
+
+  if (rgba == nullptr || width == 0 || height == 0) {
+    result.error_message = "Empty framebuffer provided";
+    return result;
+  }
+
+  if (!create_output_directory()) {
+    result.error_message =
+        "Failed to create output directory: " + m_config.output_directory;
+    return result;
+  }
+
+  int stride = static_cast<int>(width * 4);
+
+  // Single timestamp read shared by the filename and the metadata field.
+  std::string const iso_ts = get_iso8601_timestamp();
+  std::string png_filename = generate_filename("png", iso_ts);
+
+  result = write_png(png_filename, rgba, static_cast<int>(width),
+                     static_cast<int>(height), stride);
+
+  if (result.success && m_config.include_metadata) {
+    std::string meta_filename = metadata_filename_for(png_filename);
+    write_metadata(meta_filename, static_cast<int>(width),
+                   static_cast<int>(height), "combined_axes", center_freq_hz,
+                   sample_rate_hz, gain_db, fft_size, window_function,
+                   color_map, notes, iso_ts);
+    result.metadata_filename = meta_filename;
+  }
+
+  m_export_count++;
+  return result;
+}
+
 // Export spectrum only
 ExportResult SpectrogramExporter::export_spectrum(
     const PixelBuffer &pixels, size_t width, size_t height,
