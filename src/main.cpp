@@ -549,6 +549,11 @@ auto main(int argc, char *argv[]) -> int {
     float trig_threshold_db = -40.0F;
     bool trig_armed = false;
     bool frozen = false;
+    // Waterfall "seconds-ago" axis value held at the moment of freezing. The
+    // axis is computed live (now - oldest-line stamp); without holding it, a
+    // frozen snapshot's labels keep inflating as wall-clock advances even
+    // though no new lines are added. Captured each live frame; reused frozen.
+    double frozen_wf_top_seconds = 0.0;
 
     // === Frame-timing instrumentation (debug branch) ===
     // Splits each rendered frame into three wall-clock phases and logs rolling
@@ -838,10 +843,17 @@ auto main(int argc, char *argv[]) -> int {
       // oldest visible waterfall row (0 while history is still too short → the
       // time axis stays hidden until there is something to label).
       {
-        WaterfallDisplay::CursorTime oldest;
-        const double wf_top_seconds =
-            waterfall_display.sample_at_y(0.0F, oldest) ? oldest.seconds_ago
-                                                        : 0.0;
+        double wf_top_seconds = frozen_wf_top_seconds;
+        if (!frozen) {
+          // Live: age of the oldest visible row (0 while history is too short
+          // → the time axis stays hidden until there is something to label).
+          WaterfallDisplay::CursorTime oldest;
+          wf_top_seconds = waterfall_display.sample_at_y(0.0F, oldest)
+                               ? oldest.seconds_ago
+                               : 0.0;
+          // Remember it so a freeze on this frame holds these labels static.
+          frozen_wf_top_seconds = wf_top_seconds;
+        }
         renderer.set_left_axes(true, spectrum_display.min_db(),
                                spectrum_display.max_db(), wf_top_seconds);
       }

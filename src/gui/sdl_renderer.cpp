@@ -663,9 +663,11 @@ void SdlRenderer::draw_trigger() {
       if (ty < 0.0F) {
         ty = m_trigger_line_y + 2.0F;
       }
-      SDL_FRect const d = {static_cast<float>(m_width) - static_cast<float>(w) -
-                               8.0F,
-                           ty, static_cast<float>(w), static_cast<float>(h)};
+      // Anchor on the left, just right of the dB axis strip, so it tracks the
+      // line and never collides with the top-right PEAK indicator.
+      const float tx = static_cast<float>(axis_strip_width()) + 6.0F;
+      SDL_FRect const d = {tx, ty, static_cast<float>(w),
+                           static_cast<float>(h)};
       SDL_RenderTexture(m_renderer, t, nullptr, &d);
       SDL_DestroyTexture(t);
     }
