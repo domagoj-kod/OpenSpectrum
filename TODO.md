@@ -18,6 +18,26 @@ section, not here.
   manual capture of transient (radar/drone) signals impossible. RF scanning is
   consistent so lower urgency; transient capture is the real use.
 
+  _Design — DEFERRED pending usage analysis with the primary (technical) user._
+  Implementation plumbing is already mapped: `peak_db` (main.cpp, =
+  `FftAnalyzer::get_max_db()`) is the bin peak to compare; freeze = skip the
+  dequeue/update at the `got_samples` gate while still presenting; auto-save
+  reuses the v3.4.0 framebuffer capture (`SdlRenderer::request_capture` ->
+  `export_framebuffer`); the dB<->y mapping already exists in
+  `draw_left_axes` / `SpectrumDisplay::sample_at_x`.
+
+  Interaction constraints (agreed):
+  - Plain mouse is taken: motion = hover readout, click = drop marker. A plain
+    drag for the trigger collides with both.
+  - **Use Shift as the modifier** — `Shift+drag` moves the threshold line,
+    `Shift+click` arms at that level. Plain mouse keeps current behavior; no new
+    keybinding (avoid shortcut bloat as features grow).
+
+  Open questions for the usage analysis:
+  1. Trigger action: freeze only / auto-save only / freeze + auto-save?
+  2. Unfreeze + re-arm gesture?
+  3. Auto-save cadence if not freezing (one PNG per crossing? debounce window?).
+
 ## Performance — SIMD pass (done)
 
 FFT is already at numpy speed (PocketFFT) — left as is.
