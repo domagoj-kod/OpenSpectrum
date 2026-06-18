@@ -108,7 +108,6 @@ History = `RingBuffer<vector<uint8_t>>`; dB quantized to `uint8_t` over a fixed 
 ### Platform differences
 | Concern | Windows (`_WIN32`) | Linux |
 |---------|-------------------|-------|
-| `STREAM_BUFF` | 64 buffers | 32 buffers (usbfs DMA limit) |
 | SDL render driver | `SDL_HINT_RENDER_DRIVER = "direct3d11"` pre-`SDL_CreateRenderer` | default |
 | Security linker flags | none (static libs) | `-Wl,-z,now -Wl,-z,relro -Wl,-z,noexecstack` |
 | pocketfft `aligned_alloc` | `_aligned_malloc`/`_free` (`<malloc.h>`) | `::aligned_alloc` (C11) |
