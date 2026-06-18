@@ -95,8 +95,9 @@ static std::string escape_json_string(const std::string &str) {
 }
 
 IqLogger::IqLogger(const IqLoggerConfig &config) : m_config(config) {
-  // Initialize buffer
-  m_buffer.resize(m_config.buffer_size_bytes);
+  // The write-coalescing buffer (buffer_size_bytes, e.g. 1 MB) is allocated
+  // lazily in start_capture and released in stop_capture, so an idle logger —
+  // the common case, capture is opt-in via Ctrl+S — holds no buffer memory.
   m_buffer_pos = 0;
 }
 
@@ -171,6 +172,10 @@ bool IqLogger::start_capture(uint32_t center_freq_hz, uint32_t sample_rate_hz,
   // Reset statistics
   m_stats = IqCaptureStats{};
   m_start_time = get_unix_timestamp();
+
+  // Allocate the write-coalescing buffer for the duration of this capture.
+  m_buffer.resize(m_config.buffer_size_bytes);
+  m_buffer_pos = 0;
 
   // Create output directory
   if (!create_output_directory()) {
@@ -322,10 +327,17 @@ void IqLogger::stop_capture() {
   double end_time = get_unix_timestamp();
   m_stats.duration_seconds = end_time - m_start_time;
 
-  // Close files and finalize metadata
+  // Close files and finalize metadata (flushes any buffered tail first).
   close_files();
 
   m_capturing = false;
+
+  // Release the write buffer — no captures are in flight (m_capturing is now
+  // false and all m_buffer access is serialized under m_mutex), so an idle
+  // logger returns to holding no buffer memory.
+  m_buffer.clear();
+  m_buffer.shrink_to_fit();
+  m_buffer_pos = 0;
 
   // Invoke completion callback if set
   if (m_complete_cb) {

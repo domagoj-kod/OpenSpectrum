@@ -85,11 +85,20 @@ static std::shared_ptr<FramePool> g_frame_pool;
 static IqLogger *g_iq_logger = nullptr;
 static std::atomic<bool> g_iq_capturing{false};
 
-// Memory leak fix: Maximum queue size to prevent unbounded growth
-// At 8ms timeout and typical sample rates, 32 buffers is ~256ms of data
-// Each buffer at FFT 4096 = 4096 * 8 bytes = 32KB
-// 32 * 32KB = 1MB max queue memory (was growing to 1GB+)
-static const size_t MAX_SAMPLE_QUEUE_SIZE = 64;
+// Max queued FFT frames before the producer drops the oldest. The render loop
+// drains the queue to its newest entry every frame (drop-to-newest throttle),
+// so anything beyond a few frames is backlog the renderer would discard anyway
+// — this only needs to absorb scheduling jitter. IQ capture taps the producer
+// stream *before* the queue, so a small cap does not decimate captures. Kept
+// small because each queued frame holds a pooled FFT buffer (fft_size*8 B);
+// bounding the queue bounds the frame pool's peak occupancy.
+static const size_t MAX_SAMPLE_QUEUE_SIZE = 8;
+
+// Pre-allocated FFT frames in the main pool. Peak in-flight = up to
+// MAX_SAMPLE_QUEUE_SIZE queued + accumulator(1) + render-held(1) + in-build(1).
+// 12 covers that without hot-path growth; the pool still grows on demand (a
+// graceful malloc, logged) if a transient burst exceeds it.
+static const size_t MAIN_FRAME_POOL_FRAMES = 12;
 
 // FTZ + DAZ on the calling thread. Eliminates the ~100-cycle microcode trap
 // every time a denormal float is produced or consumed — common in dB spectra
@@ -375,7 +384,8 @@ auto main(int argc, char *argv[]) -> int {
     LOG_INFO("Spectrogram exporter initialized");
 
     // 2. Initialize frame pool for zero-allocation sample processing
-    g_frame_pool = std::make_shared<FramePool>(FFT_SIZE, 32);
+    g_frame_pool =
+        std::make_shared<FramePool>(FFT_SIZE, MAIN_FRAME_POOL_FRAMES);
     LOG_INFO("FramePool initialized for FFT size: " + std::to_string(FFT_SIZE));
 
     // 2. Initialize the sample source: RTL-SDR hardware, or file playback.
@@ -667,7 +677,8 @@ auto main(int argc, char *argv[]) -> int {
         }
 
         // Now safe to destroy old pools and create new ones
-        g_frame_pool = std::make_shared<FramePool>(current_fft_size, 32);
+        g_frame_pool = std::make_shared<FramePool>(current_fft_size,
+                                                   MAIN_FRAME_POOL_FRAMES);
 
         // Update async FFT size and restart the sample source
         g_async_fft_size = current_fft_size;

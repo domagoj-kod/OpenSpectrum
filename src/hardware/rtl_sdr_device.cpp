@@ -24,9 +24,17 @@ static void convert_iq_u8_to_f32(const unsigned char *__restrict src,
   }
 }
 
+// Pre-allocated frames in the device pool. Each frame lives for exactly one
+// synchronous process_callback_with_pool -> m_frame_callback call (the handle
+// is moved in and released when that returns), and librtlsdr delivers async
+// callbacks serially, so at most one device frame is in flight. A handful of
+// spares covers the resize/realloc edge; 4 is ample.
+static constexpr size_t kDeviceFramePoolFrames = 4;
+
 RtlSdrDevice::RtlSdrDevice(uint32_t index, size_t pool_capacity)
     : m_index(index), m_fft_size(pool_capacity) {
-  m_frame_pool = std::make_shared<openspectrum::FramePool>(m_fft_size, 16);
+  m_frame_pool = std::make_shared<openspectrum::FramePool>(
+      m_fft_size, kDeviceFramePoolFrames);
 }
 
 auto RtlSdrDevice::open() -> bool {
@@ -130,7 +138,8 @@ void RtlSdrDevice::set_fft_size(size_t fft_size) {
   if (m_fft_size != fft_size) {
     m_fft_size = fft_size;
     // Recreate pool with new size
-    m_frame_pool = std::make_shared<openspectrum::FramePool>(m_fft_size, 16);
+    m_frame_pool = std::make_shared<openspectrum::FramePool>(
+        m_fft_size, kDeviceFramePoolFrames);
   }
 }
 
