@@ -12,12 +12,12 @@ section, not here.
   the `.json` sidecar metadata. (Decision recorded: screenshot, not CPU
   composite.)
 
-- [ ] **#5 — Amplitude trigger.** Horizontal threshold line on the AF spectrum;
+- [x] **#5 — Amplitude trigger.** Horizontal threshold line on the AF spectrum;
   a bin peak crossing it freezes the display until resumed. Rationale: ~16 ms
   frame cadence vs ~150 ms human reaction makes manual capture of transient
-  (radar/drone) signals impossible. _IMPLEMENTED — pending hardware validation
-  (built clean debug+release, lint clean; no dongle/.iq available to runtime-test
-  here)._
+  (radar/drone) signals impossible. _DONE — HW-validated; docs (README + CLAUDE.md)
+  written. Post-test fixes: TRIG tag moved off the PEAK corner, frozen waterfall
+  time-axis held static (`8b04f39`)._
 
   As built (decisions from the primary user — freeze-only, Space to resume):
   - **Shift+left-drag / Shift+click** in the spectrum pane sets the dB threshold

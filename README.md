@@ -86,6 +86,7 @@ be converted to absolute power (dBm) without a per-gain calibration offset.
 | **Cursor Readout** | Hover the spectrum or waterfall for a live frequency + amplitude (or time-ago) readout under the cursor |
 | **Frequency Markers** | Click to drop persistent reference lines (with live level) that track frequency as you tune — mark and watch known channels |
 | **Trace Modes** | Max-hold and video (EMA) averaging traces overlaid on the live spectrum |
+| **Amplitude Trigger** | Shift-drag a dB threshold line; a bin peak crossing it freezes the display to catch transients too fast for human reaction (`Space` resumes) |
 | **HF Reception** | `--ppm` correction, `--bias-t` antenna power, and `--direct-sampling` for the HF range |
 | **IQ Capture & Playback** | Record raw IQ to disk (`Ctrl+S`) and replay captures with `--play` — no hardware needed |
 | **PNG Spectrogram Export** | One-key export of the current spectrum + waterfall to an image |
@@ -268,6 +269,7 @@ Apart from command-line arguments, the program is driven by keyboard shortcuts f
 | `t` | Toggle the frame-timing overlay (HUD) |
 | `Ctrl+S` | Toggle IQ logging |
 | `e` | Export spectrogram as PNG |
+| `Space` | Resume from an amplitude-trigger freeze (re-arms the trigger) |
 | `ESC` / `q` | Exit the program |
 | `Ctrl+C` | Graceful shutdown (terminal) |
 
@@ -276,6 +278,7 @@ Apart from command-line arguments, the program is driven by keyboard shortcuts f
 - **Hover** the spectrum or waterfall for a live readout: a cursor at that frequency showing the amplitude (spectrum) or how long ago the line was captured (waterfall), in a fixed panel.
 - **Left-click** drops a persistent frequency marker — a vertical reference line through both panes, tagged `Mn`, with its frequency and live level listed in the bottom-left panel. Markers track frequency as you retune (up to 16).
 - **Right-click** removes the nearest marker; **Delete** clears all.
+- **Shift + left-drag** in the spectrum pane sets the **amplitude trigger** — a horizontal threshold line at the pointer's dB. When a bin peak crosses it, the display **freezes** on the triggering frame (so a transient too fast for human reaction is held); the status bar and a centered banner show the event. Press **`Space`** to resume and re-arm. Drag the line onto the bottom edge of the pane to disarm it. Plain mouse keeps the hover/marker behavior above — the trigger uses Shift so it adds no new keybinding.
 
 ### Command-Line Configuration (Future)
 
