@@ -59,9 +59,10 @@ FftAnalyzer::FftAnalyzer(size_t fft_size, bool inverse)
       // span the full [center-rate/2, center+rate/2]. (A real-input rfft would
       // only need N/2+1, but truncating a complex transform to N/2+1 drops half
       // the band and makes the spectrum 2x-zoomed vs the frequency axis.)
-      m_power_spectrum(fft_size), m_magnitude_spectrum(fft_size),
-      m_db_spectrum(fft_size), m_phase_spectrum(fft_size),
-      m_freq_bins(fft_size) {
+      // m_power/m_magnitude/m_phase stay empty: the extras path is opt-in
+      // (set_extra_spectra_enabled), so the default pipeline never pays for
+      // them. They're sized on first enable — see the header.
+      m_db_spectrum(fft_size), m_freq_bins(fft_size) {
   // Security: validate FFT size is a power of 2
   if (fft_size == 0 || (fft_size & (fft_size - 1)) != 0) {
     throw std::invalid_argument("FFT size must be a power of 2");

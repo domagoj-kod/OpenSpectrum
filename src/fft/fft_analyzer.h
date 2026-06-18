@@ -72,8 +72,14 @@ public:
   // Toggle computation of magnitude/power/phase spectra. Defaults off — the
   // dB spectrum is the only consumed output in the default pipeline. Enable
   // before calling execute() if you need any of the secondary spectra.
-  // Saves one sqrt + two stores per bin and an entire scalar atan2 pass.
-  void set_extra_spectra_enabled(bool enabled) noexcept {
+  // Saves one sqrt + two stores per bin and an entire scalar atan2 pass, and
+  // (since the buffers are sized lazily here) their fft_size*4 bytes each.
+  void set_extra_spectra_enabled(bool enabled) {
+    if (enabled && m_power_spectrum.empty()) {
+      m_power_spectrum.resize(m_fft_size);
+      m_magnitude_spectrum.resize(m_fft_size);
+      m_phase_spectrum.resize(m_fft_size);
+    }
     m_extra_spectra_enabled = enabled;
   }
   [[nodiscard]] bool extra_spectra_enabled() const noexcept {

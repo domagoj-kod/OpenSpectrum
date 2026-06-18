@@ -142,11 +142,6 @@ public:
                              std::vector<SDL_Vertex> &verts,
                              std::vector<int> &indices) const;
 
-  // Paint the current spectrum into m_pixels on demand. Cold path: only the
-  // spectrogram PNG exporter consumes the pixel buffer (via get_pixels()); the
-  // live render path uses build_vertices() instead.
-  OS_COLD void render_to_pixels();
-
   // Cursor readout sample: the displayed amplitude and the snapped trace point
   // for a horizontal cursor position. Mirrors build_vertices() exactly (same
   // averaging source, dB range, and bin->x / dB->y mapping) so the marker dot
@@ -158,12 +153,6 @@ public:
   };
   [[nodiscard]] bool sample_at_x(float x, float region_w, float region_h,
                                  CursorSample &out) const;
-
-  // Get rendered pixel buffer (RGB32 format: RGBA interleaved). Only valid after
-  // render_to_pixels(); consumed by the spectrogram exporter.
-  [[nodiscard]] const PixelBuffer &get_pixels() const { return m_pixels; }
-  uint8_t *pixel_data() { return m_pixels.data(); }
-  [[nodiscard]] const uint8_t *pixel_data() const { return m_pixels.data(); }
 
   // Get dimensions
   [[nodiscard]] size_t width() const noexcept { return m_width; }
@@ -204,7 +193,6 @@ public:
 private:
   size_t m_width;
   size_t m_height;
-  PixelBuffer m_pixels; // Phase 3: Optimized pixel buffer
 
   std::vector<float> m_spectrum_data;
   SpectrumPalette m_palette;
@@ -224,8 +212,6 @@ private:
   float m_min_db = -120.0f;
   float m_max_db = 0.0f;
   bool m_autoscale = true;
-
-  void clear();
 };
 
 } // namespace openspectrum

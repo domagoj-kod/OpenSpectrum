@@ -154,11 +154,7 @@ auto SpectrumPalette::get_color(float db_value) const -> RgbColor {
 // --- SpectrumDisplay Implementation ---
 
 SpectrumDisplay::SpectrumDisplay(size_t width, size_t height)
-    : m_width(width), m_height(height),
-      m_pixels(width * height * 4) // Phase 3: RGBA: 4 bytes per pixel
-{
-  clear();
-}
+    : m_width(width), m_height(height) {}
 
 void SpectrumDisplay::set_db_range(float min_db, float max_db) {
   m_min_db = std::min(min_db, max_db);
@@ -166,8 +162,6 @@ void SpectrumDisplay::set_db_range(float min_db, float max_db) {
   // Update palette with new range for optimized get_color()
   m_palette.set_db_range(m_min_db, m_max_db);
 }
-
-void SpectrumDisplay::clear() { m_pixels.clear(); }
 
 void SpectrumDisplay::update_spectrum(const std::vector<float> &db_values,
                                       const std::vector<float> & /*freq_bins*/,
@@ -220,8 +214,8 @@ void SpectrumDisplay::update_spectrum(const std::vector<float> &db_values,
   }
 
   // The live render path draws the spectrum on the GPU from build_vertices();
-  // m_pixels is no longer painted here. render_to_pixels() fills it on demand
-  // for the (cold) spectrogram export path.
+  // there is no CPU pixel buffer. Exports capture the rendered frame directly
+  // (SdlRenderer::request_capture), so nothing here needs to paint pixels.
 }
 
 // One colored quad per bin, emitted as 4 vertices + 6 indices into the caller's
@@ -391,61 +385,6 @@ bool SpectrumDisplay::sample_at_x(float x, float region_w, float region_h,
   out.dot_y = region_h - bar_height;
   out.bin = col;
   return true;
-}
-
-void SpectrumDisplay::render_to_pixels() {
-  if (m_spectrum_data.empty()) {
-    clear();
-    return;
-  }
-
-  // Clear background (black)
-  clear();
-
-  // Draw spectrum line or filled area
-  const size_t num_bins = m_spectrum_data.size();
-  const float bin_width =
-      static_cast<float>(m_width) / static_cast<float>(num_bins);
-
-  // Draw filled spectrum (from bottom to spectrum line)
-  const float db_range = m_max_db - m_min_db;
-  const float db_to_height = static_cast<float>(m_height) / db_range;
-
-  // Phase 3: Precompute row stride in bytes (4 bytes per pixel)
-  const size_t row_stride = m_width * 4;
-
-  for (size_t i = 0; i < num_bins; ++i) {
-    float const db = m_spectrum_data[i];
-    // Invert Y-axis: higher dB = higher on screen
-    float bar_height = (db - m_min_db) * db_to_height;
-    bar_height = std::clamp(bar_height, 0.0F, static_cast<float>(m_height));
-
-    // Get color for this dB value (optimized: uses precomputed range)
-    auto color = m_palette.get_color(db);
-
-    // Fill from bottom to spectrum line
-    auto x = static_cast<size_t>(static_cast<float>(i) * bin_width);
-    size_t const bottom_y = m_height - 1;
-    auto top_y =
-        static_cast<size_t>(static_cast<float>(m_height) - bar_height);
-
-    if (top_y >= m_height) {
-      top_y = m_height - 1;
-    }
-
-    // Phase 3: Direct pointer access - precompute starting pixel pointer
-    // idx = (y * m_width + x) * 4 = y * (m_width * 4) + x * 4
-    uint8_t *row_start = m_pixels.data() + (top_y * row_stride) + (x * 4);
-    uint8_t *row_end = m_pixels.data() + ((bottom_y + 1) * row_stride) + (x * 4);
-
-    // Fill vertical column using pointer arithmetic
-    for (uint8_t *dst = row_start; dst < row_end; dst += row_stride) {
-      dst[0] = color.red;
-      dst[1] = color.green;
-      dst[2] = color.blue;
-      dst[3] = color.alpha;
-    }
-  }
 }
 
 } // namespace openspectrum
