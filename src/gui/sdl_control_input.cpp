@@ -108,9 +108,10 @@ auto SdlControlInput::handle_keyboard(SDL_Keycode key, bool shift_held,
     int const index = key - SDLK_1;
     if (index < static_cast<int>(constraints.supported_fft_sizes.size())) {
       size_t const new_size = constraints.supported_fft_sizes[index];
-      if (new_size != m_state.get_fft_size()) {
+      size_t const old_size = m_state.get_fft_size();
+      if (new_size != old_size) {
         m_state.set_fft_size(new_size);
-        LOG_INFO("[FFT] " + std::to_string(m_state.get_fft_size()) + " -> " +
+        LOG_INFO("[FFT] " + std::to_string(old_size) + " -> " +
                  std::to_string(new_size));
         changed = true;
         m_state.mark_status_dirty();
