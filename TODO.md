@@ -59,9 +59,10 @@ waterfall downsample inner sum.
 
 ## Deferred (not scheduled)
 
-- [ ] Clang/LLVM 21 as a second compiler (sanitizers, ThinLTO, vectorization
-  remarks); main port cost is the PGO pipeline (`.gcda` → `.profraw` +
-  `llvm-profdata`) and `-flto=thin`/`lld`. Keep GCC primary.
+- [ ] Clang/LLVM 21 as a second compiler (ThinLTO, vectorization remarks);
+  port cost is `-flto=thin`/`lld`. Keep GCC primary. Note: sanitizers are not a
+  reason — GCC already has `-fsanitize=address,undefined`; add a `sanitize:`
+  target instead of porting compilers.
 - [x] ~~Reserved left-gutter axes (zero occlusion)~~ — declined. The clean
   version insets both plots and shifts every freq<->x mapping (spectrum geometry,
   waterfall width, freq scale, markers, cursor, click-to-place) — 50+ lines across
@@ -72,4 +73,5 @@ waterfall downsample inner sum.
   multi-size `.ico`; Makefile `windres` step gated on `OS=Windows_NT` links the
   icon resource into the `.exe`. Wiring verified via `make -n OS=Windows_NT`;
   execution validates in CI (MSYS2)._
-- [ ] click-to-tune, persisted config, NBFM/WBFM/AM audio demod (largest, last).
+- [ ] click-to-tune, persisted config (largest, last). Audio demod (NBFM/WBFM/AM)
+  dropped — out of scope for a spectrum analyzer.

@@ -10,18 +10,11 @@ make release      # O3 + LTO + -march=haswell + footprint trim
 make profile      # O2 + gprof instrumentation
 make dist         # package a release bundle for the current platform → dist/
 make clean
-
-# PGO (~15-20% faster on the trained workload)
-make profile-gen      # instrumented binary, writes .gcda
-./openspectrum        # exercise hot path 60-180s, exit cleanly (Ctrl-C)
-make clean
-make profile-use      # rebuild consuming the profile
-make profile-clean    # wipe pgo-data/
 ```
 
 Binary: `openspectrum` (Linux) / `openspectrum.exe` (Windows/MSYS2). No test suite.
 
-Release/PGO flags: `-march=haswell` (AVX2+FMA3), `-flto`, `-ffunction-sections -fdata-sections -fvisibility=hidden -fvisibility-inlines-hidden` + `-Wl,--gc-sections`, `-falign-functions=32 -falign-loops=32` (hot loops in one DSB fetch line). See `TRIM_CFLAGS`/`TRIM_LDFLAGS` in the Makefile.
+Release flags: `-march=haswell` (AVX2+FMA3), `-flto`, `-ffunction-sections -fdata-sections -fvisibility=hidden -fvisibility-inlines-hidden` + `-Wl,--gc-sections`, `-falign-functions=32 -falign-loops=32` (hot loops in one DSB fetch line). See `TRIM_CFLAGS`/`TRIM_LDFLAGS` in the Makefile.
 
 **Linting is gradual** — format/tidy only lines changed vs a base ref, never the whole tree (a full pass would reflow the hand-tuned AVX2 blocks + the 8x16 font table). Config in `.clang-tidy` / `.clang-format`. Wrapper:
 ```bash
@@ -133,13 +126,4 @@ History = `RingBuffer<vector<uint8_t>>`; dB quantized to `uint8_t` over a fixed 
 - **`OS_HOT`** on per-frame functions: `FftAnalyzer::execute`, `SignalProcessor::apply_window`/`remove_dc`, `WaterfallDisplay::add_spectrum_line`, `SpectrumDisplay::update_spectrum`, `SdlRenderer::render_displays`/`render_displays_scroll`/`present_frame`.
 - **`OS_COLD`** on init/one-shot: constructors, `precompute_window` + `compute_*` builders, `parse_arguments`, `print_usage`.
 
-These survive `--gc-sections` and cluster hot text on contiguous I-cache lines; with PGO the I-cache miss rate drops further than either alone.
-
-## PGO workflow
-`.gcda` data is platform/toolchain/build-path-specific. **Never share `pgo-data/` across Windows/Linux** (GCC embeds the absolute build path); `make profile-clean` before switching.
-
-Count check: `find pgo-data -name '*.gcda' | wc -l` (not `ls` — mangled paths are real nested dirs).
-
-During `profile-gen`: run ≥60s with live data, change frequency a few times; **don't** hit `--help` / error paths / unused features (PGO would think them hot); exit Ctrl-C, never `kill -9` (loses `.gcda` writes).
-
-Verify: `make profile-use 2>&1 | grep -i "not found"` prints nothing (else partial PGO — silent fallback to default heuristics).
+These survive `--gc-sections` and cluster hot text on contiguous I-cache lines.

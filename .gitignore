@@ -154,7 +154,6 @@ compile_commands.json
 # Misc
 /openspectrum
 /openspectrum.exe
-/pgo-data/
 /build/
 /dist/
 
