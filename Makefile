@@ -86,7 +86,7 @@ TRIM_LDFLAGS := -Wl,--gc-sections
 release:
 	$(MAKE) CFLAGS="$(BASE_CFLAGS) -O3 -DNDEBUG -flto=auto -march=haswell $(TRIM_CFLAGS)" \
 	       CXXFLAGS="$(BASE_CXXFLAGS) -O3 -DNDEBUG -flto=auto -march=haswell $(TRIM_CFLAGS)" \
-	       LDFLAGS="$(BASE_LDFLAGS) -flto=auto -march=haswell $(TRIM_CFLAGS) $(TRIM_LDFLAGS)" \
+	       LDFLAGS="$(BASE_LDFLAGS) -s -flto=auto -march=haswell $(TRIM_CFLAGS) $(TRIM_LDFLAGS)" \
 	       all
 
 # Profile target overrides
