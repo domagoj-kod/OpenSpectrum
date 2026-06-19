@@ -1,0 +1,5 @@
+// Windows executable resources. Compiled by windres (MinGW-only) and linked
+// into openspectrum.exe so the shell shows the app icon. Path is relative to
+// the repo root, where `make` invokes windres. ID 1 = lowest, so Explorer picks
+// it as the executable's icon.
+1 ICON "packaging/openspectrum.ico"

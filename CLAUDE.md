@@ -39,7 +39,7 @@ Its `-I` flags mirror the Makefile's `INCLUDES`; the **per-module dirs are requi
 
 `.github/workflows/release.yml` runs the **same scripts**; triggers on `v*` tag push (manual `workflow_dispatch` builds artifacts but does not publish). Two jobs (Linux `ubuntu-latest`, Windows MSYS2 MINGW64) build, upload an artifact, and publish a Release (body = annotated tag message). Cut a release: `git tag -s vX -F notes.txt && git push origin vX`; see `RELEASING.md`.
 
-App icon (`packaging/openspectrum.png`, source `.svg`) is **committed** and consumed directly — no build-time SVG rasterization.
+App icon: source `packaging/openspectrum.svg`; the rasterized `openspectrum.png` (Linux/AppImage) and multi-size `openspectrum.ico` (16–256 px, Windows) are **committed** and consumed directly — no build-time SVG rasterization. Regenerate after editing the SVG: `rsvg-convert -w256 -h256 openspectrum.svg -o openspectrum.png`, and render 16/24/32/48/64/128/256 PNGs + `icotool -c` for the `.ico`. On Windows the Makefile compiles `openspectrum.rc` → COFF via `windres` (`RES_OBJ`, gated on `OS=Windows_NT`, empty elsewhere) and links it into the `.exe` so the shell shows the icon.
 
 ## Architecture
 

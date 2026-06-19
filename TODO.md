@@ -67,5 +67,9 @@ waterfall downsample inner sum.
   waterfall width, freq scale, markers, cursor, click-to-place) — 50+ lines across
   4 files, not worth it. Kept the translucent overlay strip; instead split the
   strip to skip the freq-bar band so it no longer collides at the bottom-left.
-- [ ] Embedded Windows `.exe` icon (windres resource step).
+- [x] Embedded Windows `.exe` icon (windres resource step). _Done: redesigned
+  abstract icon (terminal tile + carrier/sidebands), committed `.svg`/`.png`/
+  multi-size `.ico`; Makefile `windres` step gated on `OS=Windows_NT` links the
+  icon resource into the `.exe`. Wiring verified via `make -n OS=Windows_NT`;
+  execution validates in CI (MSYS2)._
 - [ ] click-to-tune, persisted config, NBFM/WBFM/AM audio demod (largest, last).

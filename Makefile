@@ -32,6 +32,12 @@ ifeq ($(OS),Windows_NT)
                     $(VERSION_DEF)
 
     BASE_LDFLAGS := -lrtlsdr $(SDL3_LDFLAGS) -static-libgcc -static-libstdc++
+
+    # Embed the app icon into the .exe via windres (MinGW-only). Deferred (=) so
+    # $(BUILD_DIR), defined later, expands at use time. The build rule is gated
+    # on OS below; RES_OBJ is empty on every other platform.
+    WINDRES ?= windres
+    RES_OBJ = $(BUILD_DIR)/openspectrum_res.o
 else
     # Linux and other Unix-like systems
     TARGET := openspectrum
@@ -49,6 +55,9 @@ else
                    -Wl,-z,now \
                    -Wl,-z,relro \
                    -Wl,-z,noexecstack
+
+    # No Windows resource object off-Windows; keeps the shared link line clean.
+    RES_OBJ =
 endif
 
 # Default to debug build (safe default)
@@ -200,9 +209,18 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp | $(BUILD_DIR)
 $(MAIN_OBJ): $(MAIN_SRC) | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(DEPFLAGS) -c $< -o $@
 
-# Final target
-$(TARGET): $(ALL_OBJS)
+# Final target. $(RES_OBJ) is the windres-compiled icon on Windows, empty
+# elsewhere, so $^ links it only where it exists.
+$(TARGET): $(ALL_OBJS) $(RES_OBJ)
 	$(CXX) $^ -o $@ $(LDFLAGS)
+
+# Windows: compile the icon resource (.rc -> COFF object). Gated on OS because
+# windres ships only with MinGW; off-Windows RES_OBJ is empty and this rule is
+# never read. Depends on the .ico so re-icon'ing rebuilds the resource.
+ifeq ($(OS),Windows_NT)
+$(RES_OBJ): packaging/openspectrum.rc packaging/openspectrum.ico | $(BUILD_DIR)
+	$(WINDRES) $< -O coff -o $@
+endif
 
 # Package a release into a distributable, self-contained bundle for the current
 # platform (Linux -> AppImage, Windows/MSYS2 -> zip with bundled DLLs). Output
