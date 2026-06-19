@@ -24,8 +24,7 @@ ifeq ($(OS),Windows_NT)
     BASE_CFLAGS := -g -D_FORTIFY_SOURCE=2 -fstack-protector-strong
     BASE_CXXFLAGS := -std=c++20 -Wall -Wextra -Wpedantic \
                     -Wshadow -Wconversion \
-                    -Wformat=2 -Wformat-security \
-                    -Wformat-nonliteral \
+                    -Wformat=2 \
                     -D_FORTIFY_SOURCE=2 \
                     -fstack-protector-strong \
                     -static-libgcc -static-libstdc++ \
@@ -45,8 +44,7 @@ else
     BASE_CFLAGS := -g -D_FORTIFY_SOURCE=2 -fstack-protector-strong -fPIE
     BASE_CXXFLAGS := -std=c++20 -Wall -Wextra -Wpedantic \
                     -Wshadow -Wconversion \
-                    -Wformat=2 -Wformat-security \
-                    -Wformat-nonliteral \
+                    -Wformat=2 \
                     -D_FORTIFY_SOURCE=2 \
                     -fstack-protector-strong -fPIE \
                     $(VERSION_DEF)
