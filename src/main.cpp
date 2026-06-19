@@ -1006,10 +1006,15 @@ auto main(int argc, char *argv[]) -> int {
           }
         }
 
-        // Space resumes from a freeze and re-arms (threshold/armed persist).
+        // Space resumes from a freeze and re-arms (threshold/armed persist),
+        // and always repaints the status bar — this is what dismisses a sticky
+        // transient message (TRIGGERED, "Exported: ...") back to FREQ|GAIN|...,
+        // since those bypass the dirty-flag path and otherwise linger until the
+        // next control change.
         if (control_state.unfreeze_requested()) {
           control_state.clear_unfreeze();
           frozen = false;
+          control_state.mark_status_dirty();
         }
 
         // Feed the renderer this frame's line position + state. Recompute the y
