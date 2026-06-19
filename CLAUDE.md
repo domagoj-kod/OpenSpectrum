@@ -73,14 +73,12 @@ The throttle (`while(!queue.empty()) move+pop`) runs inside the dequeue lock; ea
 - **PixelBuffer** (`src/visualization/spectrum_display.h`): non-copyable raw `uint8_t*` RGBA buffer, used by both displays.
 
 ### FFT backend (PocketFFT)
-`third_party/pocketfft/pocketfft_hdronly.h`; shim `src/fft/pocketfft_wrapper.h` defines `pocketfft_cpx = std::complex<float>` and `pocketfft_forward`/`_inverse`. Layout-compatible, so input fill / output copy are `memcpy`.
+`third_party/pocketfft/pocketfft_hdronly.h`; shim `src/fft/pocketfft_wrapper.h` defines `pocketfft_cpx = std::complex<float>` and `pocketfft_forward` (forward-only — the analyzer never inverse-transforms). Layout-compatible, so input fill / output copy are `memcpy`.
 
 **Windows MinGW**: the patched `aligned_alloc` shim (~line 152 of the header) routes to `_aligned_malloc`/`_free` from `<malloc.h>` on `_WIN32`. Restoring upstream `::aligned_alloc` breaks MSYS2 — do not revert.
 
 ### FftAnalyzer hot loop
-`execute()` post-FFT loop is manually vectorized and *manually unswitched* on `m_extra_spectra_enabled` (GCC won't hoist the branch through the AVX2 intrinsics):
-- **Fast path (default)**: power → fma → `fast_log10_avx2` → `m_db_spectrum`. Uses `20·log10(sqrt(p)·c) ≡ 10·log10(p·c²)` (sqrt eliminated); epsilon squared (`1e-24`).
-- **Extras path** (`set_extra_spectra_enabled(true)`): also stores `m_power_spectrum`, `m_magnitude_spectrum` (`_mm256_sqrt_ps`), scalar `atan2` → `m_phase_spectrum`. Default off — nothing consumes these yet.
+`execute()` post-FFT loop is manually vectorized: power → fma → `fast_log10_avx2` → `m_db_spectrum`. Uses `20·log10(sqrt(p)·c) ≡ 10·log10(p·c²)` (sqrt eliminated); epsilon squared (`1e-24`). The dB spectrum is the only output — there is no power/magnitude/phase path (an earlier opt-in "extras" variant with a manual branch unswitch was removed once nothing consumed it).
 
 `fast_log10_avx2` (file-local): log10 via `2·atanh((m-1)/(m+1))`, Horner through y⁶. Max rel err ~1.7e-5 (~0.00015 dB).
 
@@ -104,6 +102,8 @@ After `add_spectrum_line()`, main.cpp checks `needs_full_render()`:
 
 ### WaterfallDisplay
 History = `RingBuffer<vector<uint8_t>>`; dB quantized to `uint8_t` over a fixed -120..0 dB range (4:1 vs float). RGBA LUT (`m_rgba_lut[256]`, `uint32_t`) maps quantized → color; render inner loop is `memcpy`/pixel (scalar) or `_mm256_i32gather_epi32`×8 (AVX2).
+
+**Autoscale is incremental, not a rescan.** `m_hist_counts[256]` tracks how many history pixels sit at each quantized level; `update_global_range()` reads the first/last non-zero bucket (O(256), L1-resident) instead of scanning the whole history each frame. The invariant: the histogram must stay in lockstep with `m_history` — `add_spectrum_line` decrements the evicted row's counts (`m_history[0]`, the slot `push()` is about to overwrite) *before* push and increments the new row's; `reset()` zeroes it. A debug-only (`#ifndef NDEBUG`) brute-force cross-check asserts the bucket result matches a full scan, so any bookkeeping drift fails loudly under run-it validation.
 
 ### Platform differences
 | Concern | Windows (`_WIN32`) | Linux |
