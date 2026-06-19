@@ -21,7 +21,6 @@ namespace openspectrum {
 struct alignas(64) FFTFrame {
   size_t capacity{0};
   size_t size{0};
-  FFTFrame *next{nullptr};
   std::complex<float> *data{nullptr};
 
   FFTFrame() = default;
@@ -60,7 +59,6 @@ struct alignas(64) FFTFrame {
 
     frame->capacity = frame_capacity;
     frame->size = 0;
-    frame->next = nullptr;
     return frame;
   }
 
@@ -82,7 +80,6 @@ struct alignas(64) FFTFrame {
     assert(new_size <= capacity);
     size = new_size;
   }
-  [[nodiscard]] bool can_hold(size_t requested) const { return requested <= capacity; }
 };
 
 // Lightweight frame handle with RAII for automatic pool return
@@ -126,12 +123,6 @@ public:
   }
 
   [[nodiscard]] FFTFrame *get() const { return m_frame; }
-  FFTFrame *release() {
-    auto *f = m_frame;
-    m_frame = nullptr;
-    m_return_func = nullptr;
-    return f;
-  }
   explicit operator bool() const { return m_frame != nullptr; }
 
   std::complex<float> *data() { return m_frame ? m_frame->data : nullptr; }

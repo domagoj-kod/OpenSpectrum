@@ -29,13 +29,10 @@ struct IqCaptureStats {
 struct IqLoggerConfig {
   std::string output_directory = "data";
   std::string filename_prefix = "capture";
-  size_t max_file_size_bytes = 0;     // 0 = unlimited
   size_t buffer_size_bytes = 1048576; // 1 MB default buffer
 };
 
-// Callback types
-using IqLoggerProgressCallback =
-    std::function<void(size_t bytes_written, size_t total_bytes)>;
+// Callback type
 using IqLoggerCompleteCallback = std::function<void(
     const std::string &filename, const std::string &metadata_filename)>;
 
@@ -65,8 +62,7 @@ public:
   // Get current capture statistics
   IqCaptureStats get_stats() const;
 
-  // Set callbacks
-  void set_progress_callback(IqLoggerProgressCallback cb);
+  // Set completion callback
   void set_complete_callback(IqLoggerCompleteCallback cb);
 
   // Get current filenames
@@ -110,8 +106,7 @@ private:
   std::vector<uint8_t> m_buffer;
   size_t m_buffer_pos = 0;
 
-  // Callbacks
-  IqLoggerProgressCallback m_progress_cb;
+  // Completion callback
   IqLoggerCompleteCallback m_complete_cb;
 
   // State

@@ -278,42 +278,6 @@ void IqLogger::write_samples(const std::complex<float> *samples, size_t count) {
       flush_buffer();
     }
   }
-
-  // Check if we need to rotate files (if max size is set)
-  if (m_config.max_file_size_bytes > 0) {
-    // ftell() returns long and signals failure with -1; an implicit
-    // conversion to size_t would yield a huge positive value and trip the
-    // rotation branch on every error. Skip rotation when the position is
-    // unavailable — the next successful tell will catch the rollover.
-    long const tell = std::ftell(m_data_file);
-    if (tell < 0) {
-      LOG_WARNING("IQ rotation: ftell() failed, skipping size check");
-      return;
-    }
-    size_t current_size = static_cast<size_t>(tell) + m_buffer_pos;
-    if (current_size >= m_config.max_file_size_bytes) {
-      // Close current file
-      close_files();
-      // Start new file with sequential number
-      std::string base_name = m_data_filename;
-      size_t last_dot = base_name.find_last_of('.');
-      if (last_dot != std::string::npos) {
-        base_name = base_name.substr(0, last_dot);
-      }
-      // Find next available number
-      int seq = 1;
-      std::string new_name;
-      do {
-        new_name = base_name + "_" + std::to_string(seq++) + ".iq";
-      } while (std::fopen(new_name.c_str(), "rb") != nullptr);
-
-      m_data_filename = new_name;
-      m_metadata_filename =
-          base_name + "_" + std::to_string(seq - 1) + ".meta.json";
-      open_files();
-      write_metadata();
-    }
-  }
 }
 
 void IqLogger::stop_capture() {
@@ -358,11 +322,6 @@ IqCaptureStats IqLogger::get_stats() const {
     stats.duration_seconds = end_time - m_start_time;
   }
   return stats;
-}
-
-void IqLogger::set_progress_callback(IqLoggerProgressCallback cb) {
-  std::lock_guard<std::mutex> lock(m_mutex);
-  m_progress_cb = std::move(cb);
 }
 
 void IqLogger::set_complete_callback(IqLoggerCompleteCallback cb) {

@@ -10,6 +10,7 @@
 #include "openspectrum/spectrogram_exporter.h"
 #include "signal/signal_processor.h"
 #include "utils/arg_parser.h"
+#include "utils/format.h"
 #include "utils/logger.h"
 #include "visualization/spectrum_display.h"
 #include "visualization/waterfall_display.h"
@@ -285,8 +286,6 @@ auto main(int argc, char *argv[]) -> int {
   }
 
   // Initialize logging
-  Logger::get_instance().add_sink(std::make_unique<ConsoleSink>());
-  // Logger::get_instance().add_sink(std::make_unique<FileSink>("spectrum.log"));
   Logger::get_instance().set_level(LogLevel::INFO);
 
   LOG_INFO("Starting SDR Spectrum Analyzer");
@@ -296,12 +295,13 @@ auto main(int argc, char *argv[]) -> int {
   std::signal(SIGTERM, signal_handler);
 
   // Log configuration
-  LOGS_INFO << "Configuration: freq=" << static_cast<int>(config.center_freq_hz)
-            << "Hz, rate=" << static_cast<int>(config.sample_rate_hz)
-            << "Hz, gain=" << config.gain_db
-            << "dB, fft_size=" << config.fft_size << ", window="
-            << SignalProcessor::window_function_to_string(
-                   config.window_function);
+  LOG_INFO(
+      "Configuration: freq=" +
+      std::to_string(static_cast<int>(config.center_freq_hz)) +
+      "Hz, rate=" + std::to_string(static_cast<int>(config.sample_rate_hz)) +
+      "Hz, gain=" + std::to_string(config.gain_db) +
+      "dB, fft_size=" + std::to_string(config.fft_size) + ", window=" +
+      SignalProcessor::window_function_to_string(config.window_function));
 
   // Configuration
   const size_t FFT_SIZE = config.fft_size;
@@ -353,8 +353,7 @@ auto main(int argc, char *argv[]) -> int {
                                               meta_rate)) {
         control_state.set_frequency(meta_freq);
         effective_rate = meta_rate;
-        LOG_INFO("Playback metadata: freq=" +
-                 ControlState::format_frequency(meta_freq) +
+        LOG_INFO("Playback metadata: freq=" + format_frequency(meta_freq) +
                  ", rate=" + std::to_string(meta_rate) + " Hz");
       } else {
         LOG_WARNING("No .meta.json sidecar for " + config.play_file +
@@ -469,10 +468,10 @@ auto main(int argc, char *argv[]) -> int {
                std::to_string(STREAM_BUFF) +
                " buffers, FFT size: " + std::to_string(FFT_SIZE));
 
-      LOGS_INFO << "RTL-SDR initialized: freq="
-                << static_cast<int>(config.center_freq_hz)
-                << "Hz, rate=" << static_cast<int>(effective_rate)
-                << "Hz, gain=" << config.gain_db << "dB";
+      LOG_INFO("RTL-SDR initialized: freq=" +
+               std::to_string(static_cast<int>(config.center_freq_hz)) +
+               "Hz, rate=" + std::to_string(static_cast<int>(effective_rate)) +
+               "Hz, gain=" + std::to_string(config.gain_db) + "dB");
     }
 
     // 3. Initialize signal processor

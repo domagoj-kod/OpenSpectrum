@@ -52,16 +52,12 @@ static inline __m256 fast_log10_avx2(__m256 x) {
 }
 #endif
 
-FftAnalyzer::FftAnalyzer(size_t fft_size, bool inverse)
-    : m_fft_size(fft_size), m_inverse(inverse), m_input_buffer(fft_size),
-      m_output_buffer(fft_size),
+FftAnalyzer::FftAnalyzer(size_t fft_size)
+    : m_fft_size(fft_size), m_input_buffer(fft_size), m_output_buffer(fft_size),
       // Complex IQ input → the FFT is two-sided: all N bins are meaningful and
       // span the full [center-rate/2, center+rate/2]. (A real-input rfft would
       // only need N/2+1, but truncating a complex transform to N/2+1 drops half
       // the band and makes the spectrum 2x-zoomed vs the frequency axis.)
-      // m_power/m_magnitude/m_phase stay empty: the extras path is opt-in
-      // (set_extra_spectra_enabled), so the default pipeline never pays for
-      // them. They're sized on first enable — see the header.
       m_db_spectrum(fft_size), m_freq_bins(fft_size) {
   // Security: validate FFT size is a power of 2
   if (fft_size == 0 || (fft_size & (fft_size - 1)) != 0) {
@@ -74,16 +70,11 @@ FftAnalyzer::FftAnalyzer(size_t fft_size, bool inverse)
 FftAnalyzer::~FftAnalyzer() = default;
 
 FftAnalyzer::FftAnalyzer(FftAnalyzer &&other) noexcept
-    : m_fft_size(other.m_fft_size), m_inverse(other.m_inverse),
+    : m_fft_size(other.m_fft_size),
       m_input_buffer(std::move(other.m_input_buffer)),
       m_output_buffer(std::move(other.m_output_buffer)),
-      m_power_spectrum(std::move(other.m_power_spectrum)),
-      m_magnitude_spectrum(std::move(other.m_magnitude_spectrum)),
       m_db_spectrum(std::move(other.m_db_spectrum)),
-      m_phase_spectrum(std::move(other.m_phase_spectrum)),
-      m_freq_bins(std::move(other.m_freq_bins)),
-      m_center_dc(other.m_center_dc),
-      m_extra_spectra_enabled(other.m_extra_spectra_enabled),
+      m_freq_bins(std::move(other.m_freq_bins)), m_center_dc(other.m_center_dc),
       m_window_coherent_gain(other.m_window_coherent_gain) {
   other.m_fft_size = 0;
 }
@@ -92,14 +83,9 @@ auto FftAnalyzer::operator=(FftAnalyzer &&other) noexcept -> FftAnalyzer & {
   if (this != &other) {
     m_fft_size = other.m_fft_size;
     m_center_dc = other.m_center_dc;
-    m_extra_spectra_enabled = other.m_extra_spectra_enabled;
-    m_inverse = other.m_inverse;
     m_input_buffer = std::move(other.m_input_buffer);
     m_output_buffer = std::move(other.m_output_buffer);
-    m_power_spectrum = std::move(other.m_power_spectrum);
-    m_magnitude_spectrum = std::move(other.m_magnitude_spectrum);
     m_db_spectrum = std::move(other.m_db_spectrum);
-    m_phase_spectrum = std::move(other.m_phase_spectrum);
     m_freq_bins = std::move(other.m_freq_bins);
     m_window_coherent_gain = other.m_window_coherent_gain;
 
@@ -160,11 +146,7 @@ void FftAnalyzer::execute(std::span<const std::complex<float>> input,
   }
 
   // --- 2. Execute FFT ----------------------------------------------------
-  if (m_inverse) {
-    pocketfft_inverse(m_input_buffer, m_output_buffer);
-  } else {
-    pocketfft_forward(m_input_buffer, m_output_buffer);
-  }
+  pocketfft_forward(m_input_buffer, m_output_buffer);
 
   // --- 3. DC centering is done by the pre-FFT sign trick -----------------
   // Multiplying the input by (-1)^n shifts the spectrum by N/2, so DC already
@@ -185,7 +167,6 @@ void FftAnalyzer::execute(std::span<const std::complex<float>> input,
       1.0F / (static_cast<float>(m_fft_size) * m_window_coherent_gain);
   float const c_sq = inv_ng * inv_ng;
   float const eps_sq = 1e-24F;
-  bool const extras = m_extra_spectra_enabled;
 
   size_t simd_bins = 0;
 
@@ -201,36 +182,17 @@ void FftAnalyzer::execute(std::span<const std::complex<float>> input,
   // every bin uses the same scale.
   simd_bins = (out_bins / 8) * 8;
 
-  // Manually unswitched on `extras` — GCC -O3 did not hoist the branch.
-  // Fast path (default) skips the sqrt and two stores entirely.
-  if (!extras) {
-    for (size_t i = 0; i < simd_bins; i += 8) {
-      __m256 const z0 = _mm256_loadu_ps(out_data + 2 * i);
-      __m256 const z1 = _mm256_loadu_ps(out_data + 2 * i + 8);
-      __m256 const zsq0 = _mm256_mul_ps(z0, z0);
-      __m256 const zsq1 = _mm256_mul_ps(z1, z1);
-      __m256 const h = _mm256_hadd_ps(zsq0, zsq1);
-      __m256 const power =
-          _mm256_castpd_ps(_mm256_permute4x64_pd(_mm256_castps_pd(h), 0xD8));
-      __m256 const db_arg = _mm256_fmadd_ps(power, c_sq_v, eps_sq_v);
-      __m256 const db = _mm256_mul_ps(fast_log10_avx2(db_arg), ten_v);
-      _mm256_storeu_ps(&m_db_spectrum[i], db);
-    }
-  } else {
-    for (size_t i = 0; i < simd_bins; i += 8) {
-      __m256 const z0 = _mm256_loadu_ps(out_data + 2 * i);
-      __m256 const z1 = _mm256_loadu_ps(out_data + 2 * i + 8);
-      __m256 const zsq0 = _mm256_mul_ps(z0, z0);
-      __m256 const zsq1 = _mm256_mul_ps(z1, z1);
-      __m256 const h = _mm256_hadd_ps(zsq0, zsq1);
-      __m256 const power =
-          _mm256_castpd_ps(_mm256_permute4x64_pd(_mm256_castps_pd(h), 0xD8));
-      _mm256_storeu_ps(&m_power_spectrum[i], power);
-      _mm256_storeu_ps(&m_magnitude_spectrum[i], _mm256_sqrt_ps(power));
-      __m256 const db_arg = _mm256_fmadd_ps(power, c_sq_v, eps_sq_v);
-      __m256 const db = _mm256_mul_ps(fast_log10_avx2(db_arg), ten_v);
-      _mm256_storeu_ps(&m_db_spectrum[i], db);
-    }
+  for (size_t i = 0; i < simd_bins; i += 8) {
+    __m256 const z0 = _mm256_loadu_ps(out_data + 2 * i);
+    __m256 const z1 = _mm256_loadu_ps(out_data + 2 * i + 8);
+    __m256 const zsq0 = _mm256_mul_ps(z0, z0);
+    __m256 const zsq1 = _mm256_mul_ps(z1, z1);
+    __m256 const h = _mm256_hadd_ps(zsq0, zsq1);
+    __m256 const power =
+        _mm256_castpd_ps(_mm256_permute4x64_pd(_mm256_castps_pd(h), 0xD8));
+    __m256 const db_arg = _mm256_fmadd_ps(power, c_sq_v, eps_sq_v);
+    __m256 const db = _mm256_mul_ps(fast_log10_avx2(db_arg), ten_v);
+    _mm256_storeu_ps(&m_db_spectrum[i], db);
   }
 #endif
 
@@ -239,22 +201,10 @@ void FftAnalyzer::execute(std::span<const std::complex<float>> input,
     float const r = m_output_buffer[i].real();
     float const im = m_output_buffer[i].imag();
     float const power = r * r + im * im;
-    if (extras) {
-      m_power_spectrum[i] = power;
-      m_magnitude_spectrum[i] = std::sqrt(power);
-    }
     m_db_spectrum[i] = 10.0F * std::log10(power * c_sq + eps_sq);
   }
 
-  // --- 5. Phase (scalar, gated) -----------------------------------------
-  if (extras) {
-    for (size_t i = 0; i < out_bins; ++i) {
-      m_phase_spectrum[i] =
-          std::atan2(m_output_buffer[i].imag(), m_output_buffer[i].real());
-    }
-  }
-
-  // --- 6. Optional output copy (buffer is already rotated) --------------
+  // --- 5. Optional output copy (buffer is already rotated) --------------
   if (output.size() >= m_fft_size) {
     std::memcpy(output.data(), m_output_buffer.data(),
                 m_fft_size * sizeof(std::complex<float>));

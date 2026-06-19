@@ -76,7 +76,6 @@ public:
   std::string get_status_string() const;
 
   // Get individual formatted values
-  static std::string format_frequency(uint32_t hz);
   static std::string format_gain(float db);
 
   // Status string caching

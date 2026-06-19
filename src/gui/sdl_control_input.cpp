@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "sdl_control_input.h"
+#include "format.h"
 #include "logger.h"
 #include "openspectrum/control_state.h"
 #include "signal_processor.h"
@@ -46,8 +47,8 @@ auto SdlControlInput::handle_keyboard(SDL_Keycode key, bool shift_held,
                  constraints.max_frequency_hz);
     if (new_freq != prev) {
       m_state.set_frequency(new_freq);
-      LOG_INFO("[FREQ+] " + ControlState::format_frequency(prev) + " -> " +
-               ControlState::format_frequency(m_state.get_frequency()));
+      LOG_INFO("[FREQ+] " + format_frequency(prev) + " -> " +
+               format_frequency(m_state.get_frequency()));
       changed = true;
       m_state.mark_status_dirty();
     }
@@ -62,8 +63,8 @@ auto SdlControlInput::handle_keyboard(SDL_Keycode key, bool shift_held,
                  constraints.min_frequency_hz);
     if (new_freq != prev) {
       m_state.set_frequency(new_freq);
-      LOG_INFO("[FREQ-] " + ControlState::format_frequency(prev) + " -> " +
-               ControlState::format_frequency(m_state.get_frequency()));
+      LOG_INFO("[FREQ-] " + format_frequency(prev) + " -> " +
+               format_frequency(m_state.get_frequency()));
       changed = true;
       m_state.mark_status_dirty();
     }

@@ -48,13 +48,6 @@ static auto format_window(WindowFunction w) -> std::string {
   return std::string(SignalProcessor::window_function_to_string(w));
 }
 
-// Format frequency with auto-scaling units. Delegates to the shared utility
-// (src/utils/format.h); kept as a member entry point because UI/log call
-// sites already qualify it as ControlState::format_frequency.
-auto ControlState::format_frequency(uint32_t hz) -> std::string {
-  return openspectrum::format_frequency(hz);
-}
-
 // Format gain value
 auto ControlState::format_gain(float db) -> std::string {
   char buffer[32];
