@@ -99,6 +99,12 @@ private:
   float m_global_min = -120.0f;
   float m_global_max = 0.0f;
 
+  // Autoscale histogram: number of history pixels at each quantized level.
+  // Maintained incrementally in add_spectrum_line (+ new line, - evicted line)
+  // so update_global_range() reads first/last non-zero bucket — O(256), all in
+  // L1 — instead of rescanning O(capacity * width) of scattered history rows.
+  int32_t m_hist_counts[256]{};
+
   // Dirty rectangles for incremental rendering
   mutable std::vector<SDL_Rect> m_dirty_rects;
 

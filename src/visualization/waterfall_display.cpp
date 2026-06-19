@@ -3,6 +3,7 @@
 #include "waterfall_display.h"
 
 #include <algorithm>
+#include <cassert>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -79,22 +80,35 @@ void WaterfallDisplay::update_global_range() {
     return;
   }
 
-  uint8_t q_min = 255;
-  uint8_t q_max = 0;
-
-  for (size_t i = 0; i < m_history.size(); ++i) {
-    const uint8_t *ptr = m_history[i].data();
-    const size_t n = m_history[i].size();
-    for (size_t j = 0; j < n; ++j) {
-      if (ptr[j] < q_min)
-        q_min = ptr[j];
-      if (ptr[j] > q_max)
-        q_max = ptr[j];
-    }
+  // First/last populated bucket of the incremental histogram (history is
+  // non-empty here, so at least one bucket is non-zero → q_min <= q_max).
+  int q_min = 0;
+  while (m_hist_counts[q_min] == 0) {
+    ++q_min;
+  }
+  int q_max = 255;
+  while (m_hist_counts[q_max] == 0) {
+    --q_max;
   }
 
-  float new_min = dequantize_db(q_min);
-  float new_max = dequantize_db(q_max);
+#ifndef NDEBUG
+  // Cross-check the incremental counts against a brute-force scan — the O(n)
+  // work we removed from the hot path, kept only in debug builds as an oracle.
+  uint8_t bf_min = 255;
+  uint8_t bf_max = 0;
+  for (size_t i = 0; i < m_history.size(); ++i) {
+    for (uint8_t const v : m_history[i]) {
+      bf_min = std::min(bf_min, v);
+      bf_max = std::max(bf_max, v);
+    }
+  }
+  assert(static_cast<uint8_t>(q_min) == bf_min &&
+         static_cast<uint8_t>(q_max) == bf_max &&
+         "waterfall autoscale histogram diverged from history");
+#endif
+
+  float new_min = dequantize_db(static_cast<uint8_t>(q_min));
+  float new_max = dequantize_db(static_cast<uint8_t>(q_max));
 
   float const range = new_max - new_min;
   if (range > 0) {
@@ -140,6 +154,7 @@ bool WaterfallDisplay::sample_at_y(float y_in_region, CursorTime &out) const {
 void WaterfallDisplay::reset() {
   m_history.clear();
   m_line_times.clear();
+  std::fill(m_hist_counts, m_hist_counts + 256, 0);
   m_global_min = m_min_db;
   m_global_max = m_max_db;
   m_palette.set_db_range(m_global_min, m_global_max);
@@ -209,6 +224,18 @@ void WaterfallDisplay::add_spectrum_line(const std::vector<float> &db_values) {
   // Quantize float dB values to uint8 before storing (4:1 memory reduction)
   for (size_t i = 0; i < m_width; ++i) {
     m_quantized_buf[i] = quantize_db(line[i]);
+  }
+
+  // Incremental autoscale histogram. When full, m_history[0] is the slot push()
+  // is about to overwrite, so drop its contribution first; then add the new
+  // line's. Keeps m_hist_counts in lockstep with the stored history.
+  if (was_full) {
+    for (uint8_t const q : m_history[0]) {
+      --m_hist_counts[q];
+    }
+  }
+  for (uint8_t const q : m_quantized_buf) {
+    ++m_hist_counts[q];
   }
 
   m_history.push(m_quantized_buf);
