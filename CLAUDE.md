@@ -6,7 +6,7 @@ Guidance for Claude Code (claude.ai/code) working in this repository.
 
 ```bash
 make              # debug (O0, symbols, OPENSPECTRUM_DEBUG defined)
-make release      # O3 + LTO + -march=haswell + footprint trim
+make release      # O3 + LTO + -march=haswell + footprint trim + strip
 make profile      # O2 + gprof instrumentation
 make dist         # package a release bundle for the current platform → dist/
 make clean
@@ -14,7 +14,7 @@ make clean
 
 Binary: `openspectrum` (Linux) / `openspectrum.exe` (Windows/MSYS2). No test suite.
 
-Release flags: `-march=haswell` (AVX2+FMA3), `-flto`, `-ffunction-sections -fdata-sections -fvisibility=hidden -fvisibility-inlines-hidden` + `-Wl,--gc-sections`, `-falign-functions=32 -falign-loops=32` (hot loops in one DSB fetch line). See `TRIM_CFLAGS`/`TRIM_LDFLAGS` in the Makefile.
+Release flags: `-march=haswell` (AVX2+FMA3), `-flto`, `-ffunction-sections -fdata-sections -fvisibility=hidden -fvisibility-inlines-hidden` + `-Wl,--gc-sections`, `-falign-functions=32 -falign-loops=32` (hot loops in one DSB fetch line). See `TRIM_CFLAGS`/`TRIM_LDFLAGS` in the Makefile. `-s` (strip at link, release-only) drops the ~40K symbol table — there's no DWARF in the binary, so it costs nothing at runtime; debug/profile keep symbols for gdb/gprof.
 
 **Linting is gradual** — format/tidy only lines changed vs a base ref, never the whole tree (a full pass would reflow the hand-tuned AVX2 blocks + the 8x16 font table). Config in `.clang-tidy` / `.clang-format`. Wrapper:
 ```bash
