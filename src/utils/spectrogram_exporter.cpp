@@ -5,9 +5,7 @@
 #include "format.h"
 #include "time_utils.h"
 
-#include <algorithm>
 #include <cstdio>
-#include <cstring>
 #include <ctime>
 #include <iomanip>
 #include <sstream>
@@ -38,11 +36,6 @@ namespace openspectrum {
 
 SpectrogramExporter::SpectrogramExporter(const SpectrogramExportConfig &config)
     : m_config(config) {}
-
-void SpectrogramExporter::set_config(const SpectrogramExportConfig &config) {
-  std::lock_guard<std::mutex> lock(m_mutex);
-  m_config = config;
-}
 
 // Create output directory if it doesn't exist
 bool SpectrogramExporter::create_output_directory() {
@@ -265,80 +258,6 @@ void SpectrogramExporter::write_metadata(
   }
 }
 
-// Export combined spectrogram (spectrum + waterfall)
-ExportResult SpectrogramExporter::export_combined(
-    const PixelBuffer &spectrum_pixels, const PixelBuffer &waterfall_pixels,
-    size_t display_width, size_t spectrum_height, size_t waterfall_height,
-    uint32_t center_freq_hz, uint32_t sample_rate_hz, float gain_db,
-    size_t fft_size, const std::string &window_function,
-    const std::string &color_map, const std::string &notes) {
-
-  std::lock_guard<std::mutex> lock(m_mutex);
-  ExportResult result;
-
-  // Validate inputs
-  if (spectrum_pixels.data() == nullptr || waterfall_pixels.data() == nullptr) {
-    result.error_message = "Null pixel buffer provided";
-    return result;
-  }
-
-  // Ensure output directory exists
-  if (!create_output_directory()) {
-    result.error_message =
-        "Failed to create output directory: " + m_config.output_directory;
-    return result;
-  }
-
-  // Calculate total dimensions
-  size_t total_height = spectrum_height + waterfall_height;
-  size_t stride = display_width * 4; // RGBA = 4 bytes per pixel
-
-  // Create combined buffer
-  std::vector<uint8_t> combined_buffer(total_height * stride, 0);
-
-  // Copy spectrum to top
-  const uint8_t *spec_data = spectrum_pixels.data();
-  const uint8_t *wf_data = waterfall_pixels.data();
-
-  for (size_t y = 0; y < spectrum_height; ++y) {
-    size_t spec_offset = y * stride;
-    size_t dest_offset = y * stride;
-    std::copy(spec_data + spec_offset, spec_data + spec_offset + stride,
-              combined_buffer.data() + dest_offset);
-  }
-
-  // Copy waterfall to bottom
-  for (size_t y = 0; y < waterfall_height; ++y) {
-    size_t wf_offset = y * stride;
-    size_t dest_offset = (spectrum_height + y) * stride;
-    std::copy(wf_data + wf_offset, wf_data + wf_offset + stride,
-              combined_buffer.data() + dest_offset);
-  }
-
-  // Single timestamp read shared by the filename and the metadata field.
-  std::string const iso_ts = get_iso8601_timestamp();
-  std::string png_filename = generate_filename("png", iso_ts);
-
-  // Write PNG
-  result = write_png(png_filename, combined_buffer.data(),
-                     static_cast<int>(display_width),
-                     static_cast<int>(total_height), static_cast<int>(stride));
-
-  if (result.success && m_config.include_metadata) {
-    std::string meta_filename = metadata_filename_for(png_filename);
-    write_metadata(meta_filename, static_cast<int>(display_width),
-                   static_cast<int>(total_height), "combined", center_freq_hz,
-                   sample_rate_hz, gain_db, fft_size, window_function,
-                   color_map, notes, iso_ts);
-    result.metadata_filename = meta_filename;
-  }
-
-  // Increment export count for next export
-  m_export_count++;
-
-  return result;
-}
-
 ExportResult SpectrogramExporter::export_framebuffer(
     const uint8_t *rgba, size_t width, size_t height, uint32_t center_freq_hz,
     uint32_t sample_rate_hz, float gain_db, size_t fft_size,
@@ -372,86 +291,6 @@ ExportResult SpectrogramExporter::export_framebuffer(
     std::string meta_filename = metadata_filename_for(png_filename);
     write_metadata(meta_filename, static_cast<int>(width),
                    static_cast<int>(height), "combined_axes", center_freq_hz,
-                   sample_rate_hz, gain_db, fft_size, window_function,
-                   color_map, notes, iso_ts);
-    result.metadata_filename = meta_filename;
-  }
-
-  m_export_count++;
-  return result;
-}
-
-// Export spectrum only
-ExportResult SpectrogramExporter::export_spectrum(
-    const PixelBuffer &pixels, size_t width, size_t height,
-    uint32_t center_freq_hz, uint32_t sample_rate_hz, float gain_db,
-    size_t fft_size, const std::string &window_function,
-    const std::string &color_map, const std::string &notes) {
-
-  std::lock_guard<std::mutex> lock(m_mutex);
-  ExportResult result;
-
-  if (pixels.data() == nullptr) {
-    result.error_message = "Null pixel buffer provided";
-    return result;
-  }
-
-  if (!create_output_directory()) {
-    result.error_message = "Failed to create output directory";
-    return result;
-  }
-
-  std::string const iso_ts = get_iso8601_timestamp();
-  std::string png_filename = generate_filename("png", iso_ts);
-  int stride = static_cast<int>(width * 4);
-
-  result = write_png(png_filename, pixels.data(),
-                     static_cast<int>(width), static_cast<int>(height), stride);
-
-  if (result.success && m_config.include_metadata) {
-    std::string meta_filename = metadata_filename_for(png_filename);
-    write_metadata(meta_filename, static_cast<int>(width),
-                   static_cast<int>(height), "spectrum", center_freq_hz,
-                   sample_rate_hz, gain_db, fft_size, window_function,
-                   color_map, notes, iso_ts);
-    result.metadata_filename = meta_filename;
-  }
-
-  m_export_count++;
-  return result;
-}
-
-// Export waterfall only
-ExportResult SpectrogramExporter::export_waterfall(
-    const PixelBuffer &pixels, size_t width, size_t height,
-    uint32_t center_freq_hz, uint32_t sample_rate_hz, float gain_db,
-    size_t fft_size, const std::string &window_function,
-    const std::string &color_map, const std::string &notes) {
-
-  std::lock_guard<std::mutex> lock(m_mutex);
-  ExportResult result;
-
-  if (pixels.data() == nullptr) {
-    result.error_message = "Null pixel buffer provided";
-    return result;
-  }
-
-  if (!create_output_directory()) {
-    result.error_message = "Failed to create output directory";
-    return result;
-  }
-
-  std::string const iso_ts = get_iso8601_timestamp();
-  std::string png_filename = generate_filename("png", iso_ts);
-  int stride = static_cast<int>(width * 4);
-
-  result = write_png(png_filename, pixels.data(),
-                     static_cast<int>(width), static_cast<int>(height), stride);
-
-  if (result.success && m_config.include_metadata) {
-    std::string meta_filename = metadata_filename_for(png_filename);
-    write_metadata(meta_filename, static_cast<int>(width),
-                   static_cast<int>(height), "waterfall", center_freq_hz,
                    sample_rate_hz, gain_db, fft_size, window_function,
                    color_map, notes, iso_ts);
     result.metadata_filename = meta_filename;

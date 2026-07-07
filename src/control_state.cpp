@@ -59,12 +59,10 @@ auto ControlState::format_gain(float db) -> std::string {
 void ControlState::set_frequency(uint32_t hz) {
   frequency_hz = std::clamp(hz, constraints.min_frequency_hz,
                             constraints.max_frequency_hz);
-  frequency_prev = frequency_hz;
 }
 
 void ControlState::set_gain(float db) {
   gain_db = std::clamp(db, constraints.min_gain_db, constraints.max_gain_db);
-  gain_prev = gain_db;
 }
 
 void ControlState::set_fft_size(size_t size) {
@@ -72,7 +70,6 @@ void ControlState::set_fft_size(size_t size) {
   if (index >= 0) {
     if (size != fft_size) {
       fft_size = size;
-      fft_prev = size;
       fft_changed = true;
     }
   } else if (!constraints.supported_fft_sizes.empty()) {
@@ -80,7 +77,6 @@ void ControlState::set_fft_size(size_t size) {
     size_t const fallback = constraints.supported_fft_sizes[0];
     if (fallback != fft_size) {
       fft_size = fallback;
-      fft_prev = fft_size;
       fft_changed = true;
     }
   }
@@ -112,14 +108,12 @@ void ControlState::set_window(WindowFunction w) {
   if (index >= 0) {
     if (w != window_function) {
       window_function = w;
-      window_prev = w;
       window_changed_flag = true;
     }
   } else if (!constraints.supported_window_functions.empty()) {
     WindowFunction const fallback = constraints.supported_window_functions[0];
     if (fallback != window_function) {
       window_function = fallback;
-      window_prev = window_function;
       window_changed_flag = true;
     }
   }

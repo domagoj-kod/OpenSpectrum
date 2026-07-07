@@ -163,12 +163,7 @@ void SpectrumDisplay::set_db_range(float min_db, float max_db) {
   m_palette.set_db_range(m_min_db, m_max_db);
 }
 
-void SpectrumDisplay::update_spectrum(const std::vector<float> &db_values,
-                                      const std::vector<float> & /*freq_bins*/,
-                                      float center_freq_hz,
-                                      float sample_rate_hz) {
-  m_center_freq_hz = center_freq_hz;
-  m_sample_rate_hz = sample_rate_hz;
+void SpectrumDisplay::update_spectrum(const std::vector<float> &db_values) {
   m_spectrum_data = db_values;
 
   const size_t n = db_values.size();
@@ -202,7 +197,7 @@ void SpectrumDisplay::update_spectrum(const std::vector<float> &db_values,
     }
   }
 
-  if (m_autoscale && !db_values.empty()) {
+  if (!db_values.empty()) {
     const float *ptr = db_values.data();
     float min_val = ptr[0];
     float max_val = ptr[0];

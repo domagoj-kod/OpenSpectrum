@@ -128,9 +128,7 @@ public:
   ~SpectrumDisplay() = default;
 
   // Update spectrum data (frequency bins in dB)
-  OS_HOT void update_spectrum(const std::vector<float> &db_values,
-                              const std::vector<float> & /*freq_bins*/,
-                              float center_freq_hz, float sample_rate_hz);
+  OS_HOT void update_spectrum(const std::vector<float> &db_values);
 
   // Build GPU draw geometry for the current spectrum: one colored quad per bin
   // (4 vertices + 6 indices), positioned in the spectrum region [0,region_w) x
@@ -163,7 +161,6 @@ public:
     m_palette.set_color_map(map);
   }
   void set_db_range(float min_db, float max_db);
-  void set_autoscale(bool enabled) { m_autoscale = enabled; }
 
   // Get current dB range
   [[nodiscard]] float min_db() const noexcept { return m_min_db; }
@@ -207,11 +204,8 @@ private:
   // without visibly lagging real signal changes at 60 fps.
   static constexpr float kAvgAlpha = 0.25F;
 
-  float m_center_freq_hz = 0.0f;
-  float m_sample_rate_hz = 0.0f;
   float m_min_db = -120.0f;
   float m_max_db = 0.0f;
-  bool m_autoscale = true;
 };
 
 } // namespace openspectrum

@@ -83,8 +83,7 @@ public:
   void clear_status_dirty() const noexcept { m_status_dirty = false; }
   void mark_status_dirty() const noexcept { m_status_dirty = true; }
 
-  // Check if reconfiguring (for display purposes)
-  bool is_reconfiguring() const noexcept { return reconfiguring; }
+  // Reconfiguration flag (shown in the status string while FFT reinit runs)
   void set_reconfiguring(bool state) noexcept { reconfiguring = state; }
 
   // IQ logging control
@@ -148,12 +147,6 @@ private:
   float gain_db = 20.0f;
   size_t fft_size = 4096;
   WindowFunction window_function = WindowFunction::BLACKMAN_HARRIS;
-
-  // Previous values (for logging)
-  uint32_t frequency_prev = 100000000;
-  float gain_prev = 20.0f;
-  size_t fft_prev = 4096;
-  WindowFunction window_prev = WindowFunction::BLACKMAN_HARRIS;
 
   // Flags
   bool fft_changed = false;

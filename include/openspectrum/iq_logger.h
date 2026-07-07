@@ -13,11 +13,10 @@
 namespace openspectrum {
 
 // Capture statistics for metadata.
-// min_db starts at +inf so the first real sample replaces it; max_db / peak_db
-// start at -inf for the symmetric reason. average_db starts at 0 and is built
+// min_db starts at +inf so the first real sample replaces it; max_db starts
+// at -inf for the symmetric reason. average_db starts at 0 and is built
 // up by the online-mean update in IqLogger::update_stats.
 struct IqCaptureStats {
-  double peak_db = -std::numeric_limits<double>::infinity();
   double average_db = 0.0;
   double min_db = std::numeric_limits<double>::infinity();
   double max_db = -std::numeric_limits<double>::infinity();
@@ -48,9 +47,8 @@ public:
                      const std::string &window_function = "",
                      const std::string &notes = "");
 
-  // Write IQ samples (thread-safe). The pointer overload is the allocation-free
-  // path used by the producer thread; the vector overload delegates to it.
-  void write_samples(const std::vector<std::complex<float>> &samples);
+  // Write IQ samples (thread-safe). Pointer + count keeps the producer-thread
+  // hot path allocation-free.
   void write_samples(const std::complex<float> *samples, size_t count);
 
   // Stop current capture and finalize files

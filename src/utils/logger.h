@@ -7,7 +7,7 @@
 namespace openspectrum {
 
 // Log levels
-enum class LogLevel { TRACE, DEBUG, INFO, WARNING, ERROR, CRITICAL };
+enum class LogLevel { DEBUG, INFO, WARNING, ERROR };
 
 // Thread-safe console logger (singleton). Formats each entry with a timestamp,
 // coloured level tag, thread id, and source location, and writes it to stdout.
@@ -23,9 +23,6 @@ public:
   void log(LogLevel level, const char *file, int line, const char *function,
            const std::string &message);
 
-  // Flush stdout
-  void flush();
-
 private:
   Logger() = default;
 
@@ -38,10 +35,6 @@ private:
 };
 
 // Helper macros for easy logging
-#define LOG_TRACE(msg)                                                         \
-  ::openspectrum::Logger::get_instance().log(                                  \
-      ::openspectrum::LogLevel::TRACE, __FILE__, __LINE__, __func__, msg)
-
 #define LOG_DEBUG(msg)                                                         \
   ::openspectrum::Logger::get_instance().log(                                  \
       ::openspectrum::LogLevel::DEBUG, __FILE__, __LINE__, __func__, msg)
@@ -57,9 +50,5 @@ private:
 #define LOG_ERROR(msg)                                                         \
   ::openspectrum::Logger::get_instance().log(                                  \
       ::openspectrum::LogLevel::ERROR, __FILE__, __LINE__, __func__, msg)
-
-#define LOG_CRITICAL(msg)                                                      \
-  ::openspectrum::Logger::get_instance().log(                                  \
-      ::openspectrum::LogLevel::CRITICAL, __FILE__, __LINE__, __func__, msg)
 
 } // namespace openspectrum

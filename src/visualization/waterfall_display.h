@@ -36,7 +36,6 @@ public:
   // Configuration
   void set_color_map(SpectrumPalette::ColorMap map);
   void set_db_range(float min_db, float max_db);
-  void set_autoscale(bool enabled) { m_autoscale = enabled; }
 
   // Get current dB range
   [[nodiscard]] float min_db() const noexcept { return m_min_db; }
@@ -74,7 +73,6 @@ public:
   // position is outside the filled history (e.g. blank area during fill-up).
   struct CursorTime {
     double seconds_ago = 0.0;
-    bool newest = false; // hovering the live (bottom) line
   };
   [[nodiscard]] bool sample_at_y(float y_in_region, CursorTime &out) const;
 
@@ -95,7 +93,6 @@ private:
 
   float m_min_db = -120.0f;
   float m_max_db = 0.0f;
-  bool m_autoscale = true;
   float m_global_min = -120.0f;
   float m_global_max = 0.0f;
 

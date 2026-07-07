@@ -246,10 +246,6 @@ void IqLogger::flush_buffer() {
   }
 }
 
-void IqLogger::write_samples(const std::vector<std::complex<float>> &samples) {
-  write_samples(samples.data(), samples.size());
-}
-
 void IqLogger::write_samples(const std::complex<float> *samples, size_t count) {
   std::lock_guard<std::mutex> lock(m_mutex);
 
@@ -390,7 +386,6 @@ std::string IqLogger::generate_metadata_json() const {
 
   // Statistics
   ss << "  \"statistics\": {\n";
-  ss << "    \"peak_signal_db\": " << m_stats.peak_db << ",\n";
   ss << "    \"average_signal_db\": " << m_stats.average_db << ",\n";
   ss << "    \"min_signal_db\": " << m_stats.min_db << ",\n";
   ss << "    \"max_signal_db\": " << m_stats.max_db << "\n";
@@ -427,7 +422,6 @@ void IqLogger::update_stats(const std::complex<float> *samples, size_t count) {
     float const mag_db =
         magnitude > 0.00001f ? 20.0f * std::log10(magnitude) : -140.0f;
 
-    if (mag_db > m_stats.peak_db) m_stats.peak_db = mag_db;
     if (mag_db > m_stats.max_db)  m_stats.max_db  = mag_db;
     if (mag_db < m_stats.min_db)  m_stats.min_db  = mag_db;
 

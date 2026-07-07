@@ -122,7 +122,6 @@ public:
     return *this;
   }
 
-  [[nodiscard]] FFTFrame *get() const { return m_frame; }
   explicit operator bool() const { return m_frame != nullptr; }
 
   std::complex<float> *data() { return m_frame ? m_frame->data : nullptr; }

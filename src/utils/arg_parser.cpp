@@ -206,7 +206,6 @@ auto parse_arguments(int argc, char *argv[]) -> AppConfig {
       }
       config.play_file = argv[++i];
     } else if (arg == "--help" || arg == "-h") {
-      config.show_help = true;
       print_usage(argv[0]);
       std::exit(0);
     } else {

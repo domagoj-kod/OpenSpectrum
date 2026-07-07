@@ -4,13 +4,11 @@
 #include "openspectrum/frame_pool.h"
 
 #include <atomic>
-#include <complex>
 #include <cstdint>
 #include <functional>
 #include <memory>
 #include <rtl-sdr.h>
 #include <thread>
-#include <vector>
 
 class RtlSdrDevice {
 public:
@@ -20,7 +18,6 @@ public:
   bool open();
   void close();
   void reset_buffer();
-  [[nodiscard]] bool is_open() const { return m_dev != nullptr; }
 
   void set_frequency(uint32_t freq_hz);
   void set_sample_rate(uint32_t rate_hz);
@@ -33,9 +30,6 @@ public:
 
   // Set FFT size for buffer pooling (should match FFT analyzer size)
   void set_fft_size(size_t fft_size);
-
-  // Blocking read
-  std::vector<std::complex<float>> read_samples(size_t count);
 
   // Async callback - uses FrameHandle for zero-allocation
   void start_streaming(size_t buffer_count = 8);

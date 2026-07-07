@@ -147,7 +147,6 @@ bool WaterfallDisplay::sample_at_y(float y_in_region, CursorTime &out) const {
   // render() lays out history[i] at screen row i (0 = oldest = top), so the
   // hovered row maps straight to the same index in the lockstep time buffer.
   out.seconds_ago = std::max(0.0, steady_now_s() - m_line_times[row]);
-  out.newest = (row == lines - 1);
   return true;
 }
 
@@ -258,10 +257,7 @@ void WaterfallDisplay::add_spectrum_line(const std::vector<float> &db_values) {
         {0, 0, static_cast<int>(m_width), static_cast<int>(m_height)});
   }
 
-  // Update ranges if autoscale
-  if (m_autoscale) {
-    update_global_range();
-  }
+  update_global_range();
 
   render();
 }

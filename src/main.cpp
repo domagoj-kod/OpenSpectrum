@@ -274,11 +274,6 @@ auto main(int argc, char *argv[]) -> int {
   // Parse command-line arguments
   AppConfig const config = parse_arguments(argc, argv);
 
-  if (config.show_help) {
-    print_usage(argv[0]);
-    return 0;
-  }
-
   // Validate FFT size is a power of two
   if (!is_power_of_two(config.fft_size)) {
     LOG_ERROR("FFT size must be a power of two (e.g., 1024, 2048, 4096, 8192)");
@@ -518,11 +513,7 @@ auto main(int argc, char *argv[]) -> int {
              "Ctrl+S Toggle IQ logging, e Export spectrogram, "
              "Shift/Ctrl for fine/coarse");
 
-    std::vector<std::complex<float>> fft_output;
     size_t current_fft_size = config.fft_size;
-
-    // Initialize buffers with current FFT size
-    fft_output.resize(current_fft_size);
 
     // Reusable spectrum draw geometry — refilled each frame by
     // SpectrumDisplay::build_vertices(), kept across iterations so the capacity
@@ -721,8 +712,6 @@ auto main(int argc, char *argv[]) -> int {
         if (playback) {
           playback->start(current_fft_size, g_frame_pool);
         }
-
-        fft_output.resize(current_fft_size);
 
         // Recreate signal processor with new size
         signal_processor = SignalProcessor(current_fft_size);
@@ -1098,7 +1087,7 @@ auto main(int argc, char *argv[]) -> int {
       signal_processor.apply_window(samples);
 
       // === 4. FFT execution ===
-      fft_analyzer.execute(samples, fft_output);
+      fft_analyzer.execute(samples);
 
       // === 4.1. Get peak amplitude for status display ===
       peak_db = fft_analyzer.get_max_db();
@@ -1118,13 +1107,9 @@ auto main(int argc, char *argv[]) -> int {
 
       // === 5. Get spectral data ===
       const auto &db_spectrum = fft_analyzer.get_db_spectrum();
-      const auto &freq_bins = fft_analyzer.get_frequency_bins();
 
       // === 6. Update displays ===
-      spectrum_display.update_spectrum(
-          db_spectrum, freq_bins,
-          static_cast<float>(control_state.get_frequency()),
-          static_cast<float>(effective_rate));
+      spectrum_display.update_spectrum(db_spectrum);
 
       waterfall_display.add_spectrum_line(db_spectrum);
       auto t_cpu_end = timing_clock::now();

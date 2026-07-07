@@ -25,21 +25,14 @@ public:
   FftAnalyzer(FftAnalyzer &&other) noexcept;
   FftAnalyzer &operator=(FftAnalyzer &&other) noexcept;
 
-  // Execute FFT on input samples, store result in output
+  // Execute the FFT and refresh get_db_spectrum().
   // Input: time-domain complex samples (size = fft_size). A span so a pooled
   // FrameHandle buffer can be passed without copying (a std::vector binds too).
-  // Output: frequency-domain complex bins (size = fft_size)
-  OS_HOT void execute(std::span<const std::complex<float>> input,
-                      std::vector<std::complex<float>> &output);
+  OS_HOT void execute(std::span<const std::complex<float>> input);
 
   // Get magnitude spectrum in dB from last FFT result
   [[nodiscard]] const std::vector<float> &get_db_spectrum() const {
     return m_db_spectrum;
-  }
-
-  // Get normalized frequency bins (0 to 1, where 1 = sample rate)
-  [[nodiscard]] const std::vector<float> &get_frequency_bins() const {
-    return m_freq_bins;
   }
 
   // Amplitude analysis: get maximum dB value from last FFT result
@@ -63,13 +56,9 @@ private:
 
   // Cached results (updated after each execute)
   std::vector<float> m_db_spectrum;
-  std::vector<float> m_freq_bins;
 
   bool m_center_dc{false};
   float m_window_coherent_gain{1.0F}; // Default to rectangular window
-
-  // Pre-compute frequency bins
-  void compute_frequency_bins();
 };
 
 } // namespace openspectrum

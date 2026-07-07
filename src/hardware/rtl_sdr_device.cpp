@@ -3,13 +3,10 @@
 #include "rtl_sdr_device.h"
 #include "logger.h"
 
-#include <complex>
 #include <cstddef>
 #include <cstdint>
 #include <rtl-sdr.h>
-#include <stdexcept>
 #include <utility>
-#include <vector>
 
 // Convert interleaved unsigned-8-bit IQ to float in [-1, 1): out = x/127.5 - 1.
 // Both I and Q take the same transform, so it's a flat uint8->float run (n =
@@ -145,23 +142,6 @@ void RtlSdrDevice::set_fft_size(size_t fft_size) {
 
 void RtlSdrDevice::set_frame_callback(FrameCallback cb) {
   m_frame_callback = std::move(cb);
-}
-
-auto RtlSdrDevice::read_samples(size_t count)
-    -> std::vector<std::complex<float>> {
-  std::vector<uint8_t> buf(count * 2); // I + Q = 2 bytes per sample
-  int n_read = 0;
-  int const ret = rtlsdr_read_sync(m_dev, buf.data(),
-                                   static_cast<int>(buf.size()), &n_read);
-  if (ret < 0 || n_read != static_cast<int>(buf.size())) {
-    throw std::runtime_error("RTL-SDR read failed or short read");
-  }
-
-  // RTL2832U outputs unsigned 8-bit; centre 127.5 = DC.
-  std::vector<std::complex<float>> samples(count);
-  convert_iq_u8_to_f32(buf.data(), reinterpret_cast<float *>(samples.data()),
-                       count * 2);
-  return samples;
 }
 
 // Async streaming control

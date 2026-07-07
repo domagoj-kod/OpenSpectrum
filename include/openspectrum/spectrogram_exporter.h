@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
-#include "spectrum_display.h"
-
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
@@ -39,37 +37,10 @@ public:
   SpectrogramExporter(const SpectrogramExporter &) = delete;
   SpectrogramExporter &operator=(const SpectrogramExporter &) = delete;
 
-  // Export combined spectrogram (spectrum + waterfall as single image)
-  ExportResult export_combined(
-      const PixelBuffer &spectrum_pixels, const PixelBuffer &waterfall_pixels,
-      size_t display_width, size_t spectrum_height, size_t waterfall_height,
-      uint32_t center_freq_hz, uint32_t sample_rate_hz, float gain_db,
-      size_t fft_size, const std::string &window_function,
-      const std::string &color_map = "jet", const std::string &notes = "");
-
-  // Export spectrum only
-  ExportResult export_spectrum(const PixelBuffer &pixels, size_t width,
-                               size_t height, uint32_t center_freq_hz,
-                               uint32_t sample_rate_hz, float gain_db,
-                               size_t fft_size,
-                               const std::string &window_function,
-                               const std::string &color_map = "jet",
-                               const std::string &notes = "");
-
-  // Export waterfall only
-  ExportResult export_waterfall(const PixelBuffer &pixels, size_t width,
-                                size_t height, uint32_t center_freq_hz,
-                                uint32_t sample_rate_hz, float gain_db,
-                                size_t fft_size,
-                                const std::string &window_function,
-                                const std::string &color_map = "jet",
-                                const std::string &notes = "");
-
   // Export a pre-composited frame: tightly packed RGBA captured straight from
   // the renderer (base spectrum + waterfall plus the dB/time axis strip,
-  // frequency scale, and HUD overlays). Unlike export_combined, the caller has
-  // already stitched and annotated the image, so this only writes the PNG and
-  // its metadata sidecar.
+  // frequency scale, and HUD overlays). The caller has already stitched and
+  // annotated the image, so this only writes the PNG and its metadata sidecar.
   ExportResult export_framebuffer(const uint8_t *rgba, size_t width,
                                   size_t height, uint32_t center_freq_hz,
                                   uint32_t sample_rate_hz, float gain_db,
@@ -80,9 +51,6 @@ public:
 
   // Get current configuration
   const SpectrogramExportConfig &get_config() const { return m_config; }
-
-  // Set configuration
-  void set_config(const SpectrogramExportConfig &config);
 
 private:
   // Internal helper methods

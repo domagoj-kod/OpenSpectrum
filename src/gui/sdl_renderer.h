@@ -83,11 +83,6 @@ public:
     return m_window != nullptr && m_renderer != nullptr;
   }
 
-  // Get the SDL renderer (for text rendering)
-  [[nodiscard]] SDL_Renderer *get_sdl_renderer() const noexcept {
-    return m_renderer;
-  }
-
   // Spectrogram export (WYSIWYG): arm a one-shot readback of the next fully
   // composited frame — base + overlays (dB/time axis strip, frequency scale,
   // HUD). present_composited() does the SDL_RenderReadPixels just before the

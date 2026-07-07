@@ -31,9 +31,6 @@ void Logger::log(LogLevel level, const char *file, int line,
 
   const char *level_str = "";
   switch (level) {
-  case LogLevel::TRACE:
-    level_str = "\x1B[0;32mTRACE\x1B[0;37m";
-    break;
   case LogLevel::DEBUG:
     level_str = "\x1B[0;34mDEBUG\x1B[0;37m";
     break;
@@ -45,9 +42,6 @@ void Logger::log(LogLevel level, const char *file, int line,
     break;
   case LogLevel::ERROR:
     level_str = "\x1B[0;31mERROR\x1B[0;37m";
-    break;
-  case LogLevel::CRITICAL:
-    level_str = "\x1B[0;31mCRIT\x1B[0;37m";
     break;
   }
 
@@ -63,11 +57,6 @@ void Logger::log(LogLevel level, const char *file, int line,
                    1000
             << "][" << level_str << "][" << tid_ss.str() << "] " << file << ":"
             << line << " (" << function << "): " << message << "\n";
-}
-
-void Logger::flush() {
-  std::lock_guard<std::mutex> const lock(m_mutex);
-  std::cout << std::flush;
 }
 
 } // namespace openspectrum

@@ -58,13 +58,11 @@ FftAnalyzer::FftAnalyzer(size_t fft_size)
       // span the full [center-rate/2, center+rate/2]. (A real-input rfft would
       // only need N/2+1, but truncating a complex transform to N/2+1 drops half
       // the band and makes the spectrum 2x-zoomed vs the frequency axis.)
-      m_db_spectrum(fft_size), m_freq_bins(fft_size) {
+      m_db_spectrum(fft_size) {
   // Security: validate FFT size is a power of 2
   if (fft_size == 0 || (fft_size & (fft_size - 1)) != 0) {
     throw std::invalid_argument("FFT size must be a power of 2");
   }
-
-  compute_frequency_bins();
 }
 
 FftAnalyzer::~FftAnalyzer() = default;
@@ -74,7 +72,7 @@ FftAnalyzer::FftAnalyzer(FftAnalyzer &&other) noexcept
       m_input_buffer(std::move(other.m_input_buffer)),
       m_output_buffer(std::move(other.m_output_buffer)),
       m_db_spectrum(std::move(other.m_db_spectrum)),
-      m_freq_bins(std::move(other.m_freq_bins)), m_center_dc(other.m_center_dc),
+      m_center_dc(other.m_center_dc),
       m_window_coherent_gain(other.m_window_coherent_gain) {
   other.m_fft_size = 0;
 }
@@ -86,7 +84,6 @@ auto FftAnalyzer::operator=(FftAnalyzer &&other) noexcept -> FftAnalyzer & {
     m_input_buffer = std::move(other.m_input_buffer);
     m_output_buffer = std::move(other.m_output_buffer);
     m_db_spectrum = std::move(other.m_db_spectrum);
-    m_freq_bins = std::move(other.m_freq_bins);
     m_window_coherent_gain = other.m_window_coherent_gain;
 
     other.m_fft_size = 0;
@@ -94,16 +91,7 @@ auto FftAnalyzer::operator=(FftAnalyzer &&other) noexcept -> FftAnalyzer & {
   return *this;
 }
 
-void FftAnalyzer::compute_frequency_bins() {
-  const float scale = 1.0F / static_cast<float>(m_fft_size);
-  for (size_t i = 0; i < m_freq_bins.size(); ++i) {
-    // For real signals, we only care about first half + DC
-    m_freq_bins[i] = static_cast<float>(i) * scale;
-  }
-}
-
-void FftAnalyzer::execute(std::span<const std::complex<float>> input,
-                          std::vector<std::complex<float>> &output) {
+void FftAnalyzer::execute(std::span<const std::complex<float>> input) {
   // Security: validate input size
   if (input.size() != m_fft_size) {
     throw std::invalid_argument("Input size must match FFT size");
@@ -202,12 +190,6 @@ void FftAnalyzer::execute(std::span<const std::complex<float>> input,
     float const im = m_output_buffer[i].imag();
     float const power = r * r + im * im;
     m_db_spectrum[i] = 10.0F * std::log10(power * c_sq + eps_sq);
-  }
-
-  // --- 5. Optional output copy (buffer is already rotated) --------------
-  if (output.size() >= m_fft_size) {
-    std::memcpy(output.data(), m_output_buffer.data(),
-                m_fft_size * sizeof(std::complex<float>));
   }
 }
 
