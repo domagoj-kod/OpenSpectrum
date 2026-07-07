@@ -24,10 +24,10 @@ public:
   // db_values: dB values for each frequency bin
   OS_HOT void add_spectrum_line(const std::vector<float> &db_values);
 
-  // Get rendered pixel buffer (RGB32 format)
-  // Phase 3: Returns PixelBuffer for direct access; has .data() and .size()
-  // methods
-  [[nodiscard]] const PixelBuffer &get_pixels() const { return m_pixels; }
+  // Get rendered pixel buffer (RGBA, m_width * m_height * 4 bytes)
+  [[nodiscard]] const std::vector<uint8_t> &get_pixels() const {
+    return m_pixels;
+  }
 
   // Get dimensions
   [[nodiscard]] size_t width() const noexcept { return m_width; }
@@ -79,7 +79,7 @@ public:
 private:
   size_t m_width;
   size_t m_height;
-  PixelBuffer m_pixels; // Phase 3: RGBA format
+  std::vector<uint8_t> m_pixels; // RGBA
 
   // Ring buffer for history — stored as uint8 (0.47 dB/step over -120..0 dB)
   RingBuffer<std::vector<uint8_t>> m_history;

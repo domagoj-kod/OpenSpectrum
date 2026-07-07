@@ -292,16 +292,9 @@ void WaterfallDisplay::render_line_into(const std::vector<uint8_t> &hist_line,
 }
 
 void WaterfallDisplay::render() {
-  if (m_history.empty()) {
-    m_pixels.clear();
-    m_dirty_rects.push_back(
-        {0, 0, static_cast<int>(m_width), static_cast<int>(m_height)});
-    return;
-  }
-
   const float db_range = m_global_max - m_global_min;
-  if (db_range <= 0) {
-    m_pixels.clear();
+  if (m_history.empty() || db_range <= 0) {
+    std::memset(m_pixels.data(), 0, m_pixels.size());
     m_dirty_rects.push_back(
         {0, 0, static_cast<int>(m_width), static_cast<int>(m_height)});
     return;

@@ -11,11 +11,10 @@
 #include <cstdio>
 #include <cstring>
 #include <ctime>
+#include <filesystem>
 #include <iomanip>
 #include <sstream>
 #include <utility>
-#include <sys/stat.h>
-#include <sys/types.h>
 
 // Build version stamped into capture metadata. Defined by the Makefile
 // (VERSION_DEF, from git describe); fall back to "dev" for ad-hoc builds.
@@ -24,13 +23,6 @@
 #endif
 #define OS_STRINGIFY2(x) #x
 #define OS_STRINGIFY(x) OS_STRINGIFY2(x)
-
-#ifdef _WIN32
-#include <direct.h>
-#define mkdir(dir, mode) _mkdir(dir)
-#else
-#include <unistd.h>
-#endif
 
 namespace openspectrum {
 
@@ -107,26 +99,9 @@ bool IqLogger::create_output_directory() {
   if (m_config.output_directory.empty()) {
     return true;
   }
-
-  // Check if directory exists
-  struct stat info;
-  if (stat(m_config.output_directory.c_str(), &info) == 0 &&
-      (info.st_mode & S_IFDIR)) {
-    return true;
-  }
-
-  // Try to create directory
-#ifdef _WIN32
-  if (_mkdir(m_config.output_directory.c_str()) == 0) {
-    return true;
-  }
-#else
-  if (mkdir(m_config.output_directory.c_str(), 0755) == 0) {
-    return true;
-  }
-#endif
-
-  return false;
+  std::error_code ec;
+  std::filesystem::create_directories(m_config.output_directory, ec);
+  return std::filesystem::is_directory(m_config.output_directory);
 }
 
 std::string IqLogger::generate_filename(const std::string &extension) const {

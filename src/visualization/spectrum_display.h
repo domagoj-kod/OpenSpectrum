@@ -2,7 +2,6 @@
 #pragma once
 
 #include <array>
-#include <cstring>
 #include <cstdint>
 #include <vector>
 
@@ -23,66 +22,6 @@ struct RgbColor {
   constexpr RgbColor() : red(0), green(0), blue(0), alpha(255) {}
   constexpr RgbColor(uint8_t r, uint8_t g, uint8_t b, uint8_t a = 255)
       : red(r), green(g), blue(b), alpha(a) {}
-};
-
-// Phase 3: Optimized pixel buffer for direct pointer access
-// Replaces std::vector<uint8_t> for pixel storage
-class PixelBuffer {
-public:
-  PixelBuffer() : m_data(nullptr), m_size(0) {}
-  explicit PixelBuffer(size_t size) : m_size(size) {
-    m_data = new uint8_t[m_size]();
-  }
-  ~PixelBuffer() { delete[] m_data; }
-
-  // No copying (use std::move instead)
-  PixelBuffer(const PixelBuffer &) = delete;
-  PixelBuffer &operator=(const PixelBuffer &) = delete;
-
-  PixelBuffer(PixelBuffer &&other) noexcept
-      : m_data(other.m_data), m_size(other.m_size) {
-    other.m_data = nullptr;
-    other.m_size = 0;
-  }
-
-  PixelBuffer &operator=(PixelBuffer &&other) noexcept {
-    if (this != &other) {
-      delete[] m_data;
-      m_data = other.m_data;
-      m_size = other.m_size;
-      other.m_data = nullptr;
-      other.m_size = 0;
-    }
-    return *this;
-  }
-
-  // Direct pointer access (no bounds checking)
-  uint8_t *data() noexcept { return m_data; }
-  [[nodiscard]] const uint8_t *data() const noexcept { return m_data; }
-  [[nodiscard]] size_t size() const noexcept { return m_size; }
-
-  // Subscript operator (for compatibility, but prefer direct pointer access)
-  uint8_t &operator[](size_t index) noexcept { return m_data[index]; }
-  const uint8_t &operator[](size_t index) const noexcept {
-    return m_data[index];
-  }
-
-  // Clear buffer (set to black/transparent)
-  void clear() {
-    if (m_data) memset(m_data, 0, m_size);
-  }
-
-  // Get pixel at (x, y) for RGBA format (4 bytes per pixel)
-  uint8_t *pixel_ptr(size_t x, size_t y, size_t width) noexcept {
-    return m_data + (y * width + x) * 4;
-  }
-  [[nodiscard]] const uint8_t *pixel_ptr(size_t x, size_t y, size_t width) const noexcept {
-    return m_data + (y * width + x) * 4;
-  }
-
-private:
-  uint8_t *m_data;
-  size_t m_size;
 };
 
 // Color palette for spectrum display (rainbow/jet colormap)

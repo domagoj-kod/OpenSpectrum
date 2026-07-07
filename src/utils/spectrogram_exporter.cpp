@@ -7,10 +7,9 @@
 
 #include <cstdio>
 #include <ctime>
+#include <filesystem>
 #include <iomanip>
 #include <sstream>
-#include <sys/stat.h>
-#include <sys/types.h>
 
 // Build version stamped into exported metadata (see Makefile VERSION_DEF).
 #ifndef OPENSPECTRUM_VERSION
@@ -25,13 +24,6 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
-#ifdef _WIN32
-#include <direct.h>
-#define mkdir(dir, mode) _mkdir(dir)
-#else
-#include <unistd.h>
-#endif
-
 namespace openspectrum {
 
 SpectrogramExporter::SpectrogramExporter(const SpectrogramExportConfig &config)
@@ -42,25 +34,9 @@ bool SpectrogramExporter::create_output_directory() {
   if (m_config.output_directory.empty()) {
     return true;
   }
-
-  struct stat info;
-  if (stat(m_config.output_directory.c_str(), &info) == 0 &&
-      (info.st_mode & S_IFDIR)) {
-    return true;
-  }
-
-  // Try to create directory
-#ifdef _WIN32
-  if (_mkdir(m_config.output_directory.c_str()) == 0) {
-    return true;
-  }
-#else
-  if (mkdir(m_config.output_directory.c_str(), 0755) == 0) {
-    return true;
-  }
-#endif
-
-  return false;
+  std::error_code ec;
+  std::filesystem::create_directories(m_config.output_directory, ec);
+  return std::filesystem::is_directory(m_config.output_directory);
 }
 
 // Generate ISO 8601 timestamp
