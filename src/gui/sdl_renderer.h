@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -252,6 +253,49 @@ private:
   // DEBUG (frame-timing branch): SDL_RenderPresent wrapped in a steady-clock
   // measurement, result stored in m_last_present_ms.
   void present_timed();
+
+  // --- Per-stage GPU/CPU render probe (OPENSPECTRUM_RENDER_PROBE=1) ---
+  // Off by default → the normal render path is byte-for-byte unchanged. When
+  // on, each stage is fenced with SDL_FlushRenderer() so the CPU timer bounds
+  // that stage's command submission (see probe_lap_ms for the caveat about
+  // async GPU execution), and a one-shot static report dumps texture sizes /
+  // formats / pass count / draw calls / pixels-touched per pass.
+  enum ProbeStage {
+    PS_UPLOAD,  // waterfall line lock + memcpy + unlock
+    PS_SCROLL,  // aux-target: shift-copy + paste new strip
+    PS_COMPOSE, // compose_base: target clear + wf blit + spectrum geometry
+    PS_BBCLEAR, // backbuffer clear (only runs on resize now, see below)
+    PS_BBBLIT,  // fullscreen frame_tex blit to backbuffer
+    PS_OVERLAY, // overlays (HUD/scale/markers/cursor) onto backbuffer
+    PS_COUNT
+  };
+  struct RenderProbe {
+    bool enabled = false;
+    bool reported = false; // static report emitted once
+    double acc[PS_COUNT] = {};
+    double mx[PS_COUNT] = {};
+    double swap_acc = 0.0; // reuses m_last_present_ms (SDL_RenderPresent)
+    double swap_mx = 0.0;
+    uint64_t frames = 0;      // all present_composited calls (incl. idle)
+    uint64_t data_frames = 0; // frames that ran upload/scroll/compose
+    std::chrono::steady_clock::time_point lap;
+    std::chrono::steady_clock::time_point win;
+  };
+  RenderProbe m_probe;
+  void probe_lap_reset() noexcept {
+    m_probe.lap = std::chrono::steady_clock::now();
+  }
+  // Flush queued GPU commands, then return ms elapsed since the last lap and
+  // restart the lap. The flush is the measurement fence; without it SDL batches
+  // the whole frame and every stage reads ~0. NOTE: FlushRenderer issues the
+  // backend calls but does not wait for the GPU, so these are submission-bound
+  // times — the GPU-execution cost still surfaces at the swap. The exact
+  // resolution-scaling answer is the static pixels-touched report, not these.
+  double probe_lap_ms();
+  void probe_add(ProbeStage s, double ms) noexcept;
+  void probe_report_static(size_t wf_height, size_t line_height,
+                           const char *path);
+  void probe_tick_and_log(); // per-second flush of the accumulators
 
   void rebuild_freq_scale_ticks();
 

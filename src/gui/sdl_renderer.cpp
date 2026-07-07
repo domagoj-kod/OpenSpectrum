@@ -132,6 +132,15 @@ SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title,
     }
   }
 
+  // Opt-in per-stage render probe. Off by default so the normal path is
+  // untouched; set OPENSPECTRUM_RENDER_PROBE=1 to fence + time each stage and
+  // dump the one-shot texture/pass/pixels report.
+  m_probe.enabled = (SDL_getenv("OPENSPECTRUM_RENDER_PROBE") != nullptr);
+  m_probe.win = std::chrono::steady_clock::now();
+  if (m_probe.enabled) {
+    LOG_INFO("RENDER-PROBE enabled (per-stage flush timing + static report)");
+  }
+
   // Render at a fixed logical resolution. SDL then scales the whole scene to
   // the actual window and letterboxes the remainder in black on resize /
   // fullscreen, with no per-resize handling. Without this, a resized window
@@ -771,15 +780,40 @@ void SdlRenderer::compose_base(SDL_Texture *wf_tex, const SDL_FRect *wf_src,
 }
 
 void SdlRenderer::present_composited() {
+  if (m_probe.enabled)
+    probe_lap_reset();
+
+  // Full-screen clear each frame. The probe (14:38 run) measured this at
+  // ~0.001 ms — a GPU fast-clear, not the bottleneck — so an earlier
+  // clear-on-resize-only optimization was reverted (it saved nothing and
+  // carried a swapchain buffer-preservation assumption untested on native
+  // D3D11/Linux). The window-scaled cost lives in the frame_tex blit below and
+  // the swap, not here.
   SDL_RenderClear(m_renderer);
+  if (m_probe.enabled)
+    probe_add(PS_BBCLEAR, probe_lap_ms());
+
   SDL_RenderTexture(m_renderer, m_frame_tex, nullptr, nullptr);
+  if (m_probe.enabled)
+    probe_add(PS_BBBLIT, probe_lap_ms());
+
   render_overlays();
+  if (m_probe.enabled)
+    probe_add(PS_OVERLAY, probe_lap_ms());
+
   // Read back the finished frame (base + overlays) before the swap — SDL3
   // leaves the backbuffer undefined once present runs, so this is the only
   // valid point for a WYSIWYG export readback.
   if (m_capture_pending)
     capture_backbuffer();
   present_timed();
+  if (m_probe.enabled) {
+    m_probe.swap_acc += m_last_present_ms;
+    if (m_last_present_ms > m_probe.swap_mx)
+      m_probe.swap_mx = m_last_present_ms;
+    ++m_probe.frames;
+    probe_tick_and_log();
+  }
 }
 
 // Reads the composited backbuffer into m_capture_buf as tightly packed RGBA at
@@ -837,6 +871,11 @@ auto SdlRenderer::render_displays(const std::vector<SDL_Vertex> &spec_verts,
   if (m_texture == nullptr)
     return false;
 
+  if (m_probe.enabled) {
+    probe_report_static(m_height - spectrum_height, 0, "full");
+    probe_lap_reset();
+  }
+
   void *texture_pixels = nullptr;
   int texture_pitch = 0;
   if (!SDL_LockTexture(m_texture, nullptr, &texture_pixels, &texture_pitch)) {
@@ -878,6 +917,8 @@ auto SdlRenderer::render_displays(const std::vector<SDL_Vertex> &spec_verts,
     SDL_SetRenderTarget(m_renderer, nullptr);
     m_wf_scroll_valid = true;
   }
+  if (m_probe.enabled)
+    probe_add(PS_UPLOAD, probe_lap_ms());
 
   // Compose base = waterfall region of m_texture (bottom) + spectrum bars
   // (top).
@@ -886,6 +927,10 @@ auto SdlRenderer::render_displays(const std::vector<SDL_Vertex> &spec_verts,
                             static_cast<float>(wf_height)};
   SDL_FRect const wf_dst = wf_src;
   compose_base(m_texture, &wf_src, wf_dst, spec_verts, spec_idx);
+  if (m_probe.enabled) {
+    probe_add(PS_COMPOSE, probe_lap_ms());
+    ++m_probe.data_frames;
+  }
 
   present_composited();
   return true;
@@ -894,6 +939,169 @@ auto SdlRenderer::render_displays(const std::vector<SDL_Vertex> &spec_verts,
 void SdlRenderer::present_frame() {
   // No new data: re-blit the last composited base frame with fresh overlays.
   present_composited();
+}
+
+double SdlRenderer::probe_lap_ms() {
+  SDL_FlushRenderer(m_renderer); // fence: push queued commands to the backend
+  auto now = std::chrono::steady_clock::now();
+  double ms =
+      std::chrono::duration<double, std::milli>(now - m_probe.lap).count();
+  m_probe.lap = now;
+  return ms;
+}
+
+void SdlRenderer::probe_add(ProbeStage s, double ms) noexcept {
+  m_probe.acc[s] += ms;
+  if (ms > m_probe.mx[s])
+    m_probe.mx[s] = ms;
+}
+
+// One-shot static report: texture inventory, logical-vs-output resolution, and
+// per-pass draw-call + pixels-touched counts. This is the exact, zero-timing
+// answer to "which pass scales with window size" — every intermediate pass is
+// fixed at the logical size, only the backbuffer compose scales to the output.
+void SdlRenderer::probe_report_static(size_t wf_height, size_t line_height,
+                                      const char *path) {
+  if (m_probe.reported)
+    return;
+  m_probe.reported = true;
+
+  int ow = 0;
+  int oh = 0;
+  SDL_GetCurrentRenderOutputSize(m_renderer, &ow, &oh);
+  int lw = 0;
+  int lh = 0;
+  SDL_RendererLogicalPresentation mode = SDL_LOGICAL_PRESENTATION_DISABLED;
+  SDL_GetRenderLogicalPresentation(m_renderer, &lw, &lh, &mode);
+
+  const auto W = static_cast<long long>(m_width);
+  const auto H = static_cast<long long>(m_height);
+  const auto WFH = static_cast<long long>(wf_height);
+  const auto LH = static_cast<long long>(line_height);
+  const auto OW = static_cast<long long>(ow);
+  const auto OH = static_cast<long long>(oh);
+
+  auto px = [](long long w, long long h) {
+    char b[48];
+    std::snprintf(b, sizeof(b), "%lldx%lld = %.2f Mpx", w, h,
+                  static_cast<double>(w * h) / 1.0e6);
+    return std::string(b);
+  };
+
+  LOG_INFO("================ RENDER-PROBE STATIC REPORT ================");
+  LOG_INFO("path this frame: " + std::string(path));
+  {
+    char b[160];
+    std::snprintf(b, sizeof(b),
+                  "logical size %dx%d (fixed at launch) | output/backbuffer "
+                  "%dx%d | upscale %.2fx area",
+                  lw, lh, ow, oh,
+                  (W * H) > 0 ? static_cast<double>(OW * OH) /
+                                    static_cast<double>(W * H)
+                              : 0.0);
+    LOG_INFO(std::string(b));
+  }
+
+  // Texture inventory. Access mode is known from the create sites (SDL3 does
+  // not report it back); sizes/format read live from the objects.
+  struct Tex {
+    const char *name;
+    SDL_Texture *t;
+    const char *access;
+    const char *created;
+  };
+  const Tex texes[] = {
+      {"m_texture", m_texture, "STREAMING", "ctor (once)"},
+      {"m_frame_tex", m_frame_tex, "TARGET", "ctor (once)"},
+      {"m_wf_scroll_tex", m_wf_scroll_tex, "TARGET",
+       "ensure_wf_scroll_textures (on FFT-size change)"},
+      {"m_wf_scroll_aux", m_wf_scroll_aux, "TARGET",
+       "ensure_wf_scroll_textures (on FFT-size change)"},
+      {"m_wf_line_tex", m_wf_line_tex, "STREAMING",
+       "ensure_wf_scroll_textures (on FFT-size change)"},
+      {"m_freq_scale_texture", m_freq_scale_texture, "TARGET",
+       "rebuild on center/rate change"},
+  };
+  LOG_INFO("--- textures (none recreated per frame) ---");
+  for (const auto &tx : texes) {
+    char b[220];
+    if (tx.t == nullptr) {
+      std::snprintf(b, sizeof(b), "  %-20s <null>", tx.name);
+    } else {
+      float tw = 0;
+      float th = 0;
+      SDL_GetTextureSize(tx.t, &tw, &th);
+      std::snprintf(b, sizeof(b), "  %-20s %4dx%-4d fmt=0x%08X %-9s | %s",
+                    tx.name, static_cast<int>(tw), static_cast<int>(th),
+                    static_cast<unsigned>(tx.t->format), tx.access, tx.created);
+    }
+    LOG_INFO(std::string(b));
+  }
+
+  // Per-pass breakdown for the steady-state scroll path.
+  LOG_INFO("--- render passes / frame (scroll path) ---");
+  LOG_INFO("  1 line-upload   -> m_wf_line_tex   draws:1(CPU memcpy)  touch: " +
+           px(W, LH));
+  LOG_INFO("  2 scroll-copy   -> m_wf_scroll_aux draws:2(shift+strip) touch: " +
+           px(W, WFH) + "  [FIXED at logical]");
+  LOG_INFO(
+      "  3 compose-base  -> m_frame_tex     draws:1clr+1blit+1geo touch: " +
+      px(W, H) + "  [FIXED at logical]");
+  LOG_INFO("  4 bb-compose    -> BACKBUFFER      draws:1clr+1blit+overlays "
+           "touch: " +
+           px(OW, OH) + "  [SCALES WITH WINDOW]");
+  LOG_INFO("  5 present       -> swapchain        swap of " + px(OW, OH) +
+           "  [SCALES WITH WINDOW]");
+  LOG_INFO("total target render-target switches/frame: 3 (aux, frame_tex, "
+           "backbuffer) -- each SDL_SetRenderTarget flushes the current batch "
+           "by design; all at FIXED logical size except the final backbuffer.");
+  {
+    long long fixed = W * WFH + W * H;    // passes 2+3
+    long long scaled = OW * OH + OW * OH; // passes 4+5
+    char b[200];
+    std::snprintf(
+        b, sizeof(b),
+        "fill summary: resolution-INDEPENDENT %.2f Mpx (passes 2-3) | "
+        "window-DEPENDENT %.2f Mpx (passes 4-5, %.2fx vs logical)",
+        static_cast<double>(fixed) / 1e6, static_cast<double>(scaled) / 1e6,
+        (W * H) > 0 ? static_cast<double>(OW * OH) / static_cast<double>(W * H)
+                    : 0.0);
+    LOG_INFO(std::string(b));
+  }
+  LOG_INFO("===========================================================");
+}
+
+void SdlRenderer::probe_tick_and_log() {
+  double const window_s = std::chrono::duration<double>(
+                              std::chrono::steady_clock::now() - m_probe.win)
+                              .count();
+  if (window_s < 1.0 || m_probe.frames == 0)
+    return;
+  double const df =
+      m_probe.data_frames > 0 ? static_cast<double>(m_probe.data_frames) : 1.0;
+  double const af = static_cast<double>(m_probe.frames);
+  char b[480];
+  std::snprintf(
+      b, sizeof(b),
+      "RENDER-PROBE (ms, submit-bound) fps=%.1f | upload=%.3f scroll=%.3f "
+      "compose=%.3f | bb-clear avg=%.3f max=%.3f | bb-blit avg=%.3f max=%.3f | "
+      "overlay avg=%.3f max=%.3f | swap avg=%.3f max=%.3f",
+      af / window_s, m_probe.acc[PS_UPLOAD] / df, m_probe.acc[PS_SCROLL] / df,
+      m_probe.acc[PS_COMPOSE] / df, m_probe.acc[PS_BBCLEAR] / af,
+      m_probe.mx[PS_BBCLEAR], m_probe.acc[PS_BBBLIT] / af,
+      m_probe.mx[PS_BBBLIT], m_probe.acc[PS_OVERLAY] / af,
+      m_probe.mx[PS_OVERLAY], m_probe.swap_acc / af, m_probe.swap_mx);
+  LOG_INFO(std::string(b));
+
+  for (auto &v : m_probe.acc)
+    v = 0.0;
+  for (auto &v : m_probe.mx)
+    v = 0.0;
+  m_probe.swap_acc = 0.0;
+  m_probe.swap_mx = 0.0;
+  m_probe.frames = 0;
+  m_probe.data_frames = 0;
+  m_probe.win = std::chrono::steady_clock::now();
 }
 
 // DEBUG (frame-timing branch): time the present so the main loop can subtract
@@ -1092,6 +1300,11 @@ bool SdlRenderer::render_displays_scroll(
   if (!ensure_wf_scroll_textures(wf_height, line_height))
     return false;
 
+  if (m_probe.enabled) {
+    probe_report_static(wf_height, line_height, "scroll");
+    probe_lap_reset();
+  }
+
   // --- GPU waterfall scroll ---
   // Upload the new line (~5 KB) to the narrow streaming texture
   {
@@ -1106,6 +1319,8 @@ bool SdlRenderer::render_displays_scroll(
       SDL_UnlockTexture(m_wf_line_tex);
     }
   }
+  if (m_probe.enabled)
+    probe_add(PS_UPLOAD, probe_lap_ms());
 
   // Render into the aux texture:
   //   1. Blit existing waterfall shifted up by line_height (GPU-to-GPU copy)
@@ -1149,6 +1364,8 @@ bool SdlRenderer::render_displays_scroll(
   // Swap active/aux
   std::swap(m_wf_scroll_tex, m_wf_scroll_aux);
   m_wf_scroll_valid = true;
+  if (m_probe.enabled)
+    probe_add(PS_SCROLL, probe_lap_ms());
 
   // --- Compose final frame ---
   // Waterfall (bottom) = the whole scroll texture mapped to the bottom region;
@@ -1157,6 +1374,10 @@ bool SdlRenderer::render_displays_scroll(
                             static_cast<float>(m_width),
                             static_cast<float>(wf_height)};
   compose_base(m_wf_scroll_tex, nullptr, wf_dst, spec_verts, spec_idx);
+  if (m_probe.enabled) {
+    probe_add(PS_COMPOSE, probe_lap_ms());
+    ++m_probe.data_frames;
+  }
 
   present_composited();
   return true;
