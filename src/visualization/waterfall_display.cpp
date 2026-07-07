@@ -185,9 +185,8 @@ void WaterfallDisplay::add_spectrum_line(const std::vector<float> &db_values) {
     return; // Invalid input
   }
 
-  // Resample if needed to match width
+  // Resample if needed to match width (every branch writes all of line)
   std::vector<float> &line = m_line_buf;
-  std::fill(line.begin(), line.end(), m_min_db);
   if (db_values.size() == m_width) {
     line = db_values;
   } else if (db_values.size() > m_width) {

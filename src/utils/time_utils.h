@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
+#include <chrono>
 #include <ctime>
+#include <iomanip>
+#include <sstream>
+#include <string>
 
 namespace openspectrum {
 
@@ -28,6 +32,26 @@ inline std::tm safe_gmtime(std::time_t t) {
   ::gmtime_r(&t, &out);
 #endif
   return out;
+}
+
+// Current UTC time as a compact ISO-8601 stamp (YYYYMMDDTHHMMSSZ) — used in
+// capture/export filenames and their metadata sidecars.
+inline std::string get_iso8601_timestamp() {
+  std::time_t const t =
+      std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+  std::tm const tm = safe_gmtime(t);
+  std::stringstream ss;
+  ss << std::put_time(&tm, "%Y%m%dT%H%M%SZ");
+  return ss.str();
+}
+
+// Current Unix timestamp with microsecond resolution.
+inline double get_unix_timestamp() {
+  return static_cast<double>(
+             std::chrono::duration_cast<std::chrono::microseconds>(
+                 std::chrono::system_clock::now().time_since_epoch())
+                 .count()) /
+         1000000.0;
 }
 
 } // namespace openspectrum

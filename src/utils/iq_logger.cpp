@@ -10,81 +10,11 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
-#include <ctime>
 #include <filesystem>
-#include <iomanip>
 #include <sstream>
 #include <utility>
 
-// Build version stamped into capture metadata. Defined by the Makefile
-// (VERSION_DEF, from git describe); fall back to "dev" for ad-hoc builds.
-#ifndef OPENSPECTRUM_VERSION
-#define OPENSPECTRUM_VERSION dev
-#endif
-#define OS_STRINGIFY2(x) #x
-#define OS_STRINGIFY(x) OS_STRINGIFY2(x)
-
 namespace openspectrum {
-
-// Helper function to get current ISO 8601 timestamp
-static std::string get_iso8601_timestamp() {
-  auto now = std::chrono::system_clock::now();
-  auto in_time_t = std::chrono::system_clock::to_time_t(now);
-
-  std::stringstream ss;
-  std::tm const tm = safe_gmtime(in_time_t);
-  ss << std::put_time(&tm, "%Y%m%dT%H%M%SZ");
-  return ss.str();
-}
-
-// Helper function to get current Unix timestamp with microseconds
-static double get_unix_timestamp() {
-  auto now = std::chrono::system_clock::now();
-  auto duration = now.time_since_epoch();
-  return static_cast<double>(
-             std::chrono::duration_cast<std::chrono::microseconds>(duration)
-                 .count()) /
-         1000000.0;
-}
-
-// Helper to escape string for JSON
-static std::string escape_json_string(const std::string &str) {
-  std::string result;
-  result.reserve(str.size() * 2);
-  for (char c : str) {
-    switch (c) {
-    case '"':
-      result += "\\\"";
-      break;
-    case '\\':
-      result += "\\\\";
-      break;
-    case '\b':
-      result += "\\b";
-      break;
-    case '\f':
-      result += "\\f";
-      break;
-    case '\n':
-      result += "\\n";
-      break;
-    case '\r':
-      result += "\\r";
-      break;
-    case '\t':
-      result += "\\t";
-      break;
-    default:
-      if (c >= 0 && c < 32) {
-        // Control characters - skip or escape
-        result += "";
-      } else {
-        result += c;
-      }
-    }
-  }
-  return result;
-}
 
 IqLogger::IqLogger(const IqLoggerConfig &config) : m_config(config) {
   // The write-coalescing buffer (buffer_size_bytes, e.g. 1 MB) is allocated

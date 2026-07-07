@@ -6,17 +6,8 @@
 #include "time_utils.h"
 
 #include <cstdio>
-#include <ctime>
 #include <filesystem>
-#include <iomanip>
 #include <sstream>
-
-// Build version stamped into exported metadata (see Makefile VERSION_DEF).
-#ifndef OPENSPECTRUM_VERSION
-#define OPENSPECTRUM_VERSION dev
-#endif
-#define OS_STRINGIFY2(x) #x
-#define OS_STRINGIFY(x) OS_STRINGIFY2(x)
 
 // stb_image_write keeps its implementation block outside the include guard,
 // so one #include with STB_IMAGE_WRITE_IMPLEMENTATION defined is sufficient
@@ -37,27 +28,6 @@ bool SpectrogramExporter::create_output_directory() {
   std::error_code ec;
   std::filesystem::create_directories(m_config.output_directory, ec);
   return std::filesystem::is_directory(m_config.output_directory);
-}
-
-// Generate ISO 8601 timestamp
-std::string SpectrogramExporter::get_iso8601_timestamp() const {
-  auto now = std::chrono::system_clock::now();
-  auto in_time_t = std::chrono::system_clock::to_time_t(now);
-
-  std::stringstream ss;
-  std::tm const tm = safe_gmtime(in_time_t);
-  ss << std::put_time(&tm, "%Y%m%dT%H%M%SZ");
-  return ss.str();
-}
-
-// Get current Unix timestamp with microseconds
-double SpectrogramExporter::get_unix_timestamp() const {
-  auto now = std::chrono::system_clock::now();
-  auto duration = now.time_since_epoch();
-  return static_cast<double>(
-             std::chrono::duration_cast<std::chrono::microseconds>(duration)
-                 .count()) /
-         1000000.0;
 }
 
 // Generate filename with timestamp and optional frequency
@@ -88,45 +58,6 @@ std::string SpectrogramExporter::metadata_filename_for(
     return png_filename.substr(0, last_dot) + ".meta.json";
   }
   return png_filename + ".meta.json";
-}
-
-// Escape string for JSON output
-std::string
-SpectrogramExporter::escape_json_string(const std::string &str) const {
-  std::string result;
-  result.reserve(str.size() * 2);
-  for (char c : str) {
-    switch (c) {
-    case '"':
-      result += "\\\"";
-      break;
-    case '\\':
-      result += "\\\\";
-      break;
-    case '\b':
-      result += "\\b";
-      break;
-    case '\f':
-      result += "\\f";
-      break;
-    case '\n':
-      result += "\\n";
-      break;
-    case '\r':
-      result += "\\r";
-      break;
-    case '\t':
-      result += "\\t";
-      break;
-    default:
-      if (c >= 0 && c < 32) {
-        // Skip control characters
-      } else {
-        result += c;
-      }
-    }
-  }
-  return result;
 }
 
 // Write PNG file using stb_image_write

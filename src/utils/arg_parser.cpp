@@ -9,41 +9,24 @@
 #include <iostream>
 #include <string>
 #include <string_view>
+#include <type_traits>
 
 namespace openspectrum {
 
 namespace {
 
-auto parse_float(const char *str, float &value) -> bool {
+// One numeric parser for every option type; stoX throws on garbage.
+template <typename T> auto parse_num(const char *str, T &value) -> bool {
   try {
-    value = std::stof(str);
-    return true;
-  } catch (...) {
-    return false;
-  }
-}
-
-auto parse_double(const char *str, double &value) -> bool {
-  try {
-    value = std::stod(str);
-    return true;
-  } catch (...) {
-    return false;
-  }
-}
-
-auto parse_size_t(const char *str, size_t &value) -> bool {
-  try {
-    value = static_cast<size_t>(std::stoul(str));
-    return true;
-  } catch (...) {
-    return false;
-  }
-}
-
-auto parse_int(const char *str, int &value) -> bool {
-  try {
-    value = std::stoi(str);
+    if constexpr (std::is_same_v<T, float>) {
+      value = std::stof(str);
+    } else if constexpr (std::is_same_v<T, double>) {
+      value = std::stod(str);
+    } else if constexpr (std::is_same_v<T, int>) {
+      value = std::stoi(str);
+    } else {
+      value = static_cast<T>(std::stoul(str));
+    }
     return true;
   } catch (...) {
     return false;
@@ -99,42 +82,42 @@ auto parse_arguments(int argc, char *argv[]) -> AppConfig {
     std::string_view const arg = argv[i];
 
     if (arg == "-f" || arg == "--freq") {
-      if (i + 1 >= argc || !parse_float(argv[i + 1], config.center_freq_hz)) {
+      if (i + 1 >= argc || !parse_num(argv[i + 1], config.center_freq_hz)) {
         std::cerr << "Error: Invalid frequency value\n";
         print_usage(argv[0]);
         std::exit(1);
       }
       ++i;
     } else if (arg == "-r" || arg == "--rate") {
-      if (i + 1 >= argc || !parse_float(argv[i + 1], config.sample_rate_hz)) {
+      if (i + 1 >= argc || !parse_num(argv[i + 1], config.sample_rate_hz)) {
         std::cerr << "Error: Invalid sample rate value\n";
         print_usage(argv[0]);
         std::exit(1);
       }
       ++i;
     } else if (arg == "-g" || arg == "--gain") {
-      if (i + 1 >= argc || !parse_float(argv[i + 1], config.gain_db)) {
+      if (i + 1 >= argc || !parse_num(argv[i + 1], config.gain_db)) {
         std::cerr << "Error: Invalid gain value\n";
         print_usage(argv[0]);
         std::exit(1);
       }
       ++i;
     } else if (arg == "-s" || arg == "--fft-size") {
-      if (i + 1 >= argc || !parse_size_t(argv[i + 1], config.fft_size)) {
+      if (i + 1 >= argc || !parse_num(argv[i + 1], config.fft_size)) {
         std::cerr << "Error: Invalid FFT size value\n";
         print_usage(argv[0]);
         std::exit(1);
       }
       ++i;
     } else if (arg == "-w" || arg == "--width") {
-      if (i + 1 >= argc || !parse_size_t(argv[i + 1], config.display_width)) {
+      if (i + 1 >= argc || !parse_num(argv[i + 1], config.display_width)) {
         std::cerr << "Error: Invalid width value\n";
         print_usage(argv[0]);
         std::exit(1);
       }
       ++i;
     } else if (arg == "-H" || arg == "--height") {
-      if (i + 1 >= argc || !parse_size_t(argv[i + 1], config.display_height)) {
+      if (i + 1 >= argc || !parse_num(argv[i + 1], config.display_height)) {
         std::cerr << "Error: Invalid height value\n";
         print_usage(argv[0]);
         std::exit(1);
@@ -169,7 +152,7 @@ auto parse_arguments(int argc, char *argv[]) -> AppConfig {
         std::exit(1);
       }
     } else if (arg == "--ppm") {
-      if (i + 1 >= argc || !parse_int(argv[i + 1], config.ppm_correction)) {
+      if (i + 1 >= argc || !parse_num(argv[i + 1], config.ppm_correction)) {
         std::cerr << "Error: Invalid ppm value\n";
         print_usage(argv[0]);
         std::exit(1);
@@ -183,7 +166,7 @@ auto parse_arguments(int argc, char *argv[]) -> AppConfig {
       config.iq_logging_enabled = true;
     } else if (arg == "--iq-duration") {
       if (i + 1 >= argc ||
-          !parse_double(argv[i + 1], config.iq_capture_duration)) {
+          !parse_num(argv[i + 1], config.iq_capture_duration)) {
         std::cerr << "Error: Invalid IQ capture duration value\n";
         print_usage(argv[0]);
         std::exit(1);

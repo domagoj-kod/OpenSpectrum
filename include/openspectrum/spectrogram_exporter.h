@@ -72,9 +72,6 @@ private:
                       const std::string &window_function,
                       const std::string &color_map, const std::string &notes,
                       const std::string &iso8601_timestamp);
-  std::string escape_json_string(const std::string &str) const;
-  std::string get_iso8601_timestamp() const;
-  double get_unix_timestamp() const;
 
   SpectrogramExportConfig m_config;
   mutable std::mutex m_mutex;

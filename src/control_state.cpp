@@ -9,38 +9,18 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
-#include <iterator>
 #include <string>
 
 namespace openspectrum {
 
-ControlState::ControlState() {
-  // Initialize RTL2832U-specific constraints
-  constraints.min_frequency_hz = 500000;     // 500 kHz
-  constraints.max_frequency_hz = 1700000000; // 1.7 GHz
-  constraints.min_gain_db = 0.0F;
-  constraints.max_gain_db = 49.6F;
-  constraints.supported_fft_sizes = {1024, 2048, 4096, 8192, 16384};
+auto ControlState::fft_size_supported(size_t size) const -> bool {
+  return std::ranges::find(constraints.supported_fft_sizes, size) !=
+         constraints.supported_fft_sizes.end();
 }
 
-// Helper to find FFT size index
-auto ControlState::find_fft_index(size_t size) const -> int {
-  auto it = std::ranges::find(constraints.supported_fft_sizes, size);
-  if (it != constraints.supported_fft_sizes.end()) {
-    return static_cast<int>(
-        std::distance(constraints.supported_fft_sizes.begin(), it));
-  }
-  return -1;
-}
-
-// Helper to find window function index
-auto ControlState::find_window_index(WindowFunction w) const -> int {
-  auto it = std::ranges::find(constraints.supported_window_functions, w);
-  if (it != constraints.supported_window_functions.end()) {
-    return static_cast<int>(
-        std::distance(constraints.supported_window_functions.begin(), it));
-  }
-  return -1;
+auto ControlState::window_supported(WindowFunction w) const -> bool {
+  return std::ranges::find(constraints.supported_window_functions, w) !=
+         constraints.supported_window_functions.end();
 }
 
 // Format window function name for display
@@ -66,8 +46,7 @@ void ControlState::set_gain(float db) {
 }
 
 void ControlState::set_fft_size(size_t size) {
-  int const index = find_fft_index(size);
-  if (index >= 0) {
+  if (fft_size_supported(size)) {
     if (size != fft_size) {
       fft_size = size;
       fft_changed = true;
@@ -91,12 +70,12 @@ void ControlState::set_constraints(const DeviceConstraints &new_constraints) {
   gain_db =
       std::clamp(gain_db, constraints.min_gain_db, constraints.max_gain_db);
   // Ensure FFT size is supported
-  if (find_fft_index(fft_size) < 0 &&
+  if (!fft_size_supported(fft_size) &&
       !constraints.supported_fft_sizes.empty()) {
     fft_size = constraints.supported_fft_sizes[0];
   }
   // Ensure window function is supported
-  if (find_window_index(window_function) < 0 &&
+  if (!window_supported(window_function) &&
       !constraints.supported_window_functions.empty()) {
     window_function = constraints.supported_window_functions[0];
   }
@@ -104,8 +83,7 @@ void ControlState::set_constraints(const DeviceConstraints &new_constraints) {
 
 // Setter for window function
 void ControlState::set_window(WindowFunction w) {
-  int const index = find_window_index(w);
-  if (index >= 0) {
+  if (window_supported(w)) {
     if (w != window_function) {
       window_function = w;
       window_changed_flag = true;

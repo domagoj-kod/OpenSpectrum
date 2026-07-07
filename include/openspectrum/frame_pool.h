@@ -35,9 +35,6 @@ struct alignas(64) FFTFrame {
 
   static FFTFrame *create(size_t frame_capacity) {
     FFTFrame *frame = new FFTFrame();
-    if (!frame)
-      return nullptr;
-
     size_t const data_bytes = frame_capacity * sizeof(std::complex<float>);
 
 #ifdef _WIN32
@@ -59,11 +56,6 @@ struct alignas(64) FFTFrame {
     frame->capacity = frame_capacity;
     frame->size = 0;
     return frame;
-  }
-
-  static void destroy(FFTFrame *frame) {
-    if (frame)
-      delete frame;
   }
 
   std::complex<float> &operator[](size_t i) {
@@ -171,7 +163,7 @@ public:
     // double-free.
     std::lock_guard<std::mutex> lock(m_mutex);
     while (!m_free_queue.empty()) {
-      FFTFrame::destroy(m_free_queue.front());
+      delete m_free_queue.front();
       m_free_queue.pop();
     }
   }
@@ -216,7 +208,7 @@ inline void FrameHandle::release() {
     pool->release_frame(m_frame);
   } else {
     // Pool is gone — frame ownership falls to us.
-    FFTFrame::destroy(m_frame);
+    delete m_frame;
   }
   m_frame = nullptr;
 }

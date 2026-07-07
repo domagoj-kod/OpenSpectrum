@@ -203,6 +203,10 @@ private:
   // Called after rendering the main texture
   void render_overlays();
 
+  // Draw `text` at (x, y) on the active render target via a temporary
+  // blended texture (created and freed per call — overlay-path only).
+  void blit_text(const std::string &text, SDL_Color color, float x, float y);
+
   // Draw the cursor readout: vertical marker, dot snapped on the trace, and a
   // small box with frequency + amplitude. No-op when m_cursor_readout.active is
   // false. Called at the end of render_overlays so it sits on top.

@@ -13,10 +13,11 @@ class RtlSdrDevice;
 
 namespace openspectrum {
 
-// Device constraints structure (adjustable per device type)
+// Device constraints structure. Defaults are the RTL2832U/R820T tuning range;
+// playback and direct-sampling modes override via set_constraints().
 struct DeviceConstraints {
-  uint32_t min_frequency_hz = 0;
-  uint32_t max_frequency_hz = 1700000000; // 1.7 GHz (RTL2832U: ~500kHz-1.7GHz)
+  uint32_t min_frequency_hz = 500000;     // 500 kHz
+  uint32_t max_frequency_hz = 1700000000; // 1.7 GHz
   float min_gain_db = 0.0f;
   float max_gain_db = 49.6f; // RTL2832U max
   std::vector<size_t> supported_fft_sizes = {1024, 2048, 4096, 8192, 16384};
@@ -29,7 +30,7 @@ struct DeviceConstraints {
 // SDL-agnostic state management for runtime controls
 class ControlState {
 public:
-  ControlState();
+  ControlState() = default;
   ~ControlState() = default;
 
   // Non-copyable, non-movable
@@ -134,11 +135,8 @@ public:
   void apply_to_device(RtlSdrDevice &dev) const;
 
 private:
-  // Helper to find FFT size index
-  int find_fft_index(size_t size) const;
-
-  // Helper to find window function index
-  int find_window_index(WindowFunction w) const;
+  bool fft_size_supported(size_t size) const;
+  bool window_supported(WindowFunction w) const;
 
   DeviceConstraints constraints;
 

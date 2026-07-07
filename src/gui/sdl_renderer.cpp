@@ -232,6 +232,21 @@ SdlRenderer::~SdlRenderer() {
   SDL_Quit();
 }
 
+void SdlRenderer::blit_text(const std::string &text, SDL_Color color, float x,
+                            float y) {
+  SDL_Texture *t = m_text_renderer->render_text(text, color);
+  if (t == nullptr) {
+    return;
+  }
+  int w = 0;
+  int h = 0;
+  m_text_renderer->get_text_size(text, &w, &h);
+  SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
+  SDL_FRect const d = {x, y, static_cast<float>(w), static_cast<float>(h)};
+  SDL_RenderTexture(m_renderer, t, nullptr, &d);
+  SDL_DestroyTexture(t);
+}
+
 void SdlRenderer::render_overlays() {
   // Render status bar on top
   if (m_status_texture != nullptr) {
@@ -376,18 +391,8 @@ void SdlRenderer::render_overlays() {
 
     SDL_Color const col = {0, 255, 0, 255};
     for (int i = 0; i < 4; ++i) {
-      SDL_Texture *t = m_text_renderer->render_text(lines[i], col);
-      if (t != nullptr) {
-        int w = 0;
-        int h = 0;
-        m_text_renderer->get_text_size(lines[i], &w, &h);
-        SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
-        SDL_FRect const d = {static_cast<float>(x0),
-                             static_cast<float>(y0 + i * line_h),
-                             static_cast<float>(w), static_cast<float>(h)};
-        SDL_RenderTexture(m_renderer, t, nullptr, &d);
-        SDL_DestroyTexture(t);
-      }
+      blit_text(lines[i], col, static_cast<float>(x0),
+                static_cast<float>(y0 + i * line_h));
     }
   }
 
@@ -502,20 +507,12 @@ void SdlRenderer::draw_left_axes() {
     SDL_SetRenderDrawColor(m_renderer, 180, 180, 180, 255);
     SDL_RenderLine(m_renderer, strip_w - kTick, l.y, strip_w, l.y);
 
-    SDL_Texture *t = m_text_renderer->render_text(l.text, kLabel);
-    if (t == nullptr) {
-      continue;
-    }
-    int w = 0;
     int h = 0;
-    m_text_renderer->get_text_size(l.text, &w, &h);
+    m_text_renderer->get_text_size(l.text, nullptr, &h);
     float ty = l.y - static_cast<float>(h) / 2.0F; // center on the tick
-    ty = std::clamp(ty, 0.0F, static_cast<float>(m_height) - static_cast<float>(h));
-    SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
-    SDL_FRect const d = {static_cast<float>(kPad), ty, static_cast<float>(w),
-                         static_cast<float>(h)};
-    SDL_RenderTexture(m_renderer, t, nullptr, &d);
-    SDL_DestroyTexture(t);
+    ty = std::clamp(ty, 0.0F,
+                    static_cast<float>(m_height) - static_cast<float>(h));
+    blit_text(l.text, kLabel, static_cast<float>(kPad), ty);
   }
 
   SDL_SetRenderDrawColor(m_renderer, r, g, b, a);
@@ -549,17 +546,7 @@ void SdlRenderer::draw_markers() {
     }
     char tag[8];
     std::snprintf(tag, sizeof(tag), "M%d", m.index);
-    SDL_Texture *t = m_text_renderer->render_text(tag, kClr);
-    if (t != nullptr) {
-      int w = 0;
-      int h = 0;
-      m_text_renderer->get_text_size(tag, &w, &h);
-      SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
-      SDL_FRect const d = {m.x + 2.0F, 2.0F, static_cast<float>(w),
-                           static_cast<float>(h)};
-      SDL_RenderTexture(m_renderer, t, nullptr, &d);
-      SDL_DestroyTexture(t);
-    }
+    blit_text(tag, kClr, m.x + 2.0F, 2.0F);
   }
 
   // Bottom-left list panel: frequency + live level (or "off-screen") per
@@ -600,20 +587,9 @@ void SdlRenderer::draw_markers() {
   SDL_RenderFillRect(m_renderer, &bg);
 
   for (size_t i = 0; i < lines.size(); ++i) {
-    SDL_Texture *t = m_text_renderer->render_text(lines[i], kClr);
-    if (t != nullptr) {
-      int w = 0;
-      int h = 0;
-      m_text_renderer->get_text_size(lines[i], &w, &h);
-      SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
-      SDL_FRect const d = {bx + static_cast<float>(pad),
-                           by + static_cast<float>(pad) +
-                               static_cast<float>(i) *
-                                   static_cast<float>(line_h),
-                           static_cast<float>(w), static_cast<float>(h)};
-      SDL_RenderTexture(m_renderer, t, nullptr, &d);
-      SDL_DestroyTexture(t);
-    }
+    blit_text(lines[i], kClr, bx + static_cast<float>(pad),
+              by + static_cast<float>(pad) +
+                  static_cast<float>(i) * static_cast<float>(line_h));
   }
 
   SDL_SetRenderDrawColor(m_renderer, r, g, b, a);
@@ -639,48 +615,32 @@ void SdlRenderer::draw_trigger() {
     std::snprintf(buf, sizeof(buf), "TRIG %.0f dB",
                   static_cast<double>(m_trigger_db));
     SDL_Color const kTag = {255, 140, 140, 255};
-    SDL_Texture *t = m_text_renderer->render_text(buf, kTag);
-    if (t != nullptr) {
-      int w = 0;
-      int h = 0;
-      m_text_renderer->get_text_size(buf, &w, &h);
-      SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
-      // Sit the tag just above the line, or below it if too near the top.
-      float ty = m_trigger_line_y - static_cast<float>(h) - 2.0F;
-      if (ty < 0.0F) {
-        ty = m_trigger_line_y + 2.0F;
-      }
-      // Anchor on the left, just right of the dB axis strip, so it tracks the
-      // line and never collides with the top-right PEAK indicator.
-      const float tx = static_cast<float>(axis_strip_width()) + 6.0F;
-      SDL_FRect const d = {tx, ty, static_cast<float>(w),
-                           static_cast<float>(h)};
-      SDL_RenderTexture(m_renderer, t, nullptr, &d);
-      SDL_DestroyTexture(t);
+    int h = 0;
+    m_text_renderer->get_text_size(buf, nullptr, &h);
+    // Sit the tag just above the line, or below it if too near the top.
+    float ty = m_trigger_line_y - static_cast<float>(h) - 2.0F;
+    if (ty < 0.0F) {
+      ty = m_trigger_line_y + 2.0F;
     }
+    // Anchor on the left, just right of the dB axis strip, so it tracks the
+    // line and never collides with the top-right PEAK indicator.
+    blit_text(buf, kTag, static_cast<float>(axis_strip_width()) + 6.0F, ty);
   }
 
   // Frozen: centered top banner with a dark backdrop.
   if (m_frozen) {
     const char *msg = "FROZEN  -  SPACE to resume";
     SDL_Color const kMsg = {255, 230, 120, 255};
-    SDL_Texture *t = m_text_renderer->render_text(msg, kMsg);
-    if (t != nullptr) {
-      int w = 0;
-      int h = 0;
-      m_text_renderer->get_text_size(msg, &w, &h);
-      const float bx =
-          (static_cast<float>(m_width) - static_cast<float>(w)) / 2.0F;
-      SDL_FRect const bg = {bx - 6.0F, 4.0F, static_cast<float>(w) + 12.0F,
-                            static_cast<float>(h) + 6.0F};
-      SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 200);
-      SDL_RenderFillRect(m_renderer, &bg);
-      SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
-      SDL_FRect const d = {bx, 7.0F, static_cast<float>(w),
-                           static_cast<float>(h)};
-      SDL_RenderTexture(m_renderer, t, nullptr, &d);
-      SDL_DestroyTexture(t);
-    }
+    int w = 0;
+    int h = 0;
+    m_text_renderer->get_text_size(msg, &w, &h);
+    const float bx =
+        (static_cast<float>(m_width) - static_cast<float>(w)) / 2.0F;
+    SDL_FRect const bg = {bx - 6.0F, 4.0F, static_cast<float>(w) + 12.0F,
+                          static_cast<float>(h) + 6.0F};
+    SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 200);
+    SDL_RenderFillRect(m_renderer, &bg);
+    blit_text(msg, kMsg, bx, 7.0F);
   }
 
   SDL_SetRenderDrawColor(m_renderer, r, g, b, a);
@@ -762,19 +722,9 @@ void SdlRenderer::draw_cursor_readout() {
 
   SDL_Color const col = {255, 255, 255, 255};
   const char *lines[2] = {l0, l1};
-  const int ws[2] = {w0, w1};
-  const int hs[2] = {h0, h1};
   for (int i = 0; i < 2; ++i) {
-    SDL_Texture *t = m_text_renderer->render_text(lines[i], col);
-    if (t != nullptr) {
-      SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
-      SDL_FRect const d = {bx + static_cast<float>(pad),
-                           by + static_cast<float>(pad + i * line_h),
-                           static_cast<float>(ws[i]),
-                           static_cast<float>(hs[i])};
-      SDL_RenderTexture(m_renderer, t, nullptr, &d);
-      SDL_DestroyTexture(t);
-    }
+    blit_text(lines[i], col, bx + static_cast<float>(pad),
+              by + static_cast<float>(pad + i * line_h));
   }
 
   SDL_SetRenderDrawColor(m_renderer, r, g, b, a);
@@ -1267,20 +1217,13 @@ void SdlRenderer::rebuild_freq_scale_ticks() {
     SDL_FRect const tick_line = {static_cast<float>(x), 0.0f, 1.0f, 4.0f};
     SDL_RenderFillRect(m_renderer, &tick_line);
 
-    // Label — temporary texture, composited onto scale texture then freed
+    // Label — temporary texture, composited onto the scale texture then freed
     std::string const label = format_freq_label(freq);
-    SDL_Texture *label_tex = m_text_renderer->render_text(label, label_color);
-    if (label_tex != nullptr) {
-      SDL_SetTextureBlendMode(label_tex, SDL_BLENDMODE_BLEND);
-      int lw = 0;
-      m_text_renderer->get_text_size(label, &lw, nullptr);
-      int lx = x - lw / 2;
-      lx = std::max(0, std::min(lx, static_cast<int>(m_width) - lw));
-      SDL_FRect const lrect = {static_cast<float>(lx), 5.0f,
-                               static_cast<float>(lw), 16.0f};
-      SDL_RenderTexture(m_renderer, label_tex, nullptr, &lrect);
-      SDL_DestroyTexture(label_tex);
-    }
+    int lw = 0;
+    m_text_renderer->get_text_size(label, &lw, nullptr);
+    int lx = x - lw / 2;
+    lx = std::max(0, std::min(lx, static_cast<int>(m_width) - lw));
+    blit_text(label, label_color, static_cast<float>(lx), 5.0f);
   }
 
   SDL_SetRenderTarget(m_renderer, nullptr);
