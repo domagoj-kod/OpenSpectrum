@@ -33,32 +33,26 @@ public:
         }
     }
 
-    /// @brief Default constructor (zero capacity; push/[] are no-ops until
-    ///        a capacity-taking RingBuffer is assigned in)
-    RingBuffer() : m_capacity(0), m_size(0), m_head(0) {}
-
     /// @brief Push an element to the end of the buffer
     /// @param item Element to push (copied)
     /// @note If buffer is full, oldest element is overwritten
-    void push(const T& item) {
-        if (m_capacity == 0) return;
-        m_data[m_head] = item;
-        m_head = (m_head + 1) % m_capacity;
-        if (m_size < m_capacity) {
-            ++m_size;
-        }
+    void push(const T &item) {
+      m_data[m_head] = item;
+      m_head = (m_head + 1) % m_capacity;
+      if (m_size < m_capacity) {
+        ++m_size;
+      }
     }
 
     /// @brief Push an element to the end of the buffer (move semantics)
     /// @param item Element to push (moved)
     /// @note If buffer is full, oldest element is overwritten
-    void push(T&& item) {
-        if (m_capacity == 0) return;
-        m_data[m_head] = std::move(item);
-        m_head = (m_head + 1) % m_capacity;
-        if (m_size < m_capacity) {
-            ++m_size;
-        }
+    void push(T &&item) {
+      m_data[m_head] = std::move(item);
+      m_head = (m_head + 1) % m_capacity;
+      if (m_size < m_capacity) {
+        ++m_size;
+      }
     }
 
     /// @brief Access element at index (0 = oldest, size()-1 = newest)

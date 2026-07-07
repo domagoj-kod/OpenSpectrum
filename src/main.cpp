@@ -384,13 +384,9 @@ auto main(int argc, char *argv[]) -> int {
       LOG_INFO("IQ logging enabled: " + iq_logger.get_data_filename());
     }
 
-    // 1.7 Initialize spectrogram exporter
-    SpectrogramExportConfig exp_config;
-    exp_config.output_directory = "spectrograms";
-    exp_config.filename_prefix = "spectrogram";
-    exp_config.include_metadata = true;
-    exp_config.png_compression_level = 8;
-    SpectrogramExporter spectrogram_exporter(exp_config);
+    // 1.7 Initialize spectrogram exporter (config defaults: spectrograms/
+    // output dir, metadata sidecar on)
+    SpectrogramExporter spectrogram_exporter;
     LOG_INFO("Spectrogram exporter initialized");
 
     // 2. Initialize frame pool for zero-allocation sample processing
@@ -475,7 +471,6 @@ auto main(int argc, char *argv[]) -> int {
 
     // 4. Initialize FFT analyzer
     FftAnalyzer fft_analyzer(FFT_SIZE);
-    fft_analyzer.enable_dc_center(true);
     fft_analyzer.set_window_coherent_gain(
         SignalProcessor::get_coherent_gain(config.window_function));
 
@@ -719,7 +714,6 @@ auto main(int argc, char *argv[]) -> int {
 
         // Recreate FFT analyzer with new size (using move semantics)
         fft_analyzer = FftAnalyzer(current_fft_size);
-        fft_analyzer.enable_dc_center(true);
         fft_analyzer.set_window_coherent_gain(
             SignalProcessor::get_coherent_gain(control_state.get_window()));
 

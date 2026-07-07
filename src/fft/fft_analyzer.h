@@ -40,10 +40,6 @@ public:
 
   [[nodiscard]] size_t fft_size() const noexcept { return m_fft_size; }
 
-  // Shift FFT output so DC is centered (for real signals)
-  // Apply (-1)^n shift to input before FFT, or shift output after FFT
-  void enable_dc_center(bool enabled) noexcept { m_center_dc = enabled; }
-
   // Window gain setter
   void set_window_coherent_gain(float gain) { m_window_coherent_gain = gain; }
 
@@ -57,7 +53,6 @@ private:
   // Cached results (updated after each execute)
   std::vector<float> m_db_spectrum;
 
-  bool m_center_dc{false};
   float m_window_coherent_gain{1.0F}; // Default to rectangular window
 };
 

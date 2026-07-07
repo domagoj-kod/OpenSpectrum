@@ -5,7 +5,6 @@
 #include <complex>
 #include <cstddef>
 #include <cstdlib>
-#include <functional>
 #include <memory>
 #include <mutex>
 #include <queue>
@@ -82,42 +81,31 @@ struct alignas(64) FFTFrame {
   }
 };
 
+class FramePool;
+
 // Lightweight frame handle with RAII for automatic pool return
 class FrameHandle {
 public:
-  using ReturnFunc = std::function<void(FFTFrame *)>;
-
   FrameHandle() = default;
-  explicit FrameHandle(FFTFrame *frame, ReturnFunc return_func = nullptr)
-      : m_frame(frame), m_return_func(std::move(return_func)) {}
+  explicit FrameHandle(FFTFrame *frame, std::weak_ptr<FramePool> pool = {})
+      : m_frame(frame), m_pool(std::move(pool)) {}
 
-  ~FrameHandle() {
-    if (m_frame && m_return_func) {
-      m_return_func(m_frame);
-    } else if (m_frame) {
-      FFTFrame::destroy(m_frame);
-    }
-  }
+  ~FrameHandle() { release(); }
 
   FrameHandle(const FrameHandle &) = delete;
   FrameHandle &operator=(const FrameHandle &) = delete;
 
   FrameHandle(FrameHandle &&other) noexcept
-      : m_frame(other.m_frame), m_return_func(other.m_return_func) {
+      : m_frame(other.m_frame), m_pool(std::move(other.m_pool)) {
     other.m_frame = nullptr;
-    other.m_return_func = nullptr;
   }
 
   FrameHandle &operator=(FrameHandle &&other) noexcept {
     if (this != &other) {
-      if (m_frame && m_return_func)
-        m_return_func(m_frame);
-      else if (m_frame)
-        FFTFrame::destroy(m_frame);
+      release();
       m_frame = other.m_frame;
-      m_return_func = other.m_return_func;
+      m_pool = std::move(other.m_pool);
       other.m_frame = nullptr;
-      other.m_return_func = nullptr;
     }
     return *this;
   }
@@ -150,8 +138,12 @@ public:
   }
 
 private:
+  // Return the frame to its pool, or destroy it if the pool is gone.
+  // Defined below FramePool (needs its definition).
+  void release();
+
   FFTFrame *m_frame = nullptr;
-  ReturnFunc m_return_func;
+  std::weak_ptr<FramePool> m_pool;
 };
 
 // Thread-safe pool of pre-allocated FFT frames.
@@ -196,22 +188,16 @@ public:
     if (!frame) {
       frame = FFTFrame::create(m_frame_capacity);
       if (!frame)
-        return FrameHandle(nullptr, nullptr);
+        return FrameHandle();
     }
     frame->reset();
-    std::weak_ptr<FramePool> weak_self = weak_from_this();
-    auto return_func = [weak_self](FFTFrame *f) {
-      if (!f)
-        return;
-      if (auto pool = weak_self.lock()) {
-        std::lock_guard<std::mutex> lock(pool->m_mutex);
-        pool->m_free_queue.push(f);
-      } else {
-        // Pool is gone — frame ownership falls to us.
-        FFTFrame::destroy(f);
-      }
-    };
-    return FrameHandle(frame, return_func);
+    return FrameHandle(frame, weak_from_this());
+  }
+
+  // FrameHandle's return path.
+  void release_frame(FFTFrame *frame) {
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_free_queue.push(frame);
   }
 
   size_t frame_capacity() const { return m_frame_capacity; }
@@ -221,5 +207,18 @@ private:
   mutable std::mutex m_mutex;
   std::queue<FFTFrame *> m_free_queue;
 };
+
+inline void FrameHandle::release() {
+  if (m_frame == nullptr) {
+    return;
+  }
+  if (auto pool = m_pool.lock()) {
+    pool->release_frame(m_frame);
+  } else {
+    // Pool is gone — frame ownership falls to us.
+    FFTFrame::destroy(m_frame);
+  }
+  m_frame = nullptr;
+}
 
 } // namespace openspectrum

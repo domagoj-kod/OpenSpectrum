@@ -16,7 +16,6 @@
 namespace openspectrum {
 
 class ControlState;
-class SdlControlInput;
 class TextRenderer;
 
 class SdlRenderer {
@@ -297,23 +296,14 @@ private:
   // Text rendering for status bar
   std::unique_ptr<TextRenderer> m_text_renderer;
 
-  // Texture cache to avoid recreating textures every frame
-  struct CachedTexture {
-    SDL_Texture *texture = nullptr;
-    std::string content;
-    SDL_Color color;
-    bool valid = false;
-  };
-
-  CachedTexture m_status_cache;
-  CachedTexture m_peak_cache;
-  CachedTexture m_iq_cache;
+  // Overlay text textures, each cached against the last rendered string.
   SDL_Texture *m_status_texture = nullptr;
   std::string m_current_status;
   bool m_status_dirty = true;
 
   // Peak amplitude indicator for top-right corner
   SDL_Texture *m_peak_texture = nullptr;
+  std::string m_current_peak;
 
   // IQ logging status indicator for bottom-left corner
   SDL_Texture *m_iq_texture = nullptr;

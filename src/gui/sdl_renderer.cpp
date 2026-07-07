@@ -208,19 +208,6 @@ SdlRenderer::~SdlRenderer() {
   if (m_freq_scale_texture != nullptr)
     SDL_DestroyTexture(m_freq_scale_texture);
 
-  // Clean up cached textures (only if they differ from current textures)
-  if (m_status_cache.texture != nullptr &&
-      m_status_cache.texture != m_status_texture) {
-    SDL_DestroyTexture(m_status_cache.texture);
-  }
-  if (m_peak_cache.texture != nullptr &&
-      m_peak_cache.texture != m_peak_texture) {
-    SDL_DestroyTexture(m_peak_cache.texture);
-  }
-  if (m_iq_cache.texture != nullptr && m_iq_cache.texture != m_iq_texture) {
-    SDL_DestroyTexture(m_iq_cache.texture);
-  }
-
   if (m_iq_texture != nullptr) {
     SDL_DestroyTexture(m_iq_texture);
   }
@@ -986,9 +973,6 @@ auto SdlRenderer::poll_events(ControlState *state) -> bool {
 
       // Handle control state if provided
       if (state != nullptr) {
-        // Create temporary SDL control input handler
-        SdlControlInput control_input(*state);
-
         // Get modifier state - SDL3 returns const bool* instead of const Uint8*
         const bool *keystate = SDL_GetKeyboardState(nullptr);
         bool const shift_held =
@@ -996,10 +980,8 @@ auto SdlRenderer::poll_events(ControlState *state) -> bool {
         bool const ctrl_held =
             keystate[SDL_SCANCODE_LCTRL] || keystate[SDL_SCANCODE_RCTRL];
 
-        // Handle control keys - SDL3: event.key.key instead of
-        // event.key.keysym.sym
-        if (control_input.handle_keyboard(event.key.key, shift_held,
-                                          ctrl_held)) {
+        // SDL3: event.key.key instead of event.key.keysym.sym
+        if (handle_control_key(*state, event.key.key, shift_held, ctrl_held)) {
           m_status_dirty = true;
         }
       }
@@ -1056,39 +1038,16 @@ void SdlRenderer::render_status_bar(const std::string &status_text) {
   if (status_text == m_current_status && !m_status_dirty) {
     return;
   }
-
   m_current_status = status_text;
   m_status_dirty = false;
 
-  // Use cached texture if available and content hasn't changed
-  if (m_status_cache.valid && m_status_cache.content == status_text) {
-    m_status_texture = m_status_cache.texture;
-    return;
-  }
-
-  // Destroy old texture
   if (m_status_texture != nullptr) {
     SDL_DestroyTexture(m_status_texture);
     m_status_texture = nullptr;
   }
-
-  // Destroy old cache texture if different
-  if (m_status_cache.texture != nullptr &&
-      m_status_cache.texture != m_status_texture) {
-    SDL_DestroyTexture(m_status_cache.texture);
-    m_status_cache.texture = nullptr;
-  }
-
-  // Render new status text
   if (!status_text.empty()) {
-    SDL_Color const text_color = {255, 255, 255, 255}; // White
-    m_status_texture = m_text_renderer->render_text(status_text, text_color);
-
-    // Update cache
-    m_status_cache.texture = m_status_texture;
-    m_status_cache.content = status_text;
-    m_status_cache.color = text_color;
-    m_status_cache.valid = true;
+    m_status_texture =
+        m_text_renderer->render_text(status_text, {255, 255, 255, 255});
   }
 }
 
@@ -1099,46 +1058,21 @@ void SdlRenderer::render_peak_indicator(float peak_db) {
       SDL_DestroyTexture(m_peak_texture);
       m_peak_texture = nullptr;
     }
-    // Clear cache
-    if (m_peak_cache.texture != nullptr) {
-      SDL_DestroyTexture(m_peak_cache.texture);
-      m_peak_cache.texture = nullptr;
-    }
-    m_peak_cache.valid = false;
+    m_current_peak.clear();
     return;
   }
 
   char buf[32];
   snprintf(buf, sizeof(buf), "PEAK: %.1f dB", peak_db);
-
-  // Use cached texture if content hasn't changed
-  if (m_peak_cache.valid && m_peak_cache.content == buf) {
-    m_peak_texture = m_peak_cache.texture;
+  if (m_current_peak == buf) {
     return;
   }
+  m_current_peak = buf;
 
-  // Destroy old texture
   if (m_peak_texture != nullptr) {
     SDL_DestroyTexture(m_peak_texture);
-    m_peak_texture = nullptr;
   }
-
-  // Destroy old cache texture if different
-  if (m_peak_cache.texture != nullptr &&
-      m_peak_cache.texture != m_peak_texture) {
-    SDL_DestroyTexture(m_peak_cache.texture);
-    m_peak_cache.texture = nullptr;
-  }
-
-  // Render new text
-  SDL_Color const text_color = {255, 255, 255, 255}; // White
-  m_peak_texture = m_text_renderer->render_text(buf, text_color);
-
-  // Update cache
-  m_peak_cache.texture = m_peak_texture;
-  m_peak_cache.content = buf;
-  m_peak_cache.color = text_color;
-  m_peak_cache.valid = true;
+  m_peak_texture = m_text_renderer->render_text(buf, {255, 255, 255, 255});
 }
 
 void SdlRenderer::render_iq_status(const std::string &iq_text) {
@@ -1148,34 +1082,12 @@ void SdlRenderer::render_iq_status(const std::string &iq_text) {
   }
   m_current_iq_status = iq_text;
 
-  // Use cached texture if available and content hasn't changed
-  if (m_iq_cache.valid && m_iq_cache.content == iq_text) {
-    m_iq_texture = m_iq_cache.texture;
-    return;
-  }
-
-  // Destroy old texture
   if (m_iq_texture != nullptr) {
     SDL_DestroyTexture(m_iq_texture);
     m_iq_texture = nullptr;
   }
-
-  // Destroy old cache texture if different
-  if (m_iq_cache.texture != nullptr && m_iq_cache.texture != m_iq_texture) {
-    SDL_DestroyTexture(m_iq_cache.texture);
-    m_iq_cache.texture = nullptr;
-  }
-
-  // Render new text if not empty
   if (!iq_text.empty()) {
-    SDL_Color const text_color = {255, 255, 255, 255}; // White
-    m_iq_texture = m_text_renderer->render_text(iq_text, text_color);
-
-    // Update cache
-    m_iq_cache.texture = m_iq_texture;
-    m_iq_cache.content = iq_text;
-    m_iq_cache.color = text_color;
-    m_iq_cache.valid = true;
+    m_iq_texture = m_text_renderer->render_text(iq_text, {255, 255, 255, 255});
   }
 }
 

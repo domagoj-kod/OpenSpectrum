@@ -15,14 +15,11 @@
 
 namespace openspectrum {
 
-SdlControlInput::SdlControlInput(ControlState &state) : m_state(state) {}
-
-// Handle keyboard input
-auto SdlControlInput::handle_keyboard(SDL_Keycode key, bool shift_held,
-                                      bool ctrl_held) -> bool {
-  // Adjust step sizes based on modifiers
-  uint32_t current_freq_step = freq_step;
-  float current_gain_step = gain_step;
+auto handle_control_key(ControlState &state, SDL_Keycode key, bool shift_held,
+                        bool ctrl_held) -> bool {
+  // Step sizes, adjusted by modifiers
+  uint32_t current_freq_step = 1000000; // 1 MHz default
+  float current_gain_step = 1.0F;       // 1 dB default
 
   if (shift_held) {
     // Fine control
@@ -35,67 +32,67 @@ auto SdlControlInput::handle_keyboard(SDL_Keycode key, bool shift_held,
   }
 
   bool changed = false;
-  auto const &constraints = m_state.get_constraints();
+  auto const &constraints = state.get_constraints();
 
   switch (key) {
   // Frequency controls
   case SDLK_PLUS:
   case SDLK_EQUALS: {
-    uint32_t const prev = m_state.get_frequency();
+    uint32_t const prev = state.get_frequency();
     uint32_t const new_freq =
-        std::min(m_state.get_frequency() + current_freq_step,
+        std::min(state.get_frequency() + current_freq_step,
                  constraints.max_frequency_hz);
     if (new_freq != prev) {
-      m_state.set_frequency(new_freq);
+      state.set_frequency(new_freq);
       LOG_INFO("[FREQ+] " + format_frequency(prev) + " -> " +
-               format_frequency(m_state.get_frequency()));
+               format_frequency(state.get_frequency()));
       changed = true;
-      m_state.mark_status_dirty();
+      state.mark_status_dirty();
     }
     break;
   }
 
   case SDLK_MINUS:
   case SDLK_UNDERSCORE: {
-    uint32_t const prev = m_state.get_frequency();
+    uint32_t const prev = state.get_frequency();
     uint32_t const new_freq =
-        std::max(m_state.get_frequency() - current_freq_step,
+        std::max(state.get_frequency() - current_freq_step,
                  constraints.min_frequency_hz);
     if (new_freq != prev) {
-      m_state.set_frequency(new_freq);
+      state.set_frequency(new_freq);
       LOG_INFO("[FREQ-] " + format_frequency(prev) + " -> " +
-               format_frequency(m_state.get_frequency()));
+               format_frequency(state.get_frequency()));
       changed = true;
-      m_state.mark_status_dirty();
+      state.mark_status_dirty();
     }
     break;
   }
 
   // Gain controls
   case SDLK_R: {
-    float const prev = m_state.get_gain();
-    float const new_gain = std::min(m_state.get_gain() + current_gain_step,
-                                    constraints.max_gain_db);
+    float const prev = state.get_gain();
+    float const new_gain =
+        std::min(state.get_gain() + current_gain_step, constraints.max_gain_db);
     if (new_gain != prev) {
-      m_state.set_gain(new_gain);
+      state.set_gain(new_gain);
       LOG_INFO("[GAIN+] " + ControlState::format_gain(prev) + " -> " +
-               ControlState::format_gain(m_state.get_gain()));
+               ControlState::format_gain(state.get_gain()));
       changed = true;
-      m_state.mark_status_dirty();
+      state.mark_status_dirty();
     }
     break;
   }
 
   case SDLK_F: {
-    float const prev = m_state.get_gain();
-    float const new_gain = std::max(m_state.get_gain() - current_gain_step,
-                                    constraints.min_gain_db);
+    float const prev = state.get_gain();
+    float const new_gain =
+        std::max(state.get_gain() - current_gain_step, constraints.min_gain_db);
     if (new_gain != prev) {
-      m_state.set_gain(new_gain);
+      state.set_gain(new_gain);
       LOG_INFO("[GAIN-] " + ControlState::format_gain(prev) + " -> " +
-               ControlState::format_gain(m_state.get_gain()));
+               ControlState::format_gain(state.get_gain()));
       changed = true;
-      m_state.mark_status_dirty();
+      state.mark_status_dirty();
     }
     break;
   }
@@ -109,13 +106,13 @@ auto SdlControlInput::handle_keyboard(SDL_Keycode key, bool shift_held,
     int const index = key - SDLK_1;
     if (index < static_cast<int>(constraints.supported_fft_sizes.size())) {
       size_t const new_size = constraints.supported_fft_sizes[index];
-      size_t const old_size = m_state.get_fft_size();
+      size_t const old_size = state.get_fft_size();
       if (new_size != old_size) {
-        m_state.set_fft_size(new_size);
+        state.set_fft_size(new_size);
         LOG_INFO("[FFT] " + std::to_string(old_size) + " -> " +
                  std::to_string(new_size));
         changed = true;
-        m_state.mark_status_dirty();
+        state.mark_status_dirty();
       }
     }
     break;
@@ -123,9 +120,9 @@ auto SdlControlInput::handle_keyboard(SDL_Keycode key, bool shift_held,
 
   // Color palette: 'c' cycles forward, Shift+C cycles backward.
   case SDLK_C: {
-    m_state.cycle_palette(shift_held ? -1 : 1);
+    state.cycle_palette(shift_held ? -1 : 1);
     LOG_INFO(std::string("[PALETTE] ") +
-             ControlState::palette_name(m_state.get_palette_index()));
+             ControlState::palette_name(state.get_palette_index()));
     changed = true;
     break;
   }
@@ -140,7 +137,7 @@ auto SdlControlInput::handle_keyboard(SDL_Keycode key, bool shift_held,
     }
 
     int current_index = -1;
-    WindowFunction const current = m_state.get_window();
+    WindowFunction const current = state.get_window();
     for (size_t i = 0; i < windows.size(); ++i) {
       if (windows[i] == current) {
         current_index = static_cast<int>(i);
@@ -158,7 +155,7 @@ auto SdlControlInput::handle_keyboard(SDL_Keycode key, bool shift_held,
     if (new_index >= 0 && new_index < static_cast<int>(windows.size())) {
       WindowFunction const new_window = windows[new_index];
       if (new_window != current) {
-        m_state.set_window(new_window);
+        state.set_window(new_window);
         LOG_INFO(
             "[WINDOW] " +
             std::string(SignalProcessor::window_function_to_string(current)) +
@@ -166,7 +163,7 @@ auto SdlControlInput::handle_keyboard(SDL_Keycode key, bool shift_held,
             std::string(
                 SignalProcessor::window_function_to_string(new_window)));
         changed = true;
-        m_state.mark_status_dirty();
+        state.mark_status_dirty();
       }
     }
     break;
@@ -175,19 +172,19 @@ auto SdlControlInput::handle_keyboard(SDL_Keycode key, bool shift_held,
   // IQ logging toggle (Ctrl+S)
   case SDLK_S:
     if (ctrl_held && !shift_held) {
-      m_state.request_iq_logging_toggle();
+      state.request_iq_logging_toggle();
       LOG_INFO("IQ logging toggle requested");
       changed = true;
-      m_state.mark_status_dirty();
+      state.mark_status_dirty();
     }
     break;
 
   // Frame-timing overlay toggle (T key - debug)
   case SDLK_T:
     if (!ctrl_held && !shift_held) {
-      m_state.toggle_timing_overlay();
+      state.toggle_timing_overlay();
       LOG_INFO(std::string("Frame-timing overlay ") +
-               (m_state.timing_overlay_enabled() ? "ON" : "OFF"));
+               (state.timing_overlay_enabled() ? "ON" : "OFF"));
       changed = true;
     }
     break;
@@ -195,10 +192,10 @@ auto SdlControlInput::handle_keyboard(SDL_Keycode key, bool shift_held,
   // Spectrogram export (e key - instant export)
   case SDLK_E:
     if (!ctrl_held && !shift_held) {
-      m_state.request_spectrogram_export();
+      state.request_spectrogram_export();
       LOG_INFO("Spectrogram export requested");
       changed = true;
-      m_state.mark_status_dirty();
+      state.mark_status_dirty();
     }
     break;
 
@@ -206,7 +203,7 @@ auto SdlControlInput::handle_keyboard(SDL_Keycode key, bool shift_held,
   // unless main() is currently frozen.
   case SDLK_SPACE:
     if (!ctrl_held && !shift_held) {
-      m_state.request_unfreeze();
+      state.request_unfreeze();
       changed = true;
     }
     break;
@@ -214,9 +211,9 @@ auto SdlControlInput::handle_keyboard(SDL_Keycode key, bool shift_held,
   // Max-hold trace toggle (m key)
   case SDLK_M:
     if (!ctrl_held && !shift_held) {
-      m_state.toggle_max_hold();
+      state.toggle_max_hold();
       LOG_INFO(std::string("[TRACE] Max-hold ") +
-               (m_state.max_hold_enabled() ? "ON" : "OFF"));
+               (state.max_hold_enabled() ? "ON" : "OFF"));
       changed = true;
     }
     break;
@@ -224,9 +221,9 @@ auto SdlControlInput::handle_keyboard(SDL_Keycode key, bool shift_held,
   // Video averaging toggle (a key)
   case SDLK_A:
     if (!ctrl_held && !shift_held) {
-      m_state.toggle_averaging();
+      state.toggle_averaging();
       LOG_INFO(std::string("[TRACE] Averaging ") +
-               (m_state.averaging_enabled() ? "ON" : "OFF"));
+               (state.averaging_enabled() ? "ON" : "OFF"));
       changed = true;
     }
     break;
@@ -234,7 +231,7 @@ auto SdlControlInput::handle_keyboard(SDL_Keycode key, bool shift_held,
   // Reset traces (x key): clears the max-hold peaks and re-seeds the average
   case SDLK_X:
     if (!ctrl_held && !shift_held) {
-      m_state.request_trace_reset();
+      state.request_trace_reset();
       LOG_INFO("[TRACE] Reset");
       changed = true;
     }

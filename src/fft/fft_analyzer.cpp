@@ -5,7 +5,6 @@
 #include <cmath>
 #include <complex>
 #include <cstddef>
-#include <cstring>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -72,7 +71,6 @@ FftAnalyzer::FftAnalyzer(FftAnalyzer &&other) noexcept
       m_input_buffer(std::move(other.m_input_buffer)),
       m_output_buffer(std::move(other.m_output_buffer)),
       m_db_spectrum(std::move(other.m_db_spectrum)),
-      m_center_dc(other.m_center_dc),
       m_window_coherent_gain(other.m_window_coherent_gain) {
   other.m_fft_size = 0;
 }
@@ -80,7 +78,6 @@ FftAnalyzer::FftAnalyzer(FftAnalyzer &&other) noexcept
 auto FftAnalyzer::operator=(FftAnalyzer &&other) noexcept -> FftAnalyzer & {
   if (this != &other) {
     m_fft_size = other.m_fft_size;
-    m_center_dc = other.m_center_dc;
     m_input_buffer = std::move(other.m_input_buffer);
     m_output_buffer = std::move(other.m_output_buffer);
     m_db_spectrum = std::move(other.m_db_spectrum);
@@ -97,41 +94,36 @@ void FftAnalyzer::execute(std::span<const std::complex<float>> input) {
     throw std::invalid_argument("Input size must match FFT size");
   }
 
-  // --- 1. Fill input buffer ----------------------------------------------
-  // Non-centered path: pocketfft_cpx == std::complex<float>, so this is a
-  // straight bitwise copy.
-  if (!m_center_dc) {
-    std::memcpy(m_input_buffer.data(), input.data(),
-                m_fft_size * sizeof(pocketfft_cpx));
-  } else {
+  // --- 1. Fill input buffer with the DC-centering sign trick --------------
+  // Multiplying the input by (-1)^n shifts the spectrum by N/2 so DC lands at
+  // screen center (see the note before step 3).
 #ifdef __AVX2__
-    // Sign pattern repeats every 2 complex samples ([+,+,-,-]) and is
-    // therefore constant across the 4-complex-wide AVX register. dst/src are
-    // declared inside the guard so scalar (non-AVX2, e.g. debug) builds don't
-    // warn on them being unused — the fallback below indexes the buffers
-    // directly.
-    auto *dst = reinterpret_cast<float *>(m_input_buffer.data());
-    const auto *src = reinterpret_cast<const float *>(input.data());
-    __m256 const sign_vec =
-        _mm256_setr_ps(1.0F, 1.0F, -1.0F, -1.0F, 1.0F, 1.0F, -1.0F, -1.0F);
-    size_t const simd_n = m_fft_size & ~size_t{3};
-    for (size_t i = 0; i < simd_n; i += 4) {
-      __m256 const s = _mm256_loadu_ps(src + 2 * i);
-      _mm256_storeu_ps(dst + 2 * i, _mm256_mul_ps(s, sign_vec));
-    }
-    for (size_t i = simd_n; i < m_fft_size; ++i) {
-      float const sign = (i % 2 == 0) ? 1.0F : -1.0F;
-      m_input_buffer[i] =
-          pocketfft_cpx(sign * input[i].real(), sign * input[i].imag());
-    }
-#else
-    for (size_t i = 0; i < m_fft_size; ++i) {
-      float const sign = (i % 2 == 0) ? 1.0F : -1.0F;
-      m_input_buffer[i] =
-          pocketfft_cpx(sign * input[i].real(), sign * input[i].imag());
-    }
-#endif
+  // Sign pattern repeats every 2 complex samples ([+,+,-,-]) and is
+  // therefore constant across the 4-complex-wide AVX register. dst/src are
+  // declared inside the guard so scalar (non-AVX2, e.g. debug) builds don't
+  // warn on them being unused — the fallback below indexes the buffers
+  // directly.
+  auto *dst = reinterpret_cast<float *>(m_input_buffer.data());
+  const auto *src = reinterpret_cast<const float *>(input.data());
+  __m256 const sign_vec =
+      _mm256_setr_ps(1.0F, 1.0F, -1.0F, -1.0F, 1.0F, 1.0F, -1.0F, -1.0F);
+  size_t const simd_n = m_fft_size & ~size_t{3};
+  for (size_t i = 0; i < simd_n; i += 4) {
+    __m256 const s = _mm256_loadu_ps(src + 2 * i);
+    _mm256_storeu_ps(dst + 2 * i, _mm256_mul_ps(s, sign_vec));
   }
+  for (size_t i = simd_n; i < m_fft_size; ++i) {
+    float const sign = (i % 2 == 0) ? 1.0F : -1.0F;
+    m_input_buffer[i] =
+        pocketfft_cpx(sign * input[i].real(), sign * input[i].imag());
+  }
+#else
+  for (size_t i = 0; i < m_fft_size; ++i) {
+    float const sign = (i % 2 == 0) ? 1.0F : -1.0F;
+    m_input_buffer[i] =
+        pocketfft_cpx(sign * input[i].real(), sign * input[i].imag());
+  }
+#endif
 
   // --- 2. Execute FFT ----------------------------------------------------
   pocketfft_forward(m_input_buffer, m_output_buffer);
