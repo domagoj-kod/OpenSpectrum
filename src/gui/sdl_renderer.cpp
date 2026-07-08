@@ -127,8 +127,9 @@ SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title,
              ", VSYNC: " + vsync_str + ", Accelerated: " + accel_str);
 
     if (is_software) {
-      LOG_ERROR("WARNING: Software rendering detected! Renderer: " +
-                std::string(renderer_name) + " - NO GPU ACCELERATION");
+      LOG_WARNING(
+          "Software rendering (no GPU acceleration) — higher CPU/power, "
+          "reduced FPS possible");
     }
   }
 
