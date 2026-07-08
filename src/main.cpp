@@ -12,6 +12,7 @@
 #include "utils/arg_parser.h"
 #include "utils/format.h"
 #include "utils/logger.h"
+#include "utils/win_console.h"
 #include "visualization/spectrum_display.h"
 #include "visualization/waterfall_display.h"
 
@@ -41,25 +42,6 @@
 #if defined(__SSE__) || defined(_M_X64) || defined(_M_IX86_FP)
 #include <pmmintrin.h> // _MM_SET_DENORMALS_ZERO_MODE
 #include <xmmintrin.h> // _MM_SET_FLUSH_ZERO_MODE
-#endif
-
-#ifdef _WIN32
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <windows.h>
-// SDL_main.h makes the .exe a GUI-subsystem binary, so stdout/stderr aren't
-// wired to the terminal that launched it — hence no console output on native
-// Windows. Reattach to the parent console if one exists; no-op (and no console
-// window) when double-clicked. Subsystem-agnostic, unlike a -mconsole link flag
-// that SDL_main's WinMain can still swallow.
-// ponytail: reattach-if-present is the whole fix; a separate console build
-// variant only if double-click users ever need a log window of their own.
-static void attach_parent_console() {
-  if (AttachConsole(ATTACH_PARENT_PROCESS)) {
-    (void)std::freopen("CONOUT$", "w", stdout);
-    (void)std::freopen("CONOUT$", "w", stderr);
-  }
-}
 #endif
 
 // USB DMA ring depth for rtlsdr_read_async (buf_len = 65536 B each, see
@@ -289,9 +271,8 @@ static void async_sample_callback(FrameHandle samples_frame) {
 }
 
 auto main(int argc, char *argv[]) -> int {
-#ifdef _WIN32
-  attach_parent_console(); // must run before the first LOG_* / printf
-#endif
+  attach_parent_console(); // Windows: wire logs to the launching terminal (if
+                           // any) before the first LOG_*; no-op elsewhere.
   enable_ftz_daz();
 
   // Parse command-line arguments
