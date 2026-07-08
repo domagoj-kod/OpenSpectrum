@@ -209,10 +209,8 @@ make clean
 | `make release` | `-O3 -flto -march=haswell` | None (`-DNDEBUG`) | Production |
 | `make profile` | `-O2 -pg` | Full (`-g`) | Performance analysis |
 
-All builds include:
-- `-D_FORTIFY_SOURCE=2` — Buffer overflow protection
-- `-fstack-protector-strong` — Stack smashing protection
-- `-Wl,-z,now -Wl,-z,relro` (Unix) — ASLR/PIE hardening
+All builds are security-hardened (FORTIFY, stack protector, RELRO + immediate
+binding, non-exec stack) — see [Security](#security) for the full flag table.
 
 ---
 
@@ -437,10 +435,6 @@ against the prior CPU-painted build. Intel VTune confirms the mechanism
   The application's own functions fall below the top-hotspot noise floor.
 - The GPU execution-unit array is idle in both builds — the cost was always
   CPU-side driver/upload, which is what was eliminated.
-
-The pipeline is now purely vsync/present-bound — per-frame compute is a small
-fraction of the 16.7 ms frame budget and leaves comfortable headroom at every
-FFT size, including 16384.
 
 ### Memory footprint
 
