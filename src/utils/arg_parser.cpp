@@ -51,6 +51,9 @@ void print_usage(const char *argv0) {
       << "  -W, --window NAME   Window function: rectangle, hann, hamming,\n"
       << "                      blackman, blackman-harris, flat-top\n"
       << "                      (default: blackman-harris)\n"
+      << "  --max-fps N         Cap render rate to N fps to cut GPU/battery "
+         "draw\n"
+      << "                      (1-240; default: 0 = uncapped, vsync-limited)\n"
       << "  --ppm N             Crystal frequency correction in ppm "
          "(default: 0)\n"
       << "  --bias-t            Power the antenna port (4.5 V bias tee)\n"
@@ -151,6 +154,14 @@ auto parse_arguments(int argc, char *argv[]) -> AppConfig {
         print_usage(argv[0]);
         std::exit(1);
       }
+    } else if (arg == "--max-fps") {
+      if (i + 1 >= argc || !parse_num(argv[i + 1], config.max_fps) ||
+          config.max_fps < 1 || config.max_fps > 240) {
+        std::cerr << "Error: --max-fps must be an integer in [1, 240]\n";
+        print_usage(argv[0]);
+        std::exit(1);
+      }
+      ++i;
     } else if (arg == "--ppm") {
       if (i + 1 >= argc || !parse_num(argv[i + 1], config.ppm_correction)) {
         std::cerr << "Error: Invalid ppm value\n";

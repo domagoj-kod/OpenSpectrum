@@ -18,6 +18,11 @@ struct AppConfig {
   float gain_db = 10.0f;              // 10 dB
   WindowFunction window_function = WindowFunction::BLACKMAN_HARRIS;
 
+  // Frame-rate cap (0 = uncapped: vsync paces at the display refresh). A
+  // positive value throttles the render loop below refresh to cut GPU/battery
+  // draw for long unattended measurements. Vsync stays on either way.
+  int max_fps = 0;
+
   // IQ logging options
   bool iq_logging_enabled = false;
   double iq_capture_duration = 0.0; // seconds (0 = manual stop via keyboard)

@@ -30,6 +30,7 @@
 #include <queue>
 #include <span>
 #include <string>
+#include <thread>
 #include <vector>
 
 // SDL3 requires the file defining main() to include SDL_main.h (no longer
@@ -40,6 +41,25 @@
 #if defined(__SSE__) || defined(_M_X64) || defined(_M_IX86_FP)
 #include <pmmintrin.h> // _MM_SET_DENORMALS_ZERO_MODE
 #include <xmmintrin.h> // _MM_SET_FLUSH_ZERO_MODE
+#endif
+
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+// SDL_main.h makes the .exe a GUI-subsystem binary, so stdout/stderr aren't
+// wired to the terminal that launched it — hence no console output on native
+// Windows. Reattach to the parent console if one exists; no-op (and no console
+// window) when double-clicked. Subsystem-agnostic, unlike a -mconsole link flag
+// that SDL_main's WinMain can still swallow.
+// ponytail: reattach-if-present is the whole fix; a separate console build
+// variant only if double-click users ever need a log window of their own.
+static void attach_parent_console() {
+  if (AttachConsole(ATTACH_PARENT_PROCESS)) {
+    (void)std::freopen("CONOUT$", "w", stdout);
+    (void)std::freopen("CONOUT$", "w", stderr);
+  }
+}
 #endif
 
 // USB DMA ring depth for rtlsdr_read_async (buf_len = 65536 B each, see
@@ -269,6 +289,9 @@ static void async_sample_callback(FrameHandle samples_frame) {
 }
 
 auto main(int argc, char *argv[]) -> int {
+#ifdef _WIN32
+  attach_parent_console(); // must run before the first LOG_* / printf
+#endif
   enable_ftz_daz();
 
   // Parse command-line arguments
@@ -596,7 +619,33 @@ auto main(int argc, char *argv[]) -> int {
     int capture_w = 0;
     int capture_h = 0;
 
+    // Frame-rate cap (--max-fps). Zero interval = uncapped: vsync alone paces
+    // at the display refresh (default). A positive cap throttles the render
+    // loop below refresh to cut GPU/battery draw for long unattended runs. The
+    // sleep_until at the loop top paces every path (frozen/no-sample/render)
+    // uniformly; vsync stays on so frames remain tear-free. Windows' ~15 ms
+    // default timer granularity can make the effective rate undershoot the cap
+    // slightly — harmless (it undershoots power too).
+    const auto frame_interval =
+        config.max_fps > 0
+            ? std::chrono::duration_cast<timing_clock::duration>(
+                  std::chrono::duration<double>(1.0 / config.max_fps))
+            : timing_clock::duration::zero();
+    auto next_frame_time = timing_clock::now();
+
     while (g_running.load(std::memory_order_relaxed)) {
+      // Frame-rate cap: park until the next scheduled frame. No-op when
+      // uncapped. Reset the schedule if a heavy frame put us behind, so we
+      // don't burst to catch up (which would defeat the power cap).
+      if (frame_interval != timing_clock::duration::zero()) {
+        std::this_thread::sleep_until(next_frame_time);
+        next_frame_time += frame_interval;
+        auto const now = timing_clock::now();
+        if (next_frame_time < now) {
+          next_frame_time = now;
+        }
+      }
+
       // === 1.0. Drain a completed export capture (armed a prior frame) ===
       if (pending_export.armed &&
           renderer.take_capture(capture_buf, capture_w, capture_h)) {
