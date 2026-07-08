@@ -326,6 +326,12 @@ auto main(int argc, char *argv[]) -> int {
     control_state.set_frequency(static_cast<uint32_t>(config.center_freq_hz));
     control_state.set_gain(config.gain_db);
     control_state.set_fft_size(config.fft_size);
+    // A non-default --fft-size (!= the 4096 ControlState default) flips the
+    // fft-changed flag, which would make the first loop iteration redundantly
+    // reinitialize FFT-dependent state that the setup below already builds for
+    // config.fft_size (and needlessly stop/restart the sample source). Clear it
+    // so the reinit path only fires on real runtime '1'-'5' changes.
+    control_state.clear_fft_change_flag();
     control_state.set_window(config.window_function);
     LOG_INFO("Runtime controls initialized");
 
