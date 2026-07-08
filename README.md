@@ -91,6 +91,7 @@ be converted to absolute power (dBm) without a per-gain calibration offset.
 | **IQ Capture & Playback** | Record raw IQ to disk (`Ctrl+S`) and replay captures with `--play` — no hardware needed |
 | **PNG Spectrogram Export** | One-key export of the current spectrum + waterfall to an image |
 | **SDL3 GUI** | Hardware-accelerated rendering with responsive design |
+| **Power-Aware Rendering** | Vsync-paced with an optional `--max-fps` cap (default 30) that throttles below refresh to cut GPU/battery draw for long unattended measurements |
 | **Modular Design** | Plug-and-play architecture: swap hardware backends without modifying core logic |
 | **Security-Hardened** | Compiled with `-D_FORTIFY_SOURCE=2`, stack protection, RELRO, and more |
 
@@ -142,6 +143,14 @@ section covers both cases.
 ## Prebuilt binaries
 
 Check out the Releases page for latest Windows and Linux compatible releases.
+
+> [!NOTE]
+> The Windows `.exe` is currently **unsigned**, so Windows Defender's machine-learning
+> heuristic may flag it as `Trojan:Win32/Wacatac.C!ml` and quarantine it. This is a
+> **false positive** (typically ~1/61 on VirusTotal) common to unsigned, freshly-built
+> C/C++ tools — it is not malware, and the source is open for inspection. Until the
+> binaries are code-signed you can restore the file from quarantine (or submit the
+> false positive to Microsoft). Signed releases are planned.
 
 ### Prerequisites
 
@@ -228,6 +237,8 @@ Options:
   -W, --window NAME   Window function: rectangle, hann, hamming,
                       blackman, blackman-harris, flat-top
                       (default: blackman-harris)
+  --max-fps N         Cap render rate to N fps to cut GPU/battery draw
+                      (default: 30; 0 = uncapped, vsync-limited)
   --ppm N             Crystal frequency correction in ppm (default: 0)
   --bias-t            Power the antenna port (4.5 V bias tee)
   --direct-sampling   Q-branch direct sampling for HF (tunes 0-14.4 MHz)
@@ -391,6 +402,20 @@ Dell Precision notebook with Intel® Core™ i7-12700H processor displays minima
   only a small fraction of that budget and stays roughly flat across FFT sizes —
   the pipeline is present-bound, not compute-bound, so the frame rate holds at
   the cap from 4096 through 16384.
+
+### Rendering backends
+
+Rendering goes through SDL3's renderer, and **the default backend is the right one** —
+Direct3D 11 on Windows, OpenGL on Linux — both hold a clean 60 fps with ~1 ms of CPU.
+The pipeline is render-backend-bound rather than compute-bound, so the frame-timing HUD
+(`t`) mostly shows the vsync idle-wait, not real work — a large `present`/`build`
+number is the loop waiting for the next refresh, not a slow path.
+
+- **Don't force Vulkan on older Intel integrated GPUs** (HD 6xx / Gen9 and similar):
+  `SDL_RENDER_DRIVER=vulkan` there runs at roughly half the frame rate for no benefit.
+- **Software rendering** (no GPU) works and warns loudly, but does all rasterization on
+  a single CPU core — use `--max-fps 30` to cut its power and thermal cost on low-end
+  machines running on battery.
 
 ### GPU spectrum rendering
 

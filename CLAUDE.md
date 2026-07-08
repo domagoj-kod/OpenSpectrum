@@ -2,6 +2,14 @@
 
 Guidance for Claude Code (claude.ai/code) working in this repository.
 
+## Purpose & audience
+
+Real-time SDR spectrum analyzer (RTL2832U today; the modular device layer is ready for a company's proprietary SDR). Design priorities, in order: **low latency, low power** (extended battery lab measurements), then **minimal footprint**.
+
+Who runs it: mostly **non-software people** — radio/electronics engineers testing devices — on **native Windows**, with a Linux/WSL2 developer path alongside. The `.iq` captures + PNG spectrogram exports feed a downstream **Python/AI** pipeline. Private repo, going public as it matures.
+
+Two consequences that keep driving decisions: **(1) no scary UX** — a console window, an AV prompt, or a driver hoop reads as malware to this audience (see *Windows distribution* below), so native Windows ships GUI-only; **(2) grooming for handoff to junior maintainers** — favour clarity and deletion over cleverness.
+
 ## Build
 
 ```bash
@@ -33,6 +41,8 @@ Its `-I` flags mirror the Makefile's `INCLUDES`; the **per-module dirs are requi
 `.github/workflows/release.yml` runs the **same scripts**; triggers on `v*` tag push (manual `workflow_dispatch` builds artifacts but does not publish). Two jobs (Linux `ubuntu-latest`, Windows MSYS2 MINGW64) build, upload an artifact, and publish a Release (body = annotated tag message). Cut a release: `git tag -s vX -F notes.txt && git push origin vX`; see `RELEASING.md`.
 
 App icon: source `packaging/openspectrum.svg`; the rasterized `openspectrum.png` (Linux/AppImage) and multi-size `openspectrum.ico` (16–256 px, Windows) are **committed** and consumed directly — no build-time SVG rasterization. Regenerate after editing the SVG: `rsvg-convert -w256 -h256 openspectrum.svg -o openspectrum.png`, and render 16/24/32/48/64/128/256 PNGs + `icotool -c` for the `.ico`. On Windows the Makefile compiles `openspectrum.rc` → COFF via `windres` (`RES_OBJ`, gated on `OS=Windows_NT`, empty elsewhere) and links it into the `.exe` so the shell shows the icon.
+
+**Windows distribution — unsigned = AV false positives.** A stripped, statically-linked `.exe` with no code-signing certificate and no download reputation reliably trips Windows Defender's ML heuristic (`Trojan:Win32/Wacatac.C!ml`; ~1/61 on VirusTotal — a false positive). The durable fix is **Authenticode signing** (EV cert → instant SmartScreen trust) + a Microsoft false-positive submission (`microsoft.com/en-us/wdsi/filesubmission`). Until then, do **not** add AV-suspicious Win32 APIs to the shipped build — `AttachConsole` console-attach was added for terminal output and reverted precisely because it worsened the FP. This is why native Windows is **GUI-only, no stdout/stderr**.
 
 ## Architecture
 
@@ -93,6 +103,8 @@ After `add_spectrum_line()`, main.cpp checks `needs_full_render()`:
 
 **Transition continuity**: scroll textures are allocated lazily in `render_displays_scroll()` (`ensure_wf_scroll_textures()`); on the first scroll call (`m_wf_scroll_valid` false) the seed branch copies the current waterfall from `m_texture` shifted up by `line_height` instead of clearing to black → seamless fill→scroll.
 
+**Frame pacing**: vsync is on (hardcoded in `main.cpp`'s `SdlRenderer` ctor), so the loop is paced by the display refresh, not a busy-spin. `--max-fps N` (default **30**, `0` = uncapped) adds a top-of-loop `std::this_thread::sleep_until` that throttles *below* refresh to cut GPU/battery draw for long unattended runs; it paces every path (frozen / no-sample / render) uniformly and keeps vsync on, so frames stay tear-free. Windows' ~15 ms timer granularity makes the effective rate undershoot the cap slightly (harmless — undershoots power too). `t` toggles the frame-timing HUD (`cpu` / `render_build` / `present` ms).
+
 ### WaterfallDisplay
 History = `RingBuffer<vector<uint8_t>>`; dB quantized to `uint8_t` over a fixed -120..0 dB range (4:1 vs float). RGBA LUT (`m_rgba_lut[256]`, `uint32_t`) maps quantized → color; render inner loop is `memcpy`/pixel (scalar) or `_mm256_i32gather_epi32`×8 (AVX2).
 
@@ -104,6 +116,13 @@ History = `RingBuffer<vector<uint8_t>>`; dB quantized to `uint8_t` over a fixed 
 | SDL render driver | `SDL_HINT_RENDER_DRIVER = "direct3d11"` pre-`SDL_CreateRenderer` | default |
 | Security linker flags | none (static libs) | `-Wl,-z,now -Wl,-z,relro -Wl,-z,noexecstack` |
 | pocketfft `aligned_alloc` | `_aligned_malloc`/`_free` (`<malloc.h>`) | `::aligned_alloc` (C11) |
+
+### Performance profile (measured — don't re-derive)
+The pipeline is **render-backend-bound, never DSP-bound.** `cpu` (remove_dc + window + FFT + display update) is sub-2 ms even at FFT 16384 on a 15 W i5-7300U — further FFT/SIMD work is **not** warranted; that line is done.
+- **`render_build`/`present` are not comparable across backends.** The vsync idle-wait lands in `present` on Direct3D 11 (Windows) and the software renderer, but in `render_build` on OpenGL. Only `cpu` is a clean cross-backend number — a large `present` or `render_build` is mostly idle vblank wait, **not** work.
+- **Keep the default renderer.** OpenGL (Linux default) and D3D11 (Windows) lock a clean 60 fps with ~1 ms real CPU.
+- **Vulkan is a trap on old Intel iGPUs (HD 620 / Gen9):** ~30 fps, ~24 ms real `render_build` — ~7× slower than OpenGL on the same box. Never suggest `SDL_RENDER_DRIVER=vulkan` there.
+- **Software renderer** = battery/thermal worst case (raster + blit ~16 ms, all on one CPU core); correct, warns loudly, fine only as a fallback. `--max-fps 30` helps most here.
 
 ### ControlState flow
 `SdlControlInput` writes `ControlState` (freq, gain, FFT size, window). Main loop polls `*_changed()` each iter; `apply_to_device(dev)` is the single hardware-register write site. A freq change drains the sample queue so the spectrum snaps in sync with the freq scale.
