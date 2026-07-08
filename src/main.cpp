@@ -12,7 +12,6 @@
 #include "utils/arg_parser.h"
 #include "utils/format.h"
 #include "utils/logger.h"
-#include "utils/win_console.h"
 #include "visualization/spectrum_display.h"
 #include "visualization/waterfall_display.h"
 
@@ -271,8 +270,6 @@ static void async_sample_callback(FrameHandle samples_frame) {
 }
 
 auto main(int argc, char *argv[]) -> int {
-  attach_parent_console(); // Windows: wire logs to the launching terminal (if
-                           // any) before the first LOG_*; no-op elsewhere.
   enable_ftz_daz();
 
   // Parse command-line arguments
@@ -600,9 +597,9 @@ auto main(int argc, char *argv[]) -> int {
     int capture_w = 0;
     int capture_h = 0;
 
-    // Frame-rate cap (--max-fps). Zero interval = uncapped: vsync alone paces
-    // at the display refresh (default). A positive cap throttles the render
-    // loop below refresh to cut GPU/battery draw for long unattended runs. The
+    // Frame-rate cap (--max-fps, default 30). A positive cap throttles the
+    // render loop below the display refresh to cut GPU/battery draw for long
+    // unattended runs; 0 gives a zero interval = uncapped (vsync alone). The
     // sleep_until at the loop top paces every path (frozen/no-sample/render)
     // uniformly; vsync stays on so frames remain tear-free. Windows' ~15 ms
     // default timer granularity can make the effective rate undershoot the cap
