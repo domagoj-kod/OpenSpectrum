@@ -123,6 +123,7 @@ The pipeline is **render-backend-bound, never DSP-bound.** `cpu` (remove_dc + wi
 - **Keep the default renderer.** OpenGL (Linux default) and D3D11 (Windows) lock a clean 60 fps with ~1 ms real CPU.
 - **Vulkan is a trap on old Intel iGPUs (HD 620 / Gen9):** ~30 fps, ~24 ms real `render_build` — ~7× slower than OpenGL on the same box. Never suggest `SDL_RENDER_DRIVER=vulkan` there.
 - **Software renderer** = battery/thermal worst case (raster + blit ~16 ms, all on one CPU core); correct, warns loudly, fine only as a fallback. `--max-fps 30` helps most here.
+- **Memory is bounded, not FFT-scaling:** under 49 MB resident at FFT 16384 (largest transform) on the v3.7.0 Direct3D 11 Windows build, lower at smaller sizes. A Linux/WSL2 profile reads much higher — that's the Mesa software-GL backing store (no GPU passthrough), not heap. Full breakdown in `docs/TECHNICAL.md`.
 
 ### ControlState flow
 `SdlControlInput` writes `ControlState` (freq, gain, FFT size, window). Main loop polls `*_changed()` each iter; `apply_to_device(dev)` is the single hardware-register write site. A freq change drains the sample queue so the spectrum snaps in sync with the freq scale.
