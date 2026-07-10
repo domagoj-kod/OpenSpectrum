@@ -483,9 +483,12 @@ auto main(int argc, char *argv[]) -> int {
 
     // 5. Initialize displays (split vertically: spectrum on top, waterfall
     // below)
-    SpectrumDisplay spectrum_display(DISPLAY_WIDTH, DISPLAY_HEIGHT / 2);
-    WaterfallDisplay waterfall_display(DISPLAY_WIDTH, DISPLAY_HEIGHT / 2,
-                                       WATERFALL_LINES);
+    // Displays span the plot region only; the right gutter is the instrument
+    // panel. plot_width() == full width when the window is too narrow for a
+    // panel, so the narrow-window case is unchanged.
+    SpectrumDisplay spectrum_display(renderer.plot_width(), DISPLAY_HEIGHT / 2);
+    WaterfallDisplay waterfall_display(renderer.plot_width(),
+                                       DISPLAY_HEIGHT / 2, WATERFALL_LINES);
 
     spectrum_display.set_db_range(-120.0F, 0.0F);
     waterfall_display.set_db_range(-120.0F, 0.0F);
@@ -816,9 +819,11 @@ auto main(int argc, char *argv[]) -> int {
         s_last_freq = now_freq;
       }
 
-      // Update status bar (without PEAK - now shown separately)
+      // Feed the panel's status grid (freq/gain/fft/window/palette/trace).
       if (control_state.status_changed()) {
-        renderer.render_status_bar(control_state.get_status_string());
+        auto sf = control_state.get_status_fields();
+        renderer.set_status_fields(
+            {sf.freq, sf.gain, sf.fft, sf.window, sf.palette, sf.trace});
         control_state.clear_status_dirty();
       }
 
@@ -827,10 +832,10 @@ auto main(int argc, char *argv[]) -> int {
       if (++frame_count % 60 == 0) { // Update every ~60 frames (~1 second)
         if (g_iq_capturing.load(std::memory_order_relaxed)) {
           auto stats = iq_logger.get_stats();
+          // Kept short to fit the panel column.
           std::string const iq_status =
-              "LOGGING: " +
-              std::to_string(static_cast<size_t>(stats.duration_seconds)) +
-              "s (" + std::to_string(stats.sample_count) + " samples)";
+              "REC " +
+              std::to_string(static_cast<size_t>(stats.duration_seconds)) + "s";
           renderer.render_iq_status(iq_status);
         } else {
           // Clear IQ status when not capturing
@@ -838,10 +843,10 @@ auto main(int argc, char *argv[]) -> int {
         }
       }
 
-      // Update peak indicator in top-right corner (updates every frame)
-      if (peak_db > -140.0F) {
-        renderer.render_peak_indicator(peak_db);
-      }
+      // Latest peak for the panel readout, every frame. Pass it unconditionally
+      // so the renderer tracks the live value and hides it (< -140 dBFS) when
+      // the signal drops, instead of freezing at the last valid peak.
+      renderer.render_peak_indicator(peak_db);
 
       // Update frequency scale (caches rebuild only when center_hz or rate
       // changes)
@@ -879,7 +884,7 @@ auto main(int argc, char *argv[]) -> int {
         const double center =
             static_cast<double>(control_state.get_frequency());
         const double left_hz = center - rate / 2.0;
-        const float region_w = static_cast<float>(renderer.width());
+        const float region_w = static_cast<float>(spectrum_display.width());
         const float total_h = static_cast<float>(spectrum_display.height() +
                                                  waterfall_display.height());
 
@@ -955,7 +960,7 @@ auto main(int argc, char *argv[]) -> int {
         SdlRenderer::CursorReadout readout;
         const float spec_h = static_cast<float>(spectrum_display.height());
         const float wf_h = static_cast<float>(waterfall_display.height());
-        const float region_w = static_cast<float>(renderer.width());
+        const float region_w = static_cast<float>(spectrum_display.width());
         const float cx = renderer.cursor_x();
         const float cy = renderer.cursor_y();
         const double rate = static_cast<double>(effective_rate);
@@ -1125,11 +1130,7 @@ auto main(int argc, char *argv[]) -> int {
       // This frame still renders below, so the triggering frame is the one
       // held.
       if (trig_armed && peak_db >= trig_threshold_db) {
-        frozen = true;
-        char tb[56];
-        std::snprintf(tb, sizeof(tb), "TRIGGERED @ %.1f dB - SPACE to resume",
-                      static_cast<double>(peak_db));
-        renderer.render_status_bar(tb);
+        frozen = true; // the panel shows the trigger row while frozen
       }
 
       // === 5. Get spectral data ===
@@ -1145,7 +1146,7 @@ auto main(int argc, char *argv[]) -> int {
       // Build the spectrum bars once per frame (reuses spec_verts/spec_idx
       // capacity). The waterfall still picks full-upload vs GPU-scroll.
       spectrum_display.build_vertices(
-          static_cast<float>(renderer.width()),
+          static_cast<float>(renderer.plot_width()),
           static_cast<float>(spectrum_display.height()), spec_verts, spec_idx);
       const auto &wf_dirty_rects = waterfall_display.get_dirty_rects();
 

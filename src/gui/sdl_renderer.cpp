@@ -63,9 +63,15 @@ static std::string format_freq_label(int64_t hz) {
   return {buf};
 }
 
+// Width (px) of the right-hand instrument panel. The plot region is the window
+// width minus this. Fixed: the window uses logical-presentation scaling, so a
+// resize scales the whole composited scene rather than reflowing the panel.
+static constexpr size_t kPanelWidth = 240;
+
 SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title,
                          bool enable_vsync)
     : m_width(width), m_height(height), m_enable_vsync(enable_vsync) {
+  m_plot_width = (m_width > kPanelWidth) ? m_width - kPanelWidth : m_width;
   if (!SDL_Init(SDL_INIT_VIDEO)) {
     throw std::runtime_error("SDL_Init failed: " + std::string(SDL_GetError()));
   }
@@ -195,8 +201,6 @@ SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title,
   if (!m_text_renderer->init()) {
     std::cerr << "Warning: Failed to initialize text renderer" << '\n';
   }
-  m_status_texture = nullptr;
-  m_status_dirty = true;
 }
 
 SdlRenderer::~SdlRenderer() {
@@ -209,15 +213,6 @@ SdlRenderer::~SdlRenderer() {
   if (m_freq_scale_texture != nullptr)
     SDL_DestroyTexture(m_freq_scale_texture);
 
-  if (m_iq_texture != nullptr) {
-    SDL_DestroyTexture(m_iq_texture);
-  }
-  if (m_peak_texture != nullptr) {
-    SDL_DestroyTexture(m_peak_texture);
-  }
-  if (m_status_texture != nullptr) {
-    SDL_DestroyTexture(m_status_texture);
-  }
   if (m_frame_tex != nullptr) {
     SDL_DestroyTexture(m_frame_tex);
   }
@@ -249,158 +244,34 @@ void SdlRenderer::blit_text(const std::string &text, SDL_Color color, float x,
 }
 
 void SdlRenderer::render_overlays() {
-  // Render status bar on top
-  if (m_status_texture != nullptr) {
-    int text_width = 0;
-    int text_height = 0;
-    m_text_renderer->get_text_size(m_current_status, &text_width, &text_height);
-
-    // Scale the bar down to fit the window width so a long status string (e.g.
-    // once the palette field is appended) can't overflow the left edge and clip
-    // FREQ. When it already fits, scale == 1 and it sits bottom-right as
-    // before; when too wide it shrinks proportionally (aspect preserved) to
-    // fill the available width. Robust to narrow / resized windows.
-    const int avail = static_cast<int>(m_width) - 20; // 10px margin each side
-    double scale = 1.0;
-    if (text_width > avail && text_width > 0) {
-      scale = static_cast<double>(avail) / static_cast<double>(text_width);
-    }
-    const int draw_w = static_cast<int>(text_width * scale);
-    const int draw_h = static_cast<int>(text_height * scale);
-
-    SDL_FRect const dest_rect = {
-        static_cast<float>(static_cast<int>(m_width) - draw_w -
-                           10), // 10px margin from right
-        static_cast<float>(static_cast<int>(m_height) - draw_h -
-                           10), // 10px margin from bottom
-        static_cast<float>(draw_w), static_cast<float>(draw_h)};
-    SDL_RenderTexture(m_renderer, m_status_texture, nullptr, &dest_rect);
+  // Transient one-shot message (export result) — bottom-left over the plot,
+  // auto-clearing at its deadline. Status / PEAK / timing all live in the panel
+  // now; this is the only text left floating on the plot besides the axes.
+  if (!m_status_msg.empty() &&
+      std::chrono::steady_clock::now() < m_status_until) {
+    blit_text(m_status_msg, {200, 200, 200, 255},
+              static_cast<float>(axis_strip_width()) + 8.0F,
+              static_cast<float>(m_height) - 24.0F);
   }
 
-  // Render IQ logging status in top-right corner (below PEAK)
-  if (m_iq_texture != nullptr) {
-    int text_width = 0;
-    int text_height = 0;
-    m_text_renderer->get_text_size(m_current_iq_status, &text_width,
-                                   &text_height);
-
-    // Position below PEAK indicator (which is at y=6 with background padding)
-    // PEAK background height: text_height + 10 (5px padding each side)
-    int peak_text_height = 0;
-    m_text_renderer->get_text_size("PEAK: -00.0 dB", nullptr,
-                                   &peak_text_height);
-    int const peak_bg_height = peak_text_height + 10;
-
-    SDL_FRect const iq_dest_rect = {
-        static_cast<float>(static_cast<int>(m_width - text_width -
-                                            16)), // Match PEAK X position
-        static_cast<float>(6 + peak_bg_height +
-                           4), // Below PEAK background with 4px gap
-        static_cast<float>(text_width), static_cast<float>(text_height)};
-    SDL_RenderTexture(m_renderer, m_iq_texture, nullptr, &iq_dest_rect);
-  }
-
-  // Render peak indicator in top-right corner with semi-transparent background
-  if (m_peak_texture != nullptr) {
-    int text_width = 0;
-    int text_height = 0;
-    m_text_renderer->get_text_size("PEAK: -00.0 dB", &text_width, &text_height);
-
-    // Background rectangle (slightly larger than text with padding)
-    SDL_FRect const bg_rect = {
-        static_cast<float>(
-            static_cast<int>(m_width - text_width - 16)), // 16px from right
-        6.0f,                                             // 6px from top
-        static_cast<float>(text_width + 10), // 5px padding on each side
-        static_cast<float>(text_height + 10) // 5px padding on top/bottom
-    };
-
-    // Save current draw color
-    Uint8 r;
-    Uint8 g;
-    Uint8 b;
-    Uint8 a;
-    SDL_GetRenderDrawColor(m_renderer, &r, &g, &b, &a);
-
-    // Set background color (dark semi-transparent black)
-    SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 192);
-    SDL_RenderFillRect(m_renderer, &bg_rect);
-
-    // Render text on top of background (centered in backdrop)
-    SDL_FRect const text_rect = {
-        static_cast<float>(
-            static_cast<int>(m_width - text_width - 13)), // Center in backdrop
-        8.0f,                                             // 8px from top
-        static_cast<float>(text_width), static_cast<float>(text_height)};
-    SDL_RenderTexture(m_renderer, m_peak_texture, nullptr, &text_rect);
-
-    // Restore draw color
-    SDL_SetRenderDrawColor(m_renderer, r, g, b, a);
-  }
-
-  // Frequency scale — one copy of the pre-baked target texture per frame.
-  // No state changes, no per-tick draw calls, no blend-mode save/restore.
+  // Frequency scale — one copy of the pre-baked target texture per frame, over
+  // the plot region only (the panel owns [plot_width, width)). No state
+  // changes, no per-tick draw calls, no blend-mode save/restore.
   if (m_freq_scale_texture != nullptr && m_freq_scale_spectrum_height >= 22) {
     const int scale_h = 22;
     const int scale_y =
         static_cast<int>(m_freq_scale_spectrum_height) - scale_h;
     SDL_FRect const dst = {0.0f, static_cast<float>(scale_y),
-                           static_cast<float>(m_width),
+                           static_cast<float>(m_plot_width),
                            static_cast<float>(scale_h)};
     SDL_RenderTexture(m_renderer, m_freq_scale_texture, nullptr, &dst);
-  }
-
-  // DEBUG: frame-timing overlay (toggled with 'T'), top-left, green on a
-  // semi-transparent backdrop. Text textures are created/destroyed per frame —
-  // acceptable because this path is off by default.
-  if (m_timing_overlay_enabled && m_text_renderer) {
-    char lines[4][32];
-    std::snprintf(lines[0], sizeof(lines[0]), "FPS  %.1f", m_timing_fps);
-    std::snprintf(lines[1], sizeof(lines[1]), "CPU  %.2f ms", m_timing_cpu_ms);
-    std::snprintf(lines[2], sizeof(lines[2]), "BLD  %.2f ms",
-                  m_timing_build_ms);
-    std::snprintf(lines[3], sizeof(lines[3]), "PRES %.2f ms",
-                  m_timing_present_ms);
-
-    int line_h = 0;
-    int max_w = 0;
-    for (auto &s : lines) {
-      int w = 0;
-      int h = 0;
-      m_text_renderer->get_text_size(s, &w, &h);
-      if (w > max_w)
-        max_w = w;
-      if (h > line_h)
-        line_h = h;
-    }
-
-    const int pad = 5;
-    const int x0 = 8 + axis_strip_width();
-    const int y0 = 8;
-    SDL_FRect const bg = {static_cast<float>(x0 - pad),
-                          static_cast<float>(y0 - pad),
-                          static_cast<float>(max_w + 2 * pad),
-                          static_cast<float>(4 * line_h + 2 * pad)};
-    Uint8 r;
-    Uint8 g;
-    Uint8 b;
-    Uint8 a;
-    SDL_GetRenderDrawColor(m_renderer, &r, &g, &b, &a);
-    SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 192);
-    SDL_RenderFillRect(m_renderer, &bg);
-    SDL_SetRenderDrawColor(m_renderer, r, g, b, a);
-
-    SDL_Color const col = {0, 255, 0, 255};
-    for (int i = 0; i < 4; ++i) {
-      blit_text(lines[i], col, static_cast<float>(x0),
-                static_cast<float>(y0 + i * line_h));
-    }
   }
 
   draw_left_axes();
   draw_markers();
   draw_trigger();
   draw_cursor_readout();
+  render_panel(); // opaque; drawn last so nothing bleeds into the gutter
 }
 
 int SdlRenderer::axis_strip_width() const {
@@ -550,49 +421,8 @@ void SdlRenderer::draw_markers() {
     blit_text(tag, kClr, m.x + 2.0F, 2.0F);
   }
 
-  // Bottom-left list panel: frequency + live level (or "off-screen") per
-  // marker.
-  std::vector<std::string> lines;
-  lines.reserve(m_markers.size());
-  for (const auto &m : m_markers) {
-    char line[48];
-    if (m.on_screen) {
-      std::snprintf(line, sizeof(line), "M%d  %.3f MHz  %.1f dB", m.index,
-                    m.freq_hz / 1.0e6, static_cast<double>(m.db));
-    } else {
-      std::snprintf(line, sizeof(line), "M%d  %.3f MHz  (off-screen)", m.index,
-                    m.freq_hz / 1.0e6);
-    }
-    lines.emplace_back(line);
-  }
-
-  int line_h = 0;
-  int text_w = 0;
-  for (const auto &s : lines) {
-    int w = 0;
-    int h = 0;
-    m_text_renderer->get_text_size(s, &w, &h);
-    text_w = std::max(text_w, w);
-    line_h = std::max(line_h, h);
-  }
-
-  const int pad = 5;
-  const auto box_w = static_cast<float>(text_w + 2 * pad);
-  const auto box_h =
-      static_cast<float>(static_cast<int>(lines.size()) * line_h + 2 * pad);
-  const float bx = 8.0F + static_cast<float>(axis_strip_width());
-  const float by = static_cast<float>(m_height) - box_h - 8.0F;
-
-  SDL_FRect const bg = {bx, by, box_w, box_h};
-  SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 200);
-  SDL_RenderFillRect(m_renderer, &bg);
-
-  for (size_t i = 0; i < lines.size(); ++i) {
-    blit_text(lines[i], kClr, bx + static_cast<float>(pad),
-              by + static_cast<float>(pad) +
-                  static_cast<float>(i) * static_cast<float>(line_h));
-  }
-
+  // The per-marker frequency/level list is drawn by render_panel() in the
+  // right gutter; here we only draw the on-plot lines + "Mn" tags.
   SDL_SetRenderDrawColor(m_renderer, r, g, b, a);
 }
 
@@ -610,7 +440,7 @@ void SdlRenderer::draw_trigger() {
   if (m_trigger_armed) {
     SDL_SetRenderDrawColor(m_renderer, 255, 80, 80, 255);
     SDL_RenderLine(m_renderer, 0.0F, m_trigger_line_y,
-                   static_cast<float>(m_width) - 1.0F, m_trigger_line_y);
+                   static_cast<float>(m_plot_width) - 1.0F, m_trigger_line_y);
 
     char buf[24];
     std::snprintf(buf, sizeof(buf), "TRIG %.0f dB",
@@ -636,7 +466,7 @@ void SdlRenderer::draw_trigger() {
     int h = 0;
     m_text_renderer->get_text_size(msg, &w, &h);
     const float bx =
-        (static_cast<float>(m_width) - static_cast<float>(w)) / 2.0F;
+        (static_cast<float>(m_plot_width) - static_cast<float>(w)) / 2.0F;
     SDL_FRect const bg = {bx - 6.0F, 4.0F, static_cast<float>(w) + 12.0F,
                           static_cast<float>(h) + 6.0F};
     SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 200);
@@ -684,7 +514,8 @@ void SdlRenderer::draw_cursor_readout() {
     // hovered time-row (horizontal) across the waterfall pane.
     SDL_RenderLine(m_renderer, x, spec_h, x, static_cast<float>(m_height) - 1.0F);
     SDL_RenderLine(m_renderer, 0.0F, m_cursor_readout.dot_y,
-                   static_cast<float>(m_width) - 1.0F, m_cursor_readout.dot_y);
+                   static_cast<float>(m_plot_width) - 1.0F,
+                   m_cursor_readout.dot_y);
     std::snprintf(l0, sizeof(l0), "%.3f MHz", m_cursor_readout.freq_hz / 1.0e6);
     if (m_cursor_readout.seconds_ago < 0.05) {
       std::snprintf(l1, sizeof(l1), "now");
@@ -708,14 +539,9 @@ void SdlRenderer::draw_cursor_readout() {
   // Fixed top-left panel. Anchoring it to the cursor/trace made it ride the
   // fast spectrum refresh — vibrating and ghosting. A static position keeps the
   // text readable; the marker line + dot still convey the measured location.
+  // The top-left is otherwise clear now (the timing HUD moved to the panel).
   const float bx = 8.0F + static_cast<float>(axis_strip_width());
-  float by = 8.0F;
-  // Don't collide with the frame-timing overlay (also top-left) when it's on.
-  if (m_timing_overlay_enabled) {
-    int th = 0;
-    m_text_renderer->get_text_size("pres 00.00 ms", nullptr, &th);
-    by += static_cast<float>(4 * th + 2 * pad + 6);
-  }
+  const float by = 8.0F;
 
   SDL_FRect const bg = {bx, by, box_w, box_h};
   SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 200);
@@ -726,6 +552,147 @@ void SdlRenderer::draw_cursor_readout() {
   for (int i = 0; i < 2; ++i) {
     blit_text(lines[i], col, bx + static_cast<float>(pad),
               by + static_cast<float>(pad + i * line_h));
+  }
+
+  SDL_SetRenderDrawColor(m_renderer, r, g, b, a);
+}
+
+void SdlRenderer::render_panel() {
+  const int panel_w =
+      static_cast<int>(m_width) - static_cast<int>(m_plot_width);
+  if (panel_w < 120 || m_text_renderer == nullptr) {
+    return; // window too narrow for a panel — the plots already span full width
+  }
+
+  // Flat palette (no glow): green labels, white values, amber trigger, magenta
+  // markers. Hard 90-degree corners — DOS panel meets 4KB-intro.
+  constexpr SDL_Color kLabel = {110, 231, 135, 255};
+  constexpr SDL_Color kValue = {235, 240, 236, 255};
+  constexpr SDL_Color kDim = {127, 147, 138, 255};
+  constexpr SDL_Color kAmber = {255, 178, 63, 255};
+  constexpr SDL_Color kMag = {255, 80, 255, 255};
+  constexpr SDL_Color kGhost = {120, 106, 134, 255};
+
+  Uint8 r;
+  Uint8 g;
+  Uint8 b;
+  Uint8 a;
+  SDL_GetRenderDrawColor(m_renderer, &r, &g, &b, &a);
+
+  // Bordered inset box floating on black over the gutter.
+  constexpr float kGap = 7.0F;
+  const float bx = static_cast<float>(m_plot_width) + kGap;
+  const float by = kGap;
+  const float bw = static_cast<float>(panel_w) - 2.0F * kGap;
+  const float bh = static_cast<float>(m_height) - 2.0F * kGap;
+  SDL_FRect const box = {bx, by, bw, bh};
+  SDL_SetRenderDrawColor(m_renderer, 10, 14, 12, 255);
+  SDL_RenderFillRect(m_renderer, &box);
+  SDL_SetRenderDrawColor(m_renderer, 92, 111, 100, 255);
+  SDL_RenderRect(m_renderer, &box);
+
+  int cw = 0;
+  int lh = 0;
+  m_text_renderer->get_text_size("M", &cw, &lh); // fixed 8x16 cell
+  const float pad = 9.0F;
+  const float cx = bx + pad;
+  const float val_x = cx + 7.0F * static_cast<float>(cw); // value column
+  const float step = static_cast<float>(lh) + 2.0F;
+  float y = by + pad;
+
+  auto field = [&](const char *label, const std::string &value) {
+    blit_text(label, kLabel, cx, y);
+    blit_text(value, kValue, val_x, y);
+    y += step;
+  };
+
+  // --- STATUS ---
+  blit_text("STATUS", kDim, cx, y);
+  y += step + 2.0F;
+  field("FREQ", m_status.freq);
+  field("GAIN", m_status.gain);
+  field("FFT", m_status.fft);
+  field("WINDOW", m_status.window);
+  field("PAL", m_status.palette);
+  if (m_peak_db > -140.0F) {
+    char pk[16];
+    std::snprintf(pk, sizeof(pk), "%.1f dB", static_cast<double>(m_peak_db));
+    field("PEAK", pk);
+  }
+  if (!m_status.trace.empty()) {
+    field("TRACE", m_status.trace);
+  }
+  if (!m_current_iq_status.empty()) {
+    blit_text(m_current_iq_status, kLabel, cx, y);
+    y += step;
+  }
+  if (m_frozen) {
+    y += 4.0F;
+    blit_text("TRIGGERED", kAmber, cx, y);
+    y += step;
+    blit_text("SPACE to resume", kAmber, cx, y);
+    y += step;
+  }
+
+  // --- PERF (toggled with 't') ---
+  if (m_timing_overlay_enabled) {
+    y += 6.0F;
+    blit_text("PERF", kDim, cx, y);
+    y += step;
+    char v[24];
+    std::snprintf(v, sizeof(v), "%.1f", m_timing_fps);
+    field("FPS", v);
+    std::snprintf(v, sizeof(v), "%.2f ms", m_timing_cpu_ms);
+    field("CPU", v);
+    std::snprintf(v, sizeof(v), "%.2f ms", m_timing_build_ms);
+    field("BLD", v);
+    std::snprintf(v, sizeof(v), "%.2f ms", m_timing_present_ms);
+    field("PRES", v);
+  }
+
+  // --- MARKERS (lower section) ---
+  // Split at ~51% (aligned with the spectrum/waterfall boundary), but never
+  // above the STATUS content — if it ran long (PERF + frozen + trace + IQ all
+  // on), push the divider down so the sections don't overlap.
+  const float split_y = std::max(by + bh * 0.51F, y + 6.0F);
+  SDL_SetRenderDrawColor(m_renderer, 36, 49, 43, 255);
+  SDL_RenderLine(m_renderer, bx, split_y, bx + bw, split_y);
+  float my = split_y + pad;
+  {
+    char mh[24];
+    std::snprintf(mh, sizeof(mh), "MARKERS  %zu/16", m_markers.size());
+    blit_text(mh, kDim, cx, my);
+    my += step + 2.0F;
+  }
+  // At least 3 slots (arcade high-score look), growing to the live count, but
+  // clamped to what fits and to the 16-marker cap.
+  const float avail = by + bh - my;
+  const auto max_rows =
+      avail > 0.0F ? static_cast<size_t>(avail / step) : size_t{0};
+  const size_t shown =
+      std::min({std::max<size_t>(3, m_markers.size()), max_rows, size_t{16}});
+  const float rest_x = cx + 4.0F * static_cast<float>(cw);
+  for (size_t i = 0; i < shown; ++i) {
+    if (i < m_markers.size()) {
+      const Marker &m = m_markers[i];
+      char id[8];
+      std::snprintf(id, sizeof(id), "M%d", m.index);
+      char rest[40];
+      if (m.on_screen) {
+        std::snprintf(rest, sizeof(rest), "%.3f MHz  %.1f dB", m.freq_hz / 1e6,
+                      static_cast<double>(m.db));
+      } else {
+        std::snprintf(rest, sizeof(rest), "%.3f MHz  (off)", m.freq_hz / 1e6);
+      }
+      blit_text(id, kMag, cx, my);
+      blit_text(rest, kValue, rest_x, my);
+    } else {
+      char id[8];
+      std::snprintf(id, sizeof(id), "M%d", static_cast<int>(i) + 1);
+      blit_text(id, kGhost, cx, my);
+      blit_text("---", kGhost, rest_x, my);
+    }
+    my += step;
   }
 
   SDL_SetRenderDrawColor(m_renderer, r, g, b, a);
@@ -846,7 +813,7 @@ auto SdlRenderer::render_displays(const std::vector<SDL_Vertex> &spec_verts,
   }
 
   uint8_t *tex = static_cast<uint8_t *>(texture_pixels);
-  const size_t src_pitch = m_width * 4;
+  const size_t src_pitch = m_plot_width * 4;
   const int wf_height = static_cast<int>(m_height - spectrum_height);
 
   // Upload only the waterfall into m_texture's bottom region. The spectrum is
@@ -854,7 +821,7 @@ auto SdlRenderer::render_displays(const std::vector<SDL_Vertex> &spec_verts,
   for (const auto &rect : wf_dirty_rects) {
     int x0 = std::max(0, rect.x);
     int y0 = std::max(0, rect.y);
-    int x1 = std::min(rect.x + rect.w, static_cast<int>(m_width));
+    int x1 = std::min(rect.x + rect.w, static_cast<int>(m_plot_width));
     int y1 = std::min(rect.y + rect.h, wf_height);
     if (x1 <= x0 || y1 <= y0)
       continue;
@@ -872,7 +839,7 @@ auto SdlRenderer::render_displays(const std::vector<SDL_Vertex> &spec_verts,
   // the first render_displays_scroll() frame is visually continuous.
   if (m_wf_scroll_tex != nullptr && wf_height > 0) {
     SDL_FRect const wf_src = {0.0f, static_cast<float>(spectrum_height),
-                              static_cast<float>(m_width),
+                              static_cast<float>(m_plot_width),
                               static_cast<float>(wf_height)};
     SDL_SetRenderTarget(m_renderer, m_wf_scroll_tex);
     SDL_RenderTexture(m_renderer, m_texture, &wf_src, nullptr);
@@ -883,7 +850,7 @@ auto SdlRenderer::render_displays(const std::vector<SDL_Vertex> &spec_verts,
   // Compose base = waterfall region of m_texture (bottom) + spectrum bars
   // (top).
   SDL_FRect const wf_src = {0.0f, static_cast<float>(spectrum_height),
-                            static_cast<float>(m_width),
+                            static_cast<float>(m_plot_width),
                             static_cast<float>(wf_height)};
   SDL_FRect const wf_dst = wf_src;
   compose_base(m_texture, &wf_src, wf_dst, spec_verts, spec_idx);
@@ -931,10 +898,10 @@ auto SdlRenderer::poll_events(ControlState *state) -> bool {
         bool const ctrl_held =
             keystate[SDL_SCANCODE_LCTRL] || keystate[SDL_SCANCODE_RCTRL];
 
-        // SDL3: event.key.key instead of event.key.keysym.sym
-        if (handle_control_key(*state, event.key.key, shift_held, ctrl_held)) {
-          m_status_dirty = true;
-        }
+        // SDL3: event.key.key instead of event.key.keysym.sym. The key updates
+        // ControlState, which tracks its own status-dirty flag; main() feeds
+        // the panel via status_changed(), so no renderer-side flag is needed.
+        handle_control_key(*state, event.key.key, shift_held, ctrl_held);
       }
       break;
 
@@ -985,61 +952,21 @@ auto SdlRenderer::poll_events(ControlState *state) -> bool {
 }
 
 void SdlRenderer::render_status_bar(const std::string &status_text) {
-  // Only re-render if text changed
-  if (status_text == m_current_status && !m_status_dirty) {
-    return;
-  }
-  m_current_status = status_text;
-  m_status_dirty = false;
-
-  if (m_status_texture != nullptr) {
-    SDL_DestroyTexture(m_status_texture);
-    m_status_texture = nullptr;
-  }
-  if (!status_text.empty()) {
-    m_status_texture =
-        m_text_renderer->render_text(status_text, {255, 255, 255, 255});
-  }
+  // Repurposed as a transient one-shot notice (e.g. the export result). Drawn
+  // bottom-left over the plot by render_overlays until the deadline; empty text
+  // clears it immediately. The steady per-frame status lives in the panel now.
+  m_status_msg = status_text;
+  m_status_until = status_text.empty() ? std::chrono::steady_clock::time_point{}
+                                       : std::chrono::steady_clock::now() +
+                                             std::chrono::seconds(4);
 }
 
 void SdlRenderer::render_peak_indicator(float peak_db) {
-  if (peak_db < -140.0F) {
-    // Invalid peak, destroy texture if exists
-    if (m_peak_texture != nullptr) {
-      SDL_DestroyTexture(m_peak_texture);
-      m_peak_texture = nullptr;
-    }
-    m_current_peak.clear();
-    return;
-  }
-
-  char buf[32];
-  snprintf(buf, sizeof(buf), "PEAK: %.1f dB", peak_db);
-  if (m_current_peak == buf) {
-    return;
-  }
-  m_current_peak = buf;
-
-  if (m_peak_texture != nullptr) {
-    SDL_DestroyTexture(m_peak_texture);
-  }
-  m_peak_texture = m_text_renderer->render_text(buf, {255, 255, 255, 255});
+  m_peak_db = peak_db; // the panel prints it when > -140 dBFS
 }
 
 void SdlRenderer::render_iq_status(const std::string &iq_text) {
-  // Only re-render if text changed
-  if (iq_text == m_current_iq_status) {
-    return;
-  }
-  m_current_iq_status = iq_text;
-
-  if (m_iq_texture != nullptr) {
-    SDL_DestroyTexture(m_iq_texture);
-    m_iq_texture = nullptr;
-  }
-  if (!iq_text.empty()) {
-    m_iq_texture = m_text_renderer->render_text(iq_text, {255, 255, 255, 255});
-  }
+  m_current_iq_status = iq_text; // shown in the panel while capturing
 }
 
 bool SdlRenderer::ensure_wf_scroll_textures(size_t wf_height,
@@ -1059,7 +986,7 @@ bool SdlRenderer::ensure_wf_scroll_textures(size_t wf_height,
   if (!rebuild)
     return true;
 
-  const int w = static_cast<int>(m_width);
+  const int w = static_cast<int>(m_plot_width);
   const int h = static_cast<int>(wf_height);
   const int lh = static_cast<int>(line_height);
 
@@ -1099,7 +1026,7 @@ bool SdlRenderer::render_displays_scroll(
     void *lp = nullptr;
     int lpitch = 0;
     if (SDL_LockTexture(m_wf_line_tex, nullptr, &lp, &lpitch)) {
-      const size_t src_row = m_width * 4;
+      const size_t src_row = m_plot_width * 4;
       for (size_t y = 0; y < line_height; ++y) {
         memcpy(static_cast<uint8_t *>(lp) + y * lpitch,
                new_wf_line_rgba + y * src_row, src_row);
@@ -1117,9 +1044,9 @@ bool SdlRenderer::render_displays_scroll(
   if (m_wf_scroll_valid) {
     if (shift_h > 0) {
       SDL_FRect const src_r = {0.0f, static_cast<float>(line_height),
-                               static_cast<float>(m_width),
+                               static_cast<float>(m_plot_width),
                                static_cast<float>(shift_h)};
-      SDL_FRect const dst_r = {0.0f, 0.0f, static_cast<float>(m_width),
+      SDL_FRect const dst_r = {0.0f, 0.0f, static_cast<float>(m_plot_width),
                                static_cast<float>(shift_h)};
       SDL_RenderTexture(m_renderer, m_wf_scroll_tex, &src_r, &dst_r);
     }
@@ -1131,8 +1058,8 @@ bool SdlRenderer::render_displays_scroll(
     SDL_FRect const src_r = {
         0.0f,
         static_cast<float>(spectrum_height) + static_cast<float>(line_height),
-        static_cast<float>(m_width), static_cast<float>(shift_h)};
-    SDL_FRect const dst_r = {0.0f, 0.0f, static_cast<float>(m_width),
+        static_cast<float>(m_plot_width), static_cast<float>(shift_h)};
+    SDL_FRect const dst_r = {0.0f, 0.0f, static_cast<float>(m_plot_width),
                              static_cast<float>(shift_h)};
     SDL_RenderTexture(m_renderer, m_texture, &src_r, &dst_r);
   } else {
@@ -1142,7 +1069,7 @@ bool SdlRenderer::render_displays_scroll(
   }
   // Paste new line at the bottom
   SDL_FRect const line_dst = {0.0f, static_cast<float>(wf_height - line_height),
-                              static_cast<float>(m_width),
+                              static_cast<float>(m_plot_width),
                               static_cast<float>(line_height)};
   SDL_RenderTexture(m_renderer, m_wf_line_tex, nullptr, &line_dst);
   SDL_SetRenderTarget(m_renderer, nullptr);
@@ -1155,7 +1082,7 @@ bool SdlRenderer::render_displays_scroll(
   // Waterfall (bottom) = the whole scroll texture mapped to the bottom region;
   // spectrum (top) = GPU geometry. Composited into m_frame_tex for present.
   SDL_FRect const wf_dst = {0.0f, static_cast<float>(spectrum_height),
-                            static_cast<float>(m_width),
+                            static_cast<float>(m_plot_width),
                             static_cast<float>(wf_height)};
   compose_base(m_wf_scroll_tex, nullptr, wf_dst, spec_verts, spec_idx);
 
@@ -1177,9 +1104,9 @@ void SdlRenderer::rebuild_freq_scale_ticks() {
 
   // Bake the entire scale bar into a single render-target texture.
   // render_overlays() does one SDL_RenderCopy per frame — no state churn.
-  m_freq_scale_texture = SDL_CreateTexture(m_renderer, SDL_PIXELFORMAT_RGBA32,
-                                           SDL_TEXTUREACCESS_TARGET,
-                                           static_cast<int>(m_width), SCALE_H);
+  m_freq_scale_texture = SDL_CreateTexture(
+      m_renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_TARGET,
+      static_cast<int>(m_plot_width), SCALE_H);
   if (m_freq_scale_texture == nullptr)
     return;
 
@@ -1212,7 +1139,7 @@ void SdlRenderer::rebuild_freq_scale_ticks() {
       continue;
     float const x_frac = static_cast<float>(freq - start_hz) /
                          static_cast<float>(m_freq_scale_sample_rate_hz);
-    int const x = static_cast<int>(x_frac * static_cast<float>(m_width));
+    int const x = static_cast<int>(x_frac * static_cast<float>(m_plot_width));
 
     // Tick line
     SDL_FRect const tick_line = {static_cast<float>(x), 0.0f, 1.0f, 4.0f};
@@ -1223,7 +1150,7 @@ void SdlRenderer::rebuild_freq_scale_ticks() {
     int lw = 0;
     m_text_renderer->get_text_size(label, &lw, nullptr);
     int lx = x - lw / 2;
-    lx = std::max(0, std::min(lx, static_cast<int>(m_width) - lw));
+    lx = std::max(0, std::min(lx, static_cast<int>(m_plot_width) - lw));
     blit_text(label, label_color, static_cast<float>(lx), 5.0f);
   }
 

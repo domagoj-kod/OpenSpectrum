@@ -144,6 +144,25 @@ auto ControlState::get_status_string() const -> std::string {
   return m_cached_status;
 }
 
+// Individual formatted status fields for the instrument panel. Reuses the same
+// formatters as get_status_string() so the two never drift.
+auto ControlState::get_status_fields() const -> StatusFields {
+  StatusFields f;
+  f.freq = format_frequency(frequency_hz);
+  f.gain = format_gain(gain_db);
+  f.fft = std::to_string(fft_size);
+  f.window = format_window(window_function);
+  f.palette = palette_name(palette_index);
+  if (m_averaging && m_max_hold) {
+    f.trace = "AVG MAX";
+  } else if (m_averaging) {
+    f.trace = "AVG";
+  } else if (m_max_hold) {
+    f.trace = "MAX";
+  }
+  return f;
+}
+
 // Apply all pending changes to device (batch update)
 void ControlState::apply_to_device(RtlSdrDevice &dev) const {
   // Only reprogram the tuner when a value actually changed. set_frequency() and

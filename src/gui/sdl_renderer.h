@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -76,6 +77,25 @@ public:
   // Get dimensions
   [[nodiscard]] size_t width() const noexcept { return m_width; }
   [[nodiscard]] size_t height() const noexcept { return m_height; }
+
+  // Plot region width: the window minus the right-hand instrument panel. All
+  // freq<->x mapping (spectrum geometry, waterfall, freq scale, markers/cursor)
+  // spans [0, plot_width); the panel occupies [plot_width, width). The plot
+  // origin stays at x=0, so this is the single seam callers thread through.
+  [[nodiscard]] size_t plot_width() const noexcept { return m_plot_width; }
+
+  // Right-panel status fields (formatted by ControlState). Fed on change; the
+  // panel draws them as a green-label / white-value grid. Replaces the old
+  // bottom status bar.
+  struct PanelStatus {
+    std::string freq;
+    std::string gain;
+    std::string fft;
+    std::string window;
+    std::string palette;
+    std::string trace; // "AVG" / "MAX" / "AVG MAX" / "" (empty = hidden)
+  };
+  void set_status_fields(PanelStatus s) { m_status = std::move(s); }
 
   // Check if initialized
   [[nodiscard]] bool is_valid() const noexcept {
@@ -227,6 +247,12 @@ private:
   // markers/cursor so those sit on top.
   void draw_left_axes();
 
+  // Draw the right-hand instrument panel (opaque bordered box over the gutter
+  // at [plot_width, width)): status grid, PEAK, trigger row, PERF block, and
+  // the marker list. Consumes data the renderer already holds; drawn from
+  // render_overlays after the freq scale.
+  void render_panel();
+
   // Width (px) of the left axes strip, or 0 when axes are disabled. Stable
   // (sized to the widest possible label, not the live values) so the left HUD
   // boxes can shift clear of it without jitter. Used as the left inset for the
@@ -257,6 +283,7 @@ private:
 
   size_t m_width;
   size_t m_height;
+  size_t m_plot_width = 0; // window minus the right instrument panel
   SDL_Window *m_window = nullptr;
   SDL_Renderer *m_renderer = nullptr;
   SDL_Texture *m_texture = nullptr;
@@ -297,21 +324,24 @@ private:
   double m_timing_build_ms = 0.0;
   double m_timing_present_ms = 0.0;
 
-  // Text rendering for status bar
+  // Text rendering (panel + overlays). Panel text is blitted per-frame like the
+  // marker/cursor overlays — cold path, ample headroom.
   std::unique_ptr<TextRenderer> m_text_renderer;
 
-  // Overlay text textures, each cached against the last rendered string.
-  SDL_Texture *m_status_texture = nullptr;
-  std::string m_current_status;
-  bool m_status_dirty = true;
+  // Right-panel status fields (set on change).
+  PanelStatus m_status;
 
-  // Peak amplitude indicator for top-right corner
-  SDL_Texture *m_peak_texture = nullptr;
-  std::string m_current_peak;
+  // Latest peak amplitude (dBFS), shown in the panel. <= -140 → not yet known.
+  float m_peak_db = -200.0F;
 
-  // IQ logging status indicator for bottom-left corner
-  SDL_Texture *m_iq_texture = nullptr;
+  // IQ logging status line (e.g. "LOGGING: 3s (…)"), shown in the panel when
+  // capturing; empty otherwise.
   std::string m_current_iq_status;
+
+  // Transient one-shot message (export result), drawn bottom-left over the plot
+  // until its deadline. Set via render_status_bar().
+  std::string m_status_msg;
+  std::chrono::steady_clock::time_point m_status_until;
 
   // GPU ping-pong waterfall scroll textures.
   // m_wf_scroll_tex: the current display frame (TEXTUREACCESS_TARGET).

@@ -76,6 +76,18 @@ public:
   // Get formatted status string for display
   std::string get_status_string() const;
 
+  // Individual formatted status fields for the instrument panel (green-label /
+  // white-value grid). trace is "AVG" / "MAX" / "AVG MAX" or empty.
+  struct StatusFields {
+    std::string freq;
+    std::string gain;
+    std::string fft;
+    std::string window;
+    std::string palette;
+    std::string trace;
+  };
+  StatusFields get_status_fields() const;
+
   // Get individual formatted values
   static std::string format_gain(float db);
 
