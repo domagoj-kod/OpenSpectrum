@@ -355,11 +355,11 @@ void SdlRenderer::render_overlays() {
   // acceptable because this path is off by default.
   if (m_timing_overlay_enabled && m_text_renderer) {
     char lines[4][32];
-    std::snprintf(lines[0], sizeof(lines[0]), "fps  %.1f", m_timing_fps);
-    std::snprintf(lines[1], sizeof(lines[1]), "cpu  %.2f ms", m_timing_cpu_ms);
-    std::snprintf(lines[2], sizeof(lines[2]), "bld  %.2f ms",
+    std::snprintf(lines[0], sizeof(lines[0]), "FPS  %.1f", m_timing_fps);
+    std::snprintf(lines[1], sizeof(lines[1]), "CPU  %.2f ms", m_timing_cpu_ms);
+    std::snprintf(lines[2], sizeof(lines[2]), "BLD  %.2f ms",
                   m_timing_build_ms);
-    std::snprintf(lines[3], sizeof(lines[3]), "pres %.2f ms",
+    std::snprintf(lines[3], sizeof(lines[3]), "PRES %.2f ms",
                   m_timing_present_ms);
 
     int line_h = 0;
