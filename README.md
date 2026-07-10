@@ -12,7 +12,7 @@ backends (RTL2832U today, proprietary hardware tomorrow) drop in without
 touching the pipeline.
 
 <p align="center" width="100%">
-    <img src="./assets/overview.png">
+    <video src="./assets/overview-720.mp4" controls muted loop width="100%"></video>
 </p>
 
 > [!IMPORTANT]
