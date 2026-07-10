@@ -530,7 +530,7 @@ auto main(int argc, char *argv[]) -> int {
     // Persistent frequency markers (Hz). Anchored to absolute frequency, so
     // they slide with retuning and hide when tuned out of the current span.
     // Left-click drops, right-click removes nearest, Delete clears all.
-    constexpr size_t kMaxMarkers = 16;
+    constexpr size_t kMaxMarkers = 14; // fits the panel list in every state
     std::vector<double> markers;
 
     // Track peak amplitude for display

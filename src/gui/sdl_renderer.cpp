@@ -628,9 +628,10 @@ void SdlRenderer::render_panel() {
   }
   if (m_frozen) {
     y += 4.0F;
-    blit_text("TRIGGERED", kAmber, cx, y);
-    y += step;
-    blit_text("SPACE to resume", kAmber, cx, y);
+    char tg[24];
+    std::snprintf(tg, sizeof(tg), "TRIG @ %.0f dB",
+                  static_cast<double>(m_trigger_db));
+    blit_text(tg, kAmber, cx, y); // "SPACE to resume" is on the FROZEN banner
     y += step;
   }
 
@@ -659,7 +660,7 @@ void SdlRenderer::render_panel() {
   float my = split_y + pad;
   {
     char mh[24];
-    std::snprintf(mh, sizeof(mh), "MARKERS  %zu/16", m_markers.size());
+    std::snprintf(mh, sizeof(mh), "MARKERS  %zu", m_markers.size());
     blit_text(mh, kDim, cx, my);
     my += step + 2.0F;
   }
@@ -669,7 +670,7 @@ void SdlRenderer::render_panel() {
   const auto max_rows =
       avail > 0.0F ? static_cast<size_t>(avail / step) : size_t{0};
   const size_t shown =
-      std::min({std::max<size_t>(3, m_markers.size()), max_rows, size_t{16}});
+      std::min(std::max<size_t>(3, m_markers.size()), max_rows);
   const float rest_x = cx + 4.0F * static_cast<float>(cw);
   for (size_t i = 0; i < shown; ++i) {
     if (i < m_markers.size()) {
