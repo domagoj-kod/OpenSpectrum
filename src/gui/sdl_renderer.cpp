@@ -634,8 +634,8 @@ void SdlRenderer::render_panel() {
     y += step;
   }
 
-  // --- PERF (toggled with 't') ---
-  if (m_timing_overlay_enabled) {
+  // --- PERF (always shown — processing headroom at a glance) ---
+  {
     y += 6.0F;
     blit_text("PERF", kDim, cx, y);
     y += step;
@@ -651,10 +651,9 @@ void SdlRenderer::render_panel() {
   }
 
   // --- MARKERS (lower section) ---
-  // Split at ~51% (aligned with the spectrum/waterfall boundary), but never
-  // above the STATUS content — if it ran long (PERF + frozen + trace + IQ all
-  // on), push the divider down so the sections don't overlap.
-  const float split_y = std::max(by + bh * 0.51F, y + 6.0F);
+  // The divider hugs the STATUS content (not a fixed fraction) so the marker
+  // list gets all the remaining height — enough for the full 16 at 576px.
+  const float split_y = y + 6.0F;
   SDL_SetRenderDrawColor(m_renderer, 36, 49, 43, 255);
   SDL_RenderLine(m_renderer, bx, split_y, bx + bw, split_y);
   float my = split_y + pad;
@@ -698,10 +697,9 @@ void SdlRenderer::render_panel() {
   SDL_SetRenderDrawColor(m_renderer, r, g, b, a);
 }
 
-void SdlRenderer::set_timing_overlay(bool enabled, double fps, double cpu_ms,
+void SdlRenderer::set_timing_overlay(double fps, double cpu_ms,
                                      double render_build_ms,
                                      double present_ms) noexcept {
-  m_timing_overlay_enabled = enabled;
   m_timing_fps = fps;
   m_timing_cpu_ms = cpu_ms;
   m_timing_build_ms = render_build_ms;

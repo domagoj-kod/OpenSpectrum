@@ -123,10 +123,6 @@ public:
   void clear_unfreeze() noexcept { m_unfreeze_requested = false; }
   void request_unfreeze() noexcept { m_unfreeze_requested = true; }
 
-  // Frame-timing overlay toggle (debug; 'T' key). Persistent on/off state.
-  bool timing_overlay_enabled() const noexcept { return m_timing_overlay; }
-  void toggle_timing_overlay() noexcept { m_timing_overlay = !m_timing_overlay; }
-
   // Spectrum trace modes ('m' max-hold, 'a' video averaging, 'x' reset).
   // SDL/display-agnostic flags; main.cpp pushes them into SpectrumDisplay.
   bool max_hold_enabled() const noexcept { return m_max_hold; }
@@ -167,7 +163,6 @@ private:
   bool m_iq_logging_toggle = false;
   bool m_spectrogram_export_requested = false;
   bool m_unfreeze_requested = false;
-  bool m_timing_overlay = false;
   bool m_max_hold = false;
   bool m_averaging = false;
   bool m_trace_reset = false;

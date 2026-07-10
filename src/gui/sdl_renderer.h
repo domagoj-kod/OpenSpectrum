@@ -123,11 +123,10 @@ public:
     return m_last_present_ms;
   }
 
-  // DEBUG: supply the latest per-second timing snapshot for the on-screen
-  // overlay (toggled with 'T'). When enabled, render_overlays() draws it
-  // top-left. Call once per frame before any render/present.
-  void set_timing_overlay(bool enabled, double fps, double cpu_ms,
-                          double render_build_ms, double present_ms) noexcept;
+  // Supply the latest per-second timing snapshot for the panel's PERF block
+  // (always shown). Call once per frame before any render/present.
+  void set_timing_overlay(double fps, double cpu_ms, double render_build_ms,
+                          double present_ms) noexcept;
 
   // Mouse cursor readout over the spectrum pane. main() computes the values (it
   // owns the spectrum data + frequency mapping); the renderer captures the raw
@@ -317,8 +316,7 @@ private:
   // last_present_ms().
   double m_last_present_ms = 0.0;
 
-  // DEBUG: latest timing snapshot + visibility for the 'T' overlay.
-  bool m_timing_overlay_enabled = false;
+  // Latest per-second timing snapshot for the panel's PERF block.
   double m_timing_fps = 0.0;
   double m_timing_cpu_ms = 0.0;
   double m_timing_build_ms = 0.0;

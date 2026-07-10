@@ -854,10 +854,8 @@ auto main(int argc, char *argv[]) -> int {
                                       effective_rate,
                                       spectrum_display.height());
 
-      // Push the latest timing snapshot so the 'T' overlay is drawn (inside
-      // render_overlays) on whichever present path runs this frame.
-      renderer.set_timing_overlay(control_state.timing_overlay_enabled(),
-                                  ov_fps, ov_cpu, ov_build, ov_present);
+      // Push the latest timing snapshot for the panel's always-on PERF block.
+      renderer.set_timing_overlay(ov_fps, ov_cpu, ov_build, ov_present);
 
       // Left-margin axes: live dB range from the spectrum, and the age of the
       // oldest visible waterfall row (0 while history is still too short → the
