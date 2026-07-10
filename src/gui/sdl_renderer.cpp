@@ -427,7 +427,12 @@ void SdlRenderer::draw_markers() {
 }
 
 void SdlRenderer::draw_trigger() {
-  if ((!m_trigger_armed && !m_frozen) || m_text_renderer == nullptr) {
+  // Only the red threshold line lives on the plot now. The "TRIG @ x dB" value
+  // and the frozen "SPACE to resume" hint moved to the panel — the old on-plot
+  // tag collided with the cursor readout and the centered banner covered the
+  // marker "Mn" tags. armed stays true through a freeze, so this also draws the
+  // line on the held spectrum.
+  if (!m_trigger_armed) {
     return;
   }
   Uint8 r = 0;
@@ -435,45 +440,9 @@ void SdlRenderer::draw_trigger() {
   Uint8 b = 0;
   Uint8 a = 0;
   SDL_GetRenderDrawColor(m_renderer, &r, &g, &b, &a);
-
-  // Armed: red threshold line across the spectrum pane + a "TRIG -xx dB" tag.
-  if (m_trigger_armed) {
-    SDL_SetRenderDrawColor(m_renderer, 255, 80, 80, 255);
-    SDL_RenderLine(m_renderer, 0.0F, m_trigger_line_y,
-                   static_cast<float>(m_plot_width) - 1.0F, m_trigger_line_y);
-
-    char buf[24];
-    std::snprintf(buf, sizeof(buf), "TRIG %.0f dB",
-                  static_cast<double>(m_trigger_db));
-    SDL_Color const kTag = {255, 140, 140, 255};
-    int h = 0;
-    m_text_renderer->get_text_size(buf, nullptr, &h);
-    // Sit the tag just above the line, or below it if too near the top.
-    float ty = m_trigger_line_y - static_cast<float>(h) - 2.0F;
-    if (ty < 0.0F) {
-      ty = m_trigger_line_y + 2.0F;
-    }
-    // Anchor on the left, just right of the dB axis strip, so it tracks the
-    // line and never collides with the top-right PEAK indicator.
-    blit_text(buf, kTag, static_cast<float>(axis_strip_width()) + 6.0F, ty);
-  }
-
-  // Frozen: centered top banner with a dark backdrop.
-  if (m_frozen) {
-    const char *msg = "FROZEN  -  SPACE to resume";
-    SDL_Color const kMsg = {255, 230, 120, 255};
-    int w = 0;
-    int h = 0;
-    m_text_renderer->get_text_size(msg, &w, &h);
-    const float bx =
-        (static_cast<float>(m_plot_width) - static_cast<float>(w)) / 2.0F;
-    SDL_FRect const bg = {bx - 6.0F, 4.0F, static_cast<float>(w) + 12.0F,
-                          static_cast<float>(h) + 6.0F};
-    SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 200);
-    SDL_RenderFillRect(m_renderer, &bg);
-    blit_text(msg, kMsg, bx, 7.0F);
-  }
-
+  SDL_SetRenderDrawColor(m_renderer, 255, 80, 80, 255);
+  SDL_RenderLine(m_renderer, 0.0F, m_trigger_line_y,
+                 static_cast<float>(m_plot_width) - 1.0F, m_trigger_line_y);
   SDL_SetRenderDrawColor(m_renderer, r, g, b, a);
 }
 
@@ -626,13 +595,17 @@ void SdlRenderer::render_panel() {
     blit_text(m_current_iq_status, kLabel, cx, y);
     y += step;
   }
-  if (m_frozen) {
+  if (m_trigger_armed || m_frozen) {
     y += 4.0F;
     char tg[24];
     std::snprintf(tg, sizeof(tg), "TRIG @ %.0f dB",
                   static_cast<double>(m_trigger_db));
-    blit_text(tg, kAmber, cx, y); // "SPACE to resume" is on the FROZEN banner
+    blit_text(tg, kAmber, cx, y);
     y += step;
+    if (m_frozen) { // resume hint (replaces the removed centered banner)
+      blit_text("SPACE to resume", kAmber, cx, y);
+      y += step;
+    }
   }
 
   // --- PERF (always shown — processing headroom at a glance) ---
