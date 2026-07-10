@@ -32,6 +32,7 @@ touching the pipeline.
 | **Real-Time FFT Analysis** | Configurable FFT size (1024–16384), six window functions, and DC removal |
 | **Dual Visualization** | GPU-rendered spectrum display + waterfall, with five color palettes |
 | **Cursor Readout** | Hover for a live frequency + amplitude (or time-ago) readout under the cursor |
+| **Instrument Panel** | Right-side readout — frequency/gain/FFT/window/palette, PEAK, live FPS/CPU timing, and the marker list |
 | **Frequency Markers** | Click to drop persistent reference lines (with live level) that track frequency as you tune |
 | **Trace Modes** | Max-hold and video (EMA) averaging traces overlaid on the live spectrum |
 | **Amplitude Trigger** | Shift-drag a dB threshold; a bin peak crossing it freezes the display to catch fast transients (`Space` resumes) |
@@ -139,7 +140,6 @@ Tuning steps default to **1 MHz / 1 dB**; hold **Shift** for fine
 | `UP` / `DOWN` | Cycle window functions forward / backward |
 | `c` / `Shift+C` | Cycle color palette (JET, VIRIDIS, HOT, GRAY, BLU-RED) |
 | `m` · `a` · `x` | Max-hold trace · video averaging · reset traces |
-| `t` | Toggle the frame-timing overlay (HUD) |
 | `Ctrl+S` · `e` | Toggle IQ logging · export spectrogram PNG |
 | `Space` | Resume from an amplitude-trigger freeze (re-arms) |
 | `ESC` / `q` · `Ctrl+C` | Exit · graceful shutdown (terminal) |
@@ -148,9 +148,9 @@ Tuning steps default to **1 MHz / 1 dB**; hold **Shift** for fine
 
 - **Hover** the spectrum or waterfall for a live readout (frequency +
   amplitude, or how long ago the line was captured).
-- **Left-click** drops a persistent frequency marker (up to 16) through both
-  panes; it tracks frequency as you retune. **Right-click** removes the nearest;
-  **Delete** clears all.
+- **Left-click** drops a persistent frequency marker (up to 14, listed in the
+  panel) through both panes; it tracks frequency as you retune. **Right-click**
+  removes the nearest; **Delete** clears all.
 - **Shift + left-drag** in the spectrum pane sets the **amplitude trigger** — a
   dB threshold line. When a bin peak crosses it, the display **freezes** on the
   triggering frame; press **`Space`** to resume. Drag the line to the pane's

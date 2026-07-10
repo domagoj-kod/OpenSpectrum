@@ -133,8 +133,8 @@ The pipeline is **render-backend-bound, not DSP-bound.** Measured:
 Measured on a **ThinkPad T470 (i5-7300U, Intel HD 620, 16 GB)** under Ubuntu,
 commit `148b0a4` (representative of v3.7.0), replaying a 21 s capture with
 `--play`, **vsync off / `--max-fps 0`**, stepping FFT size `1`→`5` live. Values
-are steady-state averages of the per-second `FRAME-TIMING` line (toggle with
-`t`); the first ~1 s after each size change is dropped as warm-up. SMT was left
+are steady-state averages of the per-second `FRAME-TIMING` log line; the first
+~1 s after each size change is dropped as warm-up. SMT was left
 enabled, so expect minor run-to-run variance — not order-of-magnitude.
 
 Representative raw lines (timestamp/thread prefix stripped):

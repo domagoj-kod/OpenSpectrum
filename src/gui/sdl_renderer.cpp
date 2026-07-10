@@ -633,7 +633,8 @@ void SdlRenderer::render_panel() {
   float my = split_y + pad;
   {
     char mh[24];
-    std::snprintf(mh, sizeof(mh), "MARKERS  %zu", m_markers.size());
+    // "/14" mirrors main.cpp's kMaxMarkers so hitting the cap is self-evident.
+    std::snprintf(mh, sizeof(mh), "MARKERS  %zu/14", m_markers.size());
     blit_text(mh, kDim, cx, my);
     my += step + 2.0F;
   }
