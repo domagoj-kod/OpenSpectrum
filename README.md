@@ -11,9 +11,8 @@ FFT analysis, visualization, and rendering into distinct modules, so new SDR
 backends (RTL2832U today, proprietary hardware tomorrow) drop in without
 touching the pipeline.
 
-<p align="center" width="100%">
-    <video src="./assets/overview-720.mp4" controls muted loop width="100%"></video>
-</p>
+
+https://github.com/user-attachments/assets/b4c1f860-a24d-412e-80e4-df56691a20e1
 
 > [!IMPORTANT]
 > RTL-SDR outputs complex IQ samples, so the observed bandwidth is roughly equal
