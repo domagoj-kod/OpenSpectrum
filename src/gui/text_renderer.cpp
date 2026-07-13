@@ -140,9 +140,12 @@ auto TextRenderer::render_text(const std::string &text, SDL_Color color)
   int const total_width = static_cast<int>(text.length()) * glyph_width;
   int const total_height = glyph_height;
 
+  // STATIC, not TARGET: this texture is filled once via SDL_UpdateTexture (from
+  // the surface below) and only ever sampled — never rendered into. TARGET
+  // allocates a render-target view the driver never needs (heaviest on D3D11).
   SDL_Texture *texture =
       SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA32,
-                        SDL_TEXTUREACCESS_TARGET, total_width, total_height);
+                        SDL_TEXTUREACCESS_STATIC, total_width, total_height);
 
   if (texture == nullptr) {
     return nullptr;

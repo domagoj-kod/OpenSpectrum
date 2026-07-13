@@ -5,6 +5,7 @@
 #include "text_renderer.h"
 
 #include <algorithm>
+#include <cassert>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -14,6 +15,7 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <SDL3/SDL.h>
@@ -219,6 +221,10 @@ SdlRenderer::~SdlRenderer() {
   if (m_texture != nullptr) {
     SDL_DestroyTexture(m_texture);
   }
+  for (auto &e : m_text_cache) {
+    SDL_DestroyTexture(e.second.tex);
+  }
+  m_text_cache.clear();
   if (m_renderer != nullptr) {
     SDL_DestroyRenderer(m_renderer);
   }
@@ -230,20 +236,66 @@ SdlRenderer::~SdlRenderer() {
 
 void SdlRenderer::blit_text(const std::string &text, SDL_Color color, float x,
                             float y) {
-  SDL_Texture *t = m_text_renderer->render_text(text, color);
-  if (t == nullptr) {
+  if (text.empty()) {
     return;
   }
-  int w = 0;
-  int h = 0;
-  m_text_renderer->get_text_size(text, &w, &h);
-  SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
-  SDL_FRect const d = {x, y, static_cast<float>(w), static_cast<float>(h)};
-  SDL_RenderTexture(m_renderer, t, nullptr, &d);
-  SDL_DestroyTexture(t);
+  // Cache key = 4 colour bytes + the string, so the same text in two colours
+  // (e.g. a ghosted "---" marker vs a lit value) caches as two entries.
+  std::string key;
+  key.reserve(4 + text.size());
+  key.push_back(static_cast<char>(color.r));
+  key.push_back(static_cast<char>(color.g));
+  key.push_back(static_cast<char>(color.b));
+  key.push_back(static_cast<char>(color.a));
+  key.append(text);
+
+  auto it = m_text_cache.find(key);
+  if (it == m_text_cache.end()) {
+    // Miss: rasterize + upload once. We own the texture until
+    // sweep_text_cache() evicts it (the frame after it goes undrawn).
+    SDL_Texture *t = m_text_renderer->render_text(text, color);
+    if (t == nullptr) {
+      return;
+    }
+    SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
+    int w = 0;
+    int h = 0;
+    m_text_renderer->get_text_size(text, &w, &h);
+    it = m_text_cache.emplace(std::move(key), CachedText{t, w, h, true}).first;
+  }
+  it->second.used = true;
+  SDL_FRect const d = {x, y, static_cast<float>(it->second.w),
+                       static_cast<float>(it->second.h)};
+  SDL_RenderTexture(m_renderer, it->second.tex, nullptr, &d);
+}
+
+void SdlRenderer::sweep_text_cache() {
+  // Mark-and-sweep, once per frame at the top of render_overlays(): evict any
+  // string not drawn last frame and clear the flag on survivors for this
+  // frame's blits to re-set. Bounds the cache to the strings actually on
+  // screen.
+  for (auto it = m_text_cache.begin(); it != m_text_cache.end();) {
+    if (it->second.used) {
+      it->second.used = false;
+      ++it;
+    } else {
+      SDL_DestroyTexture(it->second.tex);
+      it = m_text_cache.erase(it);
+    }
+  }
+#ifndef NDEBUG
+  // If the bookkeeping ever drifts (used never cleared, or nothing evicted) the
+  // cache grows without bound; a live screen draws well under this ceiling.
+  assert(m_text_cache.size() <= 256 &&
+         "text cache unbounded — mark-sweep drift");
+#endif
 }
 
 void SdlRenderer::render_overlays() {
+  // Evict last frame's unused string-textures before this frame's blits
+  // repopulate the cache (see blit_text / sweep_text_cache).
+  sweep_text_cache();
+
   // Transient one-shot message (export result) — bottom-left over the plot,
   // auto-clearing at its deadline. Status / PEAK / timing all live in the panel
   // now; this is the only text left floating on the plot besides the axes.

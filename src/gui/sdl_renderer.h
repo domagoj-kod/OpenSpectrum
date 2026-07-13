@@ -7,6 +7,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -322,9 +323,25 @@ private:
   double m_timing_build_ms = 0.0;
   double m_timing_present_ms = 0.0;
 
-  // Text rendering (panel + overlays). Panel text is blitted per-frame like the
-  // marker/cursor overlays — cold path, ample headroom.
+  // Text rendering (panel + overlays). Every distinct label/value is rasterized
+  // to an SDL_Texture once and cached (see m_text_cache); blit_text reuses it
+  // until it goes a frame undrawn. v3.8.0 blitted these fresh every frame
+  // (SDL_CreateTexture + upload + destroy, ~15-40x/frame) — a real render/power
+  // cost the caching removes.
   std::unique_ptr<TextRenderer> m_text_renderer;
+
+  // blit_text string-texture cache. Key = 4 colour bytes + the string. Bounded
+  // by sweep_text_cache() (mark-and-sweep, once per frame in render_overlays):
+  // a string not drawn last frame is evicted, so a stream of changing values
+  // (fps / ms / peak dB) can't leak textures.
+  struct CachedText {
+    SDL_Texture *tex = nullptr;
+    int w = 0;
+    int h = 0;
+    bool used = false;
+  };
+  std::unordered_map<std::string, CachedText> m_text_cache;
+  void sweep_text_cache();
 
   // Right-panel status fields (set on change).
   PanelStatus m_status;
