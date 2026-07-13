@@ -4,6 +4,7 @@
 #include "logger.h"
 
 #include <chrono>
+#include <cmath>
 #include <complex>
 #include <cstdint>
 #include <cstdio>
@@ -103,6 +104,19 @@ void IqPlaybackSource::thread_main() {
       frame.resize(got);
       if (got == 0) {
         continue; // unreadable file; frame returns to pool
+      }
+    }
+
+    // Untrusted-input guard: a corrupt or truncated .iq can hold NaN/Inf
+    // samples. Left unscreened they flow through the FFT into the dB spectrum
+    // and poison autoscale + the waterfall's uint8 quantization — a single NaN
+    // freezes the whole display. Live device data is trusted; the file is the
+    // trust boundary, so screen it here. complex<float> is layout-compatible
+    // with float[2], so scan as floats and zero any non-finite component.
+    auto *as_floats = reinterpret_cast<float *>(frame.data());
+    for (size_t i = 0; i < got * 2; ++i) {
+      if (!std::isfinite(as_floats[i])) {
+        as_floats[i] = 0.0F;
       }
     }
 

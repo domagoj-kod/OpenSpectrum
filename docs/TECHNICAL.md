@@ -317,3 +317,14 @@ Builds compile with these flags by default:
 
 Linker hardening is Linux-side; the Windows build links static libs instead —
 see CLAUDE.md's platform table.
+
+These flags guard the program's actual input surface — `.iq` captures, the
+`.meta.json` sidecar, and the RTL-SDR USB stream — where a malformed file or a
+glitching device could otherwise turn a parser slip into a memory-safety issue.
+There is no network listener, no elevated privilege, and no setuid surface, so
+nothing beyond this near-zero-cost baseline is warranted (don't add to it, don't
+strip it). The flags are *defense-in-depth*; prevention lives in the parsers:
+the `.meta.json` scrape is size-bounded and rejects a zero sample rate
+(`iq_playback.cpp`), CLI numbers are type- and range-checked (`arg_parser.cpp`,
+`main.cpp`), and `.iq` samples are screened for NaN/Inf before entering the DSP
+pipeline.

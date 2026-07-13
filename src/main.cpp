@@ -275,9 +275,16 @@ auto main(int argc, char *argv[]) -> int {
   // Parse command-line arguments
   AppConfig const config = parse_arguments(argc, argv);
 
-  // Validate FFT size is a power of two
-  if (!is_power_of_two(config.fft_size)) {
-    LOG_ERROR("FFT size must be a power of two (e.g., 1024, 2048, 4096, 8192)");
+  // Validate FFT size: power of two, and within a sane range. The upper bound
+  // blocks a pathological value (e.g. 2^30, still a power of two) from trying
+  // to allocate gigabytes of frame buffers before the UI ever comes up; the
+  // lower bound keeps the DSP/display assumptions valid.
+  constexpr size_t kMinFftSize = 256;
+  constexpr size_t kMaxFftSize = 1u << 18; // 262144
+  if (!is_power_of_two(config.fft_size) || config.fft_size < kMinFftSize ||
+      config.fft_size > kMaxFftSize) {
+    LOG_ERROR("FFT size must be a power of two in [256, 262144] "
+              "(e.g., 1024, 2048, 4096, 8192, 16384)");
     return 1;
   }
 
