@@ -182,6 +182,69 @@ unattended runs the lever points the other way: `--max-fps 30` pins every size t
 is noise. So `--max-fps` is the real power control; FFT size is primarily a
 resolution/latency choice.
 
+### Case study: the panel-text render regression (v3.8.0 → v3.8.1)
+
+v3.8.0 consolidated all status / PEAK / timing text into the right-hand
+instrument panel. Every label and value was drawn through `blit_text`, which
+**created, rasterized, uploaded, and destroyed an `SDL_Texture` per string, per
+frame** — ~15–40 times a frame. v3.7.0's overlays were cached textures. The cost
+was invisible in fps (vsync pins the frame rate regardless), but it was real
+render work and therefore real power — design priority #2.
+
+Measured across v3.7.0 (`6c8e173`), v3.8.0 (`7785c84`), and the v3.8.1 fix,
+**hyperthreading disabled**, replaying an FM capture with `--play`. The shipped
+builds hardcode **vsync on**, so fps is pinned and the signal lives in
+`render_build` and CPU counters, not frame rate. Direct3D 11 figures are from an
+**i7-12700H** — the churn is worst on an accelerated backend, where the baseline
+render is tiny; the Linux `perf stat` is from the **T470 (i5-7300U)**.
+
+On Direct3D 11 and the software renderer the vsync idle-wait lands in `present`,
+so `render_build` is real work — the metric that exposes the regression. (On
+OpenGL the idle lands in `render_build` and masks it; read total CPU counters
+there instead.)
+
+| `render_build` (ms) — Direct3D 11 / i7-12700H | v3.7.0 | v3.8.0 | v3.8.1 |
+|---|---:|---:|---:|
+| `--max-fps 30` | 2.95 | 5.80 | **2.74** |
+| `--max-fps 60` | 2.30 | 4.09 | **2.16** |
+
+v3.8.0 nearly doubled `render_build`; v3.8.1 returned it *below* v3.7.0. The
+backend-independent picture is the same — `perf stat` over an identical ~34.5 s
+workload (T470, OpenGL, FFT 16384, `--max-fps 60`):
+
+| Counter (same ~34.5 s workload) | v3.7.0 | v3.8.0 | v3.8.1 |
+|---|---:|---:|---:|
+| instructions | 10.93 B | 17.57 B | **9.78 B** |
+| cycles | 10.39 B | 17.60 B | **8.12 B** |
+| task-clock | 15.56 s | 20.59 s | **12.71 s** |
+
+v3.8.0 spent **+61% instructions / +69% cycles** for pixel-identical output;
+v3.8.1 cut instructions 44% and cycles 54% below v3.8.0, landing under v3.7.0 —
+the panel now renders cheaper than the pre-panel UI did. On the same Windows box,
+Task Manager tracked it in power terms at FFT 16384: CPU / GPU roughly
+1% / 4.5% (v3.7.0) → 2% / 9% (v3.8.0) → 0.8% / 3.5% (v3.8.1).
+
+The fix is two changes:
+
+- **`SdlRenderer::blit_text` caches the rendered string-texture**, keyed by
+  colour + string; a per-frame mark-and-sweep evicts strings not drawn last
+  frame, bounding the cache to what's on screen. Unchanged labels/values are
+  rasterized once, not every frame — and it covers every overlay caller, not
+  just the panel.
+- **`TextRenderer::render_text` allocates the glyph texture as
+  `SDL_TEXTUREACCESS_STATIC`, not `TARGET`.** It is only ever sampled, so the
+  render-target view `TARGET` reserves is dead weight — heaviest on Direct3D 11.
+
+On the software renderer the win is smaller (`render_build` 9.7 → 6.7 ms at
+`--max-fps 30`, part of it shifting into `present`): text rasterization was never
+the bottleneck there, the whole-scene raster dominates.
+
+> **Maintainer takeaway.** Never create/destroy an `SDL_Texture` per frame for
+> content that rarely changes — cache it and upload only on change, the pattern
+> `render_frequency_scale` already uses for the frequency scale. Under vsync a
+> render/power regression like this is invisible in fps; watch `render_build`
+> (Direct3D 11 / software) or a `perf stat` instruction count, not the frame rate.
+
 ## Adding a new SDR device
 
 The device sits behind a narrow surface, so adding hardware doesn't touch the
