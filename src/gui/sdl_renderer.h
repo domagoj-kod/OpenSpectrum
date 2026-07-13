@@ -23,8 +23,7 @@ class TextRenderer;
 class SdlRenderer {
 public:
   SdlRenderer(size_t width, size_t height,
-              const std::string &title = "OpenSpectrum SDR",
-              bool enable_vsync = false);
+              const std::string &title = "OpenSpectrum SDR");
   ~SdlRenderer();
 
   // Non-copyable, non-movable (SDL resources)
@@ -299,9 +298,6 @@ private:
   // present_composited() after render_overlays() and before the present, the
   // only window where the backbuffer holds the finished WYSIWYG frame.
   void capture_backbuffer();
-
-  // VSYNC control
-  bool m_enable_vsync = false;
 
   // Spectrogram capture (export): m_capture_pending armed by request_capture(),
   // serviced once in present_composited(); m_capture_ready signals the buffer

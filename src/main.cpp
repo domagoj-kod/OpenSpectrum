@@ -320,8 +320,7 @@ auto main(int argc, char *argv[]) -> int {
     // tears and beats at ~2 Hz — visible as a periodic waterfall "blink" and a
     // doubled spectrum peak while tuning. (Vsync appeared to do nothing in
     // earlier tests only because we were then stuck below 60 fps.)
-    SdlRenderer renderer(DISPLAY_WIDTH, DISPLAY_HEIGHT, "OpenSpectrum SDR",
-                         true);
+    SdlRenderer renderer(DISPLAY_WIDTH, DISPLAY_HEIGHT, "OpenSpectrum SDR");
     if (!renderer.is_valid()) {
       LOG_ERROR("Failed to initialize SDL3 renderer");
       return 1;

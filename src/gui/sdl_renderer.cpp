@@ -70,9 +70,8 @@ static std::string format_freq_label(int64_t hz) {
 // resize scales the whole composited scene rather than reflowing the panel.
 static constexpr size_t kPanelWidth = 240;
 
-SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title,
-                         bool enable_vsync)
-    : m_width(width), m_height(height), m_enable_vsync(enable_vsync) {
+SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title)
+    : m_width(width), m_height(height) {
   m_plot_width = (m_width > kPanelWidth) ? m_width - kPanelWidth : m_width;
   if (!SDL_Init(SDL_INIT_VIDEO)) {
     throw std::runtime_error("SDL_Init failed: " + std::string(SDL_GetError()));
@@ -120,9 +119,9 @@ SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title,
     throw std::runtime_error("SDL_CreateRenderer failed: " +
                              std::string(SDL_GetError()));
   }
-  if (m_enable_vsync) {
-    SDL_SetRenderVSync(m_renderer, 1);
-  }
+  // VSYNC is always on: paces the loop to the display refresh (tear-free) at
+  // negligible cost since per-frame work is only a few ms. No flag exposes it.
+  SDL_SetRenderVSync(m_renderer, 1);
 
   const char *renderer_name = SDL_GetRendererName(m_renderer);
   if (renderer_name != nullptr) {

@@ -192,8 +192,6 @@ public:
     m_free_queue.push(frame);
   }
 
-  size_t frame_capacity() const { return m_frame_capacity; }
-
 private:
   size_t m_frame_capacity;
   mutable std::mutex m_mutex;
