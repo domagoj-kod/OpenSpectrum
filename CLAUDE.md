@@ -22,6 +22,8 @@ make clean
 
 Binary: `openspectrum` (Linux) / `openspectrum.exe` (Windows/MSYS2). No test suite.
 
+**Objects live in `build/$(CONFIG)/`** (`debug`/`release`/`profile`), and `all` *copies* that config's binary out to `./openspectrum`. Both details are load-bearing, because **make tracks source timestamps, not flags**. With a shared `build/`, `make release` after `make` saw the objects as up to date and relinked stale `-O0` objects into a release-named binary — a real bogus benchmark (4.68 ms vs 0.57 ms cpu) — and the reverse baked `-DNDEBUG` into a "debug" build, compiling out the asserts this project leans on for run-it validation. With a shared *binary path*, switching back skipped the link entirely (`./openspectrum` is newer than the other config's objects) and silently left the wrong build in place. Configs now coexist, switch correctly, and stay incremental. Quick tell: **~367 KB release, ~1.1 MB debug**. A new config must pass `CONFIG=` in its recursive-make line.
+
 Release flags: `-march=haswell` (AVX2+FMA3), `-flto`, `-ffunction-sections -fdata-sections -fvisibility=hidden -fvisibility-inlines-hidden` + `-Wl,--gc-sections`, `-falign-functions=32 -falign-loops=32` (hot loops in one DSB fetch line). See `TRIM_CFLAGS`/`TRIM_LDFLAGS` in the Makefile. `-s` (strip at link, release-only) drops the ~40K symbol table — there's no DWARF in the binary, so it costs nothing at runtime; debug/profile keep symbols for gdb/gprof.
 
 **Linting is gradual** — format/tidy only lines changed vs a base ref, never the whole tree (a full pass would reflow the hand-tuned AVX2 blocks + the 8x16 font table). Config in `.clang-tidy` / `.clang-format`. Wrapper:

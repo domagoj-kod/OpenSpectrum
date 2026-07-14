@@ -84,14 +84,16 @@ TRIM_LDFLAGS := -Wl,--gc-sections
 
 # Release target overrides
 release:
-	$(MAKE) CFLAGS="$(BASE_CFLAGS) -O3 -DNDEBUG -flto=auto -march=haswell $(TRIM_CFLAGS)" \
+	$(MAKE) CONFIG=release \
+	       CFLAGS="$(BASE_CFLAGS) -O3 -DNDEBUG -flto=auto -march=haswell $(TRIM_CFLAGS)" \
 	       CXXFLAGS="$(BASE_CXXFLAGS) -O3 -DNDEBUG -flto=auto -march=haswell $(TRIM_CFLAGS)" \
 	       LDFLAGS="$(BASE_LDFLAGS) -s -flto=auto -march=haswell $(TRIM_CFLAGS) $(TRIM_LDFLAGS)" \
 	       all
 
 # Profile target overrides
 profile:
-	$(MAKE) CFLAGS="$(BASE_CFLAGS) -O2 -pg" \
+	$(MAKE) CONFIG=profile \
+	       CFLAGS="$(BASE_CFLAGS) -O2 -pg" \
 	       CXXFLAGS="$(BASE_CXXFLAGS) -O2 -pg" \
 	       LDFLAGS="$(BASE_LDFLAGS) -pg" \
 	       all
@@ -105,7 +107,17 @@ SRC_DIR := src
 THIRD_PARTY := third_party
 THIRD_PARTY_STB := third_party/stb
 INCLUDE_DIR := include
-BUILD_DIR := build
+# One object dir per config. All three configs compile the same sources with
+# different flags, but make only tracks source *timestamps*, not flags — so a
+# shared build/ silently relinked whatever objects were already there. `make
+# release` after `make` produced a debug-speed binary with a release name (a
+# real bogus benchmark: 4.68 ms vs 0.57 ms cpu), and the reverse baked -DNDEBUG
+# into a "debug" build, compiling out the asserts this project leans on for
+# run-it validation. Keying the dir on CONFIG lets the configs coexist and stay
+# incremental, rather than making `release` force a full LTO rebuild every time.
+# Size still tells you what you have: ~367 KB release, ~1.1 MB debug.
+CONFIG ?= debug
+BUILD_DIR := build/$(CONFIG)
 HARDWARE_DIR := $(SRC_DIR)/hardware
 SIGNAL_DIR := $(SRC_DIR)/signal
 FFT_DIR := $(SRC_DIR)/fft
@@ -151,7 +163,14 @@ ALL_OBJS := $(HARDWARE_OBJS) $(SIGNAL_OBJS) $(FFT_OBJS) $(VIS_OBJS) \
 DEPS := $(ALL_OBJS:.o=.d)
 -include $(DEPS)
 
-all: $(TARGET)
+# Copy the config's binary out to ./$(TARGET) rather than linking there
+# directly. The binary path is shared by every config, so a release-built
+# ./openspectrum is newer than build/debug/*.o — make would call it up to date,
+# skip the link, and silently leave you running the other config's binary.
+# `all` is .PHONY, so this copy always refreshes it from the config you asked
+# for.
+all: $(BUILD_DIR)/$(TARGET)
+	@cp -f $< $(TARGET)
 
 # Build directory
 $(BUILD_DIR):
@@ -182,9 +201,11 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp | $(BUILD_DIR)
 $(MAIN_OBJ): $(MAIN_SRC) | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(DEPFLAGS) -c $< -o $@
 
-# Final target. $(RES_OBJ) is the windres-compiled icon on Windows, empty
-# elsewhere, so $^ links it only where it exists.
-$(TARGET): $(ALL_OBJS) $(RES_OBJ)
+# Final target. Links inside the per-config dir; `all` copies it out to
+# ./$(TARGET) (see there for why the copy is not a dependency).
+# $(RES_OBJ) is the windres-compiled icon on Windows, empty elsewhere, so $^
+# links it only where it exists.
+$(BUILD_DIR)/$(TARGET): $(ALL_OBJS) $(RES_OBJ)
 	$(CXX) $^ -o $@ $(LDFLAGS)
 
 # Windows: compile the icon resource (.rc -> COFF object). Gated on OS because
@@ -209,7 +230,7 @@ endif
 
 # Clean
 clean:
-	rm -rf $(BUILD_DIR) $(TARGET)
+	rm -rf build $(TARGET)
 
 # Phony targets
 .PHONY: all clean dist release profile debug
