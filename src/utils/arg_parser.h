@@ -44,6 +44,4 @@ OS_COLD AppConfig parse_arguments(int argc, char *argv[]);
 // Print usage information
 OS_COLD void print_usage(const char *argv0);
 
-// Validate FFT size is a power of two
-
 } // namespace openspectrum

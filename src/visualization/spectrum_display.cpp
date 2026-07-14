@@ -240,7 +240,7 @@ void SpectrumDisplay::update_spectrum(const std::vector<float> &db_values) {
 // region baseline (region_h). High dB => tall bar reaching toward the top.
 // Map display column c (0..cols) to its [lo, hi) FFT-bin range. Shared by
 // build_vertices and sample_at_x so the drawn bar and the cursor/marker readout
-// peak-pick the same bins.
+// reduce the same bins.
 static inline void column_bins(size_t c, size_t cols, size_t num_bins,
                                size_t &lo, size_t &hi) {
   lo = c * num_bins / cols;

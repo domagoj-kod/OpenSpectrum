@@ -28,7 +28,7 @@ https://github.com/user-attachments/assets/b4c1f860-a24d-412e-80e4-df56691a20e1
 | Feature | Description |
 |--------|-------------|
 | **Multi-Device Support** | RTL2832U (via librtlsdr) with architecture ready for proprietary SDR hardware |
-| **Real-Time FFT Analysis** | Configurable FFT size (1024–16384), six window functions, and DC removal |
+| **Real-Time FFT Analysis** | Configurable FFT size (1024–65536), six window functions, and DC removal |
 | **Dual Visualization** | GPU-rendered spectrum display + waterfall, with five color palettes |
 | **Cursor Readout** | Hover for a live frequency + amplitude (or time-ago) readout under the cursor |
 | **Instrument Panel** | Right-side readout — frequency/gain/FFT/window/palette, PEAK, live FPS/CPU timing, and the marker list |
@@ -100,7 +100,9 @@ Options:
   -f, --freq HZ       Center frequency in Hz (default: 92600000)
   -r, --rate HZ       Sample rate in Hz (default: 2048000)
   -g, --gain DB       Gain in dB (default: 10.0)
-  -s, --fft-size N    FFT size (power of 2, default: 4096)
+  -s, --fft-size N    FFT size: 1024, 2048, 4096, 8192, 16384,
+                      32768, 65536 (default: 4096; larger = finer
+                      bins and more CPU)
   -w, --width N       Display width in pixels (default: 1050)
   -H, --height N      Display height in pixels (default: 576)
   -W, --window NAME   Window function: rectangle, hann, hamming,

@@ -41,11 +41,25 @@ frame time       Δt = N / fs     # how long one FFT covers
 |----|---|-----------------|--------------|
 | 2.048 MS/s | 2048 | 1000 Hz/bin | 1 ms |
 | 2.048 MS/s | 16384 | 125 Hz/bin | 8 ms |
+| 2.048 MS/s | 65536 | 31.25 Hz/bin | 32 ms |
 | 1.024 MS/s | 16384 | 62.5 Hz/bin | 16 ms |
 
 Bigger `N` → finer frequency, coarser time, more latency. That trade is fixed.
 Past the point where `Δt` exceeds the signal's coherence time, extra bins just
 show the same noise at tighter spacing — no new information.
+
+**There is a second, harder ceiling: the display.** At 2.048 MS/s across a
+~1400 px spectrum pane, one pixel already covers ~1.4 kHz — so 16384's 125 Hz
+bins are already ~11× finer than anything that can be drawn, and 65536's 31 Hz
+bins are ~45× finer. Those extra bins are not wasted: the display averages every
+bin landing in a pixel column, and more bins per column means a smoother noise
+floor. But they buy **smoothness, not visible detail**. This is worth knowing
+before comparing against other analyzers — a program running a far larger FFT
+over the same span is usually buying averaging, not resolution you can see, and
+the same smoothness is available far more cheaply from the averaging the display
+already does (see *Amplitude scale and autoscaling*). Resolution below
+~1 kHz/pixel only becomes visible with a zoom/span control, which this program
+does not have.
 
 ### Where the data stops being real
 
@@ -71,6 +85,27 @@ around `-70…-100 dBFS` depending on FFT size, window, and gain). It is
 **uncalibrated and relative** — no antenna gain, impedance, or cable-loss term —
 so it cannot be converted to absolute power (dBm) without a per-gain calibration
 offset.
+
+### Amplitude scale and autoscaling
+
+Both panes autoscale, and both anchor their bottom on the **median** bin, not the
+minimum. A periodogram bin of Gaussian noise is exponentially distributed, so the
+*minimum* over N bins is an extreme-value statistic with no physical meaning: at
+16384 bins the deepest null lands ~42 dB below the real noise floor and re-rolls
+every frame. Anchoring there stretched the pane across ~90 dB (half of it empty),
+pinned the floor at mid-screen, and made the axis labels jitter. The median sits a
+fixed 1.6 dB below the floor's mean power and is stable to ~0.05 dB. The top
+tracks the peak (`max + 5 dB`) — `max` is signal-dominated and well behaved.
+
+The y-axis is **signed dBFS**: `-83dB` means 83 dB below full scale, the same
+reference as the PEAK readout above.
+
+The drawn trace is the **mean** of the bins falling in each pixel column, not the
+peak. Averaging is what makes the noise floor read as a line rather than a band of
+grass — a peak detector over ~12 bins/column reads ~4.9 dB high and still spreads
+~1.8 dB. Max-hold (`m`) is the peak detector when you want one. Video averaging
+(`a`, a per-bin EMA) is **on by default**; the panel's TRACE field shows `AVG`.
+Together they put the noise floor at ~0.5 dB of spread.
 
 ## Window functions
 
@@ -106,17 +141,28 @@ the full pipeline diagram and the SIMD hot-path invariants.
 
 ## Performance & footprint
 
-The pipeline is **render-backend-bound, not DSP-bound.** Measured:
+The pipeline is **render-backend-bound, not DSP-bound — through FFT 16384.**
+Measured:
 
 - **CPU** (DC removal + window + FFT + display update) is sub-2 ms even at FFT
-  16384 on a 15 W i5-7300U. Further FFT/SIMD work is not warranted.
+  16384 on a 15 W i5-7300U. Further FFT/SIMD work is not warranted at the
+  default sizes.
+- **The opt-in 32768/65536 sizes invert that.** On an i7-12700H / Direct3D 11
+  at 2.048 MS/s, CPU is **0.80 / 1.55 / 3.25 ms** at 16384 / 32768 / 65536
+  while `render_build` holds ~1.5 ms — so **65536 is the one configuration
+  where this pipeline is DSP-bound**. Roughly 4× the CPU of 16384 (2.4% → 9.8%
+  of one core).
 - **Latency** is frame-paced: ~16.7 ms/frame at 60 fps vsync. Per-frame compute
-  is a small fraction of that and stays roughly flat across FFT sizes, so the
-  frame rate holds at the cap from 4096 through 16384.
-- **Memory** under 49 MB resident at FFT 16384 (native Windows / Direct3D 11,
-  v3.7.0), lower at smaller sizes. Frame pools are bounded; the waterfall stores
-  one byte per cell (4:1 vs float); the ~1 MB IQ write buffer exists only while a
-  capture is running.
+  is a small fraction of that, so the frame rate holds at the cap from 4096
+  through **65536**. It does not hold beyond: 131072 needs four device
+  callbacks per frame, capping the line rate at ~15.6/s (measured 15.4–16.0
+  fps), which is why it is not a selectable size.
+- **Memory** ~51 MB resident at FFT 16384 (native Windows / Direct3D 11,
+  measured at `99257e3`; the older "<49 MB" figure was v3.7.0). It is bounded
+  but **scales mildly with FFT size** — the frame pool is 12 frames ×
+  `fft_size` × 8 B, measured **+8 MB going 4096 → 65536**. The waterfall stores
+  one byte per cell (4:1 vs float); the ~1 MB IQ write buffer exists only while
+  a capture is running.
 - **Renderer** — keep the default backend: Direct3D 11 (Windows), OpenGL
   (Linux), both hold a clean 60 fps at ~1 ms CPU. **Don't force Vulkan on old
   Intel iGPUs** (HD 6xx / Gen9): roughly half the frame rate for no benefit. The
@@ -126,7 +172,7 @@ The pipeline is **render-backend-bound, not DSP-bound.** Measured:
 > A Linux/WSL2 memory profile reads much higher — most of it is the Mesa
 > software-GL backing store from running without GPU passthrough, an artifact of
 > the environment, not heap growth. The Direct3D 11 build keeps those surfaces
-> in video memory, so the <49 MB Direct3D 11 figure is the representative one.
+> in video memory, so the ~51 MB Direct3D 11 figure is the representative one.
 
 ### Benchmark: FFT size vs. renderer
 
@@ -179,8 +225,14 @@ Two regimes, and the crossover is the whole story:
 regime — and higher fps means *more* GPU/battery draw, not less. For long
 unattended runs the lever points the other way: `--max-fps 30` pins every size to
 30 fps, at which point the per-frame CPU gap (0.05 ms at 1024 vs 1.6 ms at 16384)
-is noise. So `--max-fps` is the real power control; FFT size is primarily a
-resolution/latency choice.
+is noise. So `--max-fps` is the real power control, and **through 16384** FFT
+size is primarily a resolution/latency choice.
+
+That stops being true at the opt-in sizes. At 65536 the per-frame CPU is ~3.25
+ms on an i7-12700H (and roughly double that on a T470-class part) — no longer
+noise against a 33 ms budget, and ~4× the DSP load of 16384 for a resolution
+gain the pane cannot render (see below). **At 32768/65536, FFT size is a real
+power lever**; pick them for narrow-signal work, not as a default.
 
 ### Case study: the panel-text render regression (v3.8.0 → v3.8.1)
 
@@ -325,6 +377,8 @@ There is no network listener, no elevated privilege, and no setuid surface, so
 nothing beyond this near-zero-cost baseline is warranted (don't add to it, don't
 strip it). The flags are *defense-in-depth*; prevention lives in the parsers:
 the `.meta.json` scrape is size-bounded and rejects a zero sample rate
-(`iq_playback.cpp`), CLI numbers are type- and range-checked (`arg_parser.cpp`,
+(`iq_playback.cpp`), CLI numbers are type- and range-checked — FFT size against
+an explicit allow-list, so a pathological `2^30` cannot reach the frame pool and
+the CLI cannot select a size the UI and docs do not offer (`arg_parser.cpp`,
 `main.cpp`), and `.iq` samples are screened for NaN/Inf before entering the DSP
 pipeline.
