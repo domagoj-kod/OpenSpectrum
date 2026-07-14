@@ -97,12 +97,14 @@ auto handle_control_key(ControlState &state, SDL_Keycode key, bool shift_held,
     break;
   }
 
-  // FFT size controls (1-5 keys select a supported size)
+  // FFT size controls (1-7 keys select a supported size)
   case SDLK_1:
   case SDLK_2:
   case SDLK_3:
   case SDLK_4:
-  case SDLK_5: {
+  case SDLK_5:
+  case SDLK_6:
+  case SDLK_7: {
     int const index = key - SDLK_1;
     if (index < static_cast<int>(constraints.supported_fft_sizes.size())) {
       size_t const new_size = constraints.supported_fft_sizes[index];

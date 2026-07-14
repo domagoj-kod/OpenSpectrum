@@ -45,6 +45,5 @@ OS_COLD AppConfig parse_arguments(int argc, char *argv[]);
 OS_COLD void print_usage(const char *argv0);
 
 // Validate FFT size is a power of two
-inline bool is_power_of_two(size_t n) { return n > 0 && (n & (n - 1)) == 0; }
 
 } // namespace openspectrum

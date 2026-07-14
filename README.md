@@ -134,7 +134,7 @@ Tuning steps default to **1 MHz / 1 dB**; hold **Shift** for fine
 |-----|--------|
 | `+/=` · `-/_` | Increase / decrease center frequency |
 | `r` · `f` | Increase / decrease gain |
-| `1`–`5` | Set FFT size (1024, 2048, 4096, 8192, 16384) |
+| `1`–`7` | Set FFT size (1024, 2048, 4096, 8192, 16384, 32768, 65536) |
 | `Ctrl` · `Shift` | Coarse (10 MHz/dB) · fine (0.1 MHz/dB) modifier |
 | `UP` / `DOWN` | Cycle window functions forward / backward |
 | `c` / `Shift+C` | Cycle color palette (JET, VIRIDIS, HOT, GRAY, BLU-RED) |

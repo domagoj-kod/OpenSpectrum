@@ -20,7 +20,16 @@ struct DeviceConstraints {
   uint32_t max_frequency_hz = 1700000000; // 1.7 GHz
   float min_gain_db = 0.0f;
   float max_gain_db = 49.6f; // RTL2832U max
-  std::vector<size_t> supported_fft_sizes = {1024, 2048, 4096, 8192, 16384};
+  // 32768/65536 are opt-in, not a better default: at 2.048 MS/s across a ~1400
+  // px pane the display shows ~1.4 kHz/px, so 16384's 125 Hz RBW is already
+  // ~11x finer than anything visible — the extra bins buy resolution you cannot
+  // see and cost 2x/4x the DSP (measured 0.83 -> 1.63 -> 3.5 ms cpu). They earn
+  // their place for narrow-signal work, not for the default view. 131072 is
+  // deliberately absent: it needs 4 device callbacks per frame, which caps the
+  // line rate at ~15.6/s — the exact thing rtl_sdr_device.cpp's buf_len=65536
+  // was chosen to escape. Still reachable via --fft-size for experiments.
+  std::vector<size_t> supported_fft_sizes = {1024,  2048,  4096, 8192,
+                                             16384, 32768, 65536};
   std::vector<WindowFunction> supported_window_functions = {
       WindowFunction::RECTANGLE,       WindowFunction::HANN,
       WindowFunction::HAMMING,         WindowFunction::BLACKMAN,
