@@ -132,7 +132,11 @@ History = `RingBuffer<vector<uint8_t>>`; dB quantized to `uint8_t` over a fixed 
 | pocketfft `aligned_alloc` | `_aligned_malloc`/`_free` (`<malloc.h>`) | `::aligned_alloc` (C11) |
 
 ### Performance profile (measured — don't re-derive)
-The pipeline is **render-backend-bound, never DSP-bound.** `cpu` (remove_dc + window + FFT + display update) is sub-2 ms even at FFT 16384 on a 15 W i5-7300U — further FFT/SIMD work is **not** warranted; that line is done.
+The pipeline is **render-backend-bound, never DSP-bound — up to FFT 16384.** `cpu` (remove_dc + window + FFT + display update) is sub-2 ms even at 16384 on a 15 W i5-7300U — further FFT/SIMD work is **not** warranted at the default sizes; that line is done.
+
+**The opt-in 32768/65536 sizes invert that** (i7-12700H / D3D11 / 2.048 MS/s): `cpu` = 0.80 / 1.55 / 3.25 ms at 16384 / 32768 / 65536 while `render_build` holds ~1.5 ms — so **65536 is the one configuration where the pipeline is DSP-bound**. That is ~4× the CPU of 16384 (2.4% → 9.8% of a core) buying RBW the display cannot show: ~1.4 kHz/px at this span vs 125 Hz already at 16384. Both still hold 30 fps. 131072 is excluded on purpose — 4 device callbacks per frame caps the line rate at ~15.6/s (measured 15.4–16.0), the cap `buf_len=65536` exists to escape. **WSL2 predicted all of these within 5%** (1.63 / 3.50), which is the standing evidence that `cpu` is the clean cross-backend number and `render_build`/`present` are not.
+
+Beware hybrid-core noise when measuring on the i7-12700H: a 2 s window where `cpu`, `render_build` *and* `present` all drop by the same ~2.1× is a P-core/E-core migration, not a workload change. The i5-7300U is homogeneous and gives cleaner (slower) numbers.
 - **`render_build`/`present` are not comparable across backends.** The vsync idle-wait lands in `present` on Direct3D 11 (Windows) and the software renderer, but in `render_build` on OpenGL. Only `cpu` is a clean cross-backend number — a large `present` or `render_build` is mostly idle vblank wait, **not** work.
 - **Keep the default renderer.** OpenGL (Linux default) and D3D11 (Windows) lock a clean 60 fps with ~1 ms real CPU.
 - **Vulkan is a trap on old Intel iGPUs (HD 620 / Gen9):** ~30 fps, ~24 ms real `render_build` — ~7× slower than OpenGL on the same box. Never suggest `SDL_RENDER_DRIVER=vulkan` there.
