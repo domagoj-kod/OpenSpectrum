@@ -17,14 +17,37 @@ live in the README's Conceptual section, not here.
 - **Reserved left-gutter axes** — insets both plots and shifts every freq↔x
   mapping (spectrum geometry, waterfall width, freq scale, markers, cursor);
   50+ lines across 4 files. Kept the translucent overlay strip instead.
-- **Render-path SIMD** (spectrum peak-pick, waterfall decimation, `quantize_db`,
-  bar `get_color`) — each sub-10 µs/frame and the frame is vsync-bound, so
-  vectorizing buys no fps and only grows the binary. Revisit only if running
-  vsync-off or on a 120/144 Hz panel.
+- **Render-path SIMD** (spectrum column reduce, waterfall decimation,
+  `quantize_db`, bar `get_color`) — each sub-10 µs/frame and the frame is
+  vsync-bound, so vectorizing buys no fps and only grows the binary. Revisit
+  only if running vsync-off or on a 120/144 Hz panel.
+- **Glyph atlas for the HUD** (bake the font once at init + one
+  `SDL_RenderGeometry` call, replacing `blit_text`'s per-string texture cache
+  and its mark-sweep). Analysed in full, deliberately not done:
+  - **LOC: net ~−50, not −400.** The text subsystem is only ~290 lines and the
+    98-line `BITMAP_FONT` table *stays* — it is what bakes the atlas.
+  - **Perf: it enables nothing.** Maybe `render_build` ~2.4→~1.9 ms on D3D11.
+    The frame spends ~5.5 ms of a 33 ms budget even at FFT 65536; there is no
+    deadline to relieve.
+  - **Bigger FFT sizes do not change this** (asked and answered 2026-07-14).
+    The atlas saves a *fixed* text cost regardless of FFT size; 32768/65536
+    grow `cpu` (DSP), a different stage — so as a fraction of a 65536 frame the
+    atlas's value *falls*. And 65536 is opt-in; the 4096 default spends ~0.15 ms
+    on DSP.
+  - **Real value is concept reduction**, not lines or speed: it deletes a whole
+    mental model (per-frame texture lifecycle + mark-sweep + cache-key-by-
+    colour+string + invalidation) in favour of "bake once, emit quads". Decide
+    it on comprehension grounds or when text load grows — never on LOC/perf.
+  - **Risk if attempted:** the `BLENDMODE_NONE` opaque backdrop behind
+    status/PEAK needs explicit filled rects (glyph quads only draw lit pixels),
+    and it touches every overlay call site — re-verify the whole HUD.
 
 ## Do not redo
 
 Already vectorized: `SignalProcessor::apply_window`/`remove_dc`, `FftAnalyzer`
 post-FFT power/dB + `fast_log10_avx2`, waterfall RGBA LUT gather, waterfall
 downsample inner sum. FFT is PocketFFT (numpy-speed). The pipeline is
-render-bound, not DSP-bound — see CLAUDE.md's performance profile.
+render-bound, not DSP-bound **through FFT 16384** — the opt-in 32768/65536
+sizes invert that (65536 is the one DSP-bound config), but they are not the
+default and the frame still finishes in ~5.5 ms of a 33 ms budget. See
+CLAUDE.md's performance profile before acting on either claim.
