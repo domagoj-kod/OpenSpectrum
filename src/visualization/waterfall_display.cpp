@@ -80,34 +80,53 @@ void WaterfallDisplay::update_global_range() {
     return;
   }
 
-  // First/last populated bucket of the incremental histogram (history is
-  // non-empty here, so at least one bucket is non-zero → q_min <= q_max).
-  int q_min = 0;
-  while (m_hist_counts[q_min] == 0) {
-    ++q_min;
-  }
+  // Top = last populated bucket: max is dominated by real signals, so it is
+  // well behaved. History is non-empty here, so at least one bucket is set.
   int q_max = 255;
-  while (m_hist_counts[q_max] == 0) {
+  while (q_max > 0 && m_hist_counts[q_max] == 0) {
     --q_max;
   }
 
-#ifndef NDEBUG
-  // Cross-check the incremental counts against a brute-force scan — the O(n)
-  // work we removed from the hot path, kept only in debug builds as an oracle.
-  uint8_t bf_min = 255;
-  uint8_t bf_max = 0;
-  for (size_t i = 0; i < m_history.size(); ++i) {
-    for (uint8_t const v : m_history[i]) {
-      bf_min = std::min(bf_min, v);
-      bf_max = std::max(bf_max, v);
+  // Bottom = *median* bucket, not the first populated one. The waterfall shows
+  // raw per-bin dB, where a noise bin is exponentially distributed: the lowest
+  // populated bucket is the deepest null anywhere in the history, an
+  // extreme-value outlier tens of dB below the actual floor. Anchoring there
+  // stretched the LUT across a range the content never occupies, so the noise
+  // floor landed mid-palette and washed the whole pane out. Noise fills most
+  // of the screen, so the median bucket *is* the floor — anchoring there puts
+  // it at the dark end and leaves the rest of the palette for signals.
+  // Percentiles are why the histogram exists: an O(256) L1-resident walk, no
+  // sort, no scan of the history.
+  int64_t total = 0;
+  for (int32_t const c : m_hist_counts) {
+    total += c;
+  }
+  int64_t cum = 0;
+  int q_med = 0;
+  for (; q_med < q_max; ++q_med) {
+    cum += m_hist_counts[q_med];
+    if (cum * 2 >= total) {
+      break;
     }
   }
-  assert(static_cast<uint8_t>(q_min) == bf_min &&
-         static_cast<uint8_t>(q_max) == bf_max &&
+
+#ifndef NDEBUG
+  // Cross-check the incremental counts against a brute-force recount — the
+  // O(n) work we removed from the hot path, kept only in debug builds as an
+  // oracle. Comparing the buckets themselves (rather than a statistic derived
+  // from them) pins the actual invariant: the histogram is in lockstep with
+  // m_history, whatever we go on to read out of it.
+  int32_t bf[256] = {};
+  for (size_t i = 0; i < m_history.size(); ++i) {
+    for (uint8_t const v : m_history[i]) {
+      ++bf[v];
+    }
+  }
+  assert(std::equal(std::begin(bf), std::end(bf), std::begin(m_hist_counts)) &&
          "waterfall autoscale histogram diverged from history");
 #endif
 
-  float new_min = dequantize_db(static_cast<uint8_t>(q_min));
+  float new_min = dequantize_db(static_cast<uint8_t>(q_med));
   float new_max = dequantize_db(static_cast<uint8_t>(q_max));
 
   float const range = new_max - new_min;

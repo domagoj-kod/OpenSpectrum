@@ -330,8 +330,8 @@ int SdlRenderer::axis_strip_width() const {
     return 0;
   }
   int w = 0;
-  // "120dB" is the widest label either axis can produce (sign + space dropped).
-  m_text_renderer->get_text_size("120dB", &w, nullptr);
+  // "-120dB" is the widest label either axis can produce (space dropped).
+  m_text_renderer->get_text_size("-120dB", &w, nullptr);
   constexpr int kPad = 2;
   constexpr int kTick = 3;
   return 2 * kPad + w + kTick;
@@ -367,9 +367,10 @@ void SdlRenderer::draw_left_axes() {
       const double frac = static_cast<double>(i) / kDiv; // 0 top .. 1 bottom
       const double v = m_axis_db_max - frac * range;     // top = max dB
       char s[16];
-      // Drop the leading minus — the dB scale is understood as below full
-      // scale.
-      std::snprintf(s, sizeof(s), "%.0fdB", -v);
+      // Keep the sign: these are dBFS, and a level below full scale is
+      // negative. Printing "83dB" for -83 dBFS reads as an error to anyone who
+      // works in dB, which is everyone this axis is for.
+      std::snprintf(s, sizeof(s), "%.0fdB", v);
       labels.push_back({static_cast<float>(frac) * db_usable, s});
     }
   }
