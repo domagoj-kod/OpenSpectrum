@@ -164,7 +164,10 @@ private:
   bool m_spectrogram_export_requested = false;
   bool m_unfreeze_requested = false;
   bool m_max_hold = false;
-  bool m_averaging = false;
+  // Averaging on by default: the raw per-frame trace is a single periodogram
+  // (5.57 dB of noise-floor spread), which reads as grass. 'a' toggles it off;
+  // the panel's TRACE field shows AVG so the default is visible, not silent.
+  bool m_averaging = true;
   bool m_trace_reset = false;
 
   // Status string caching for performance

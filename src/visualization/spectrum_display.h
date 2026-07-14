@@ -133,15 +133,29 @@ private:
   std::vector<float> m_spectrum_data;
   SpectrumPalette m_palette;
 
+  // Mutable copy for the autoscale median (nth_element reorders in place).
+  std::vector<float> m_scratch;
+
   // Trace state. m_avg_data is the EMA accumulator; m_max_hold_data the
   // running raw-spectrum maximum. Empty vector == not yet seeded.
   std::vector<float> m_avg_data;
   std::vector<float> m_max_hold_data;
-  bool m_avg_enabled = false;
+  // Averaging defaults on: with the per-column mean detector it takes the
+  // noise-floor spread to ~0.5 dB, which is what turns the floor into a line.
+  // ControlState owns the user-facing default; this keeps the class consistent
+  // on its own.
+  bool m_avg_enabled = true;
   bool m_max_hold_enabled = false;
   // EMA weight for new data: ~6-frame settling, smooths the noise floor
   // without visibly lagging real signal changes at 60 fps.
   static constexpr float kAvgAlpha = 0.25F;
+  // Headroom below the median bin for the autoscaled pane bottom. The median
+  // sits ~1.6 dB under the noise floor, so this leaves the floor ~12 dB up
+  // from the bottom edge — enough to read, without wasting the pane.
+  static constexpr float kFloorMargin = 10.0F;
+  // Take every Nth bin for the median estimate. Noise bins are iid, so this
+  // costs accuracy the axis cannot show and saves most of the selection work.
+  static constexpr size_t kMedianStride = 4;
 
   float m_min_db = -120.0f;
   float m_max_db = 0.0f;

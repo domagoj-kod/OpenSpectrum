@@ -197,15 +197,36 @@ void SpectrumDisplay::update_spectrum(const std::vector<float> &db_values) {
     }
   }
 
+  // Autoscale. The top tracks the peak: max is dominated by real signals, and
+  // for pure noise it only lands ~10 dB above the floor, so it is well behaved.
+  //
+  // The bottom tracks the *median* bin, not the min. A single periodogram bin
+  // of Gaussian noise is exponentially distributed, so min over N bins is an
+  // extreme-value statistic with no physical meaning: at 16K bins the deepest
+  // null sits ~42 dB below the noise floor and re-rolls every frame, which
+  // stretched the pane across a ~90 dB range (half of it empty), pinned the
+  // floor at mid-screen and made the axis labels jitter. The median sits a
+  // fixed 1.6 dB below the floor's mean power and is stable to ~0.05 dB.
   if (!db_values.empty()) {
     const float *ptr = db_values.data();
-    float min_val = ptr[0];
     float max_val = ptr[0];
     for (size_t i = 1; i < n; ++i) {
-      if (ptr[i] < min_val) min_val = ptr[i];
-      if (ptr[i] > max_val) max_val = ptr[i];
+      max_val = std::max(max_val, ptr[i]);
     }
-    set_db_range(min_val - 5.0F, max_val + 5.0F);
+    // nth_element needs a mutable copy — m_spectrum_data must stay in bin
+    // order. Noise bins are iid, so a strided subsample estimates the same
+    // median: at 16K bins a quarter-sample is still stable to ~0.1 dB, for a
+    // quarter of the copy + selection cost (which is otherwise ~0.2 ms/frame,
+    // a third of the whole DSP budget, spent on a number that barely moves).
+    // resize() is a no-op after the first frame of a given size.
+    const size_t m = (n + kMedianStride - 1) / kMedianStride;
+    m_scratch.resize(m);
+    for (size_t i = 0; i < m; ++i) {
+      m_scratch[i] = ptr[i * kMedianStride];
+    }
+    auto mid = m_scratch.begin() + static_cast<std::ptrdiff_t>(m / 2);
+    std::nth_element(m_scratch.begin(), mid, m_scratch.end());
+    set_db_range(*mid - kFloorMargin, max_val + 5.0F);
   }
 
   // The live render path draws the spectrum on the GPU from build_vertices();
@@ -232,6 +253,18 @@ static inline void column_bins(size_t c, size_t cols, size_t num_bins,
   }
 }
 
+// Mean dB across a column's bins — the display's detector. Averaging in the dB
+// domain is a log-average (geometric mean of power), the same "video average" a
+// swept analyzer applies; it reads a noise floor 2.51 dB below its true mean
+// power, which is the conventional price for a trace that sits still.
+static inline float column_mean(const float *bars, size_t lo, size_t hi) {
+  float sum = 0.0F;
+  for (size_t i = lo; i < hi; ++i) {
+    sum += bars[i];
+  }
+  return sum / static_cast<float>(hi - lo);
+}
+
 void SpectrumDisplay::build_vertices(float region_w, float region_h,
                                      std::vector<SDL_Vertex> &verts,
                                      std::vector<int> &indices) const {
@@ -251,10 +284,15 @@ void SpectrumDisplay::build_vertices(float region_w, float region_h,
     return;
   }
 
-  // More bins than pixels wastes the GPU on sub-pixel overdraw (16K FFT → ~15
+  // More bins than pixels wastes the GPU on sub-pixel overdraw (16K FFT → ~12
   // bars/px at the default width). Collapse to one bar per pixel column,
-  // peak-picking the max dB so spikes survive. cols == num_bins when the FFT is
-  // already narrower than the pane, so smaller sizes are unchanged.
+  // averaging the bins that land in it. Averaging is what makes the floor a
+  // line rather than grass: mean-of-12 leaves ~1.25 dB of spread, where the
+  // max-of-12 this used to do read ~4.9 dB high (E[max of n exponentials] =
+  // H_n) and still spread ~1.8 dB. Spikes are not lost — max-hold (below) is
+  // the peak detector, and it is the trace that promises peak semantics.
+  // cols == num_bins when the FFT is already narrower than the pane, so
+  // smaller sizes are unchanged.
   const size_t cols =
       std::min(num_bins, std::max<size_t>(1, static_cast<size_t>(region_w)));
   const float col_w = region_w / static_cast<float>(cols);
@@ -269,10 +307,7 @@ void SpectrumDisplay::build_vertices(float region_w, float region_h,
     size_t lo = 0;
     size_t hi = 0;
     column_bins(cidx, cols, num_bins, lo, hi);
-    float db = bars[lo];
-    for (size_t i = lo + 1; i < hi; ++i) {
-      db = std::max(db, bars[i]);
-    }
+    float const db = column_mean(bars.data(), lo, hi);
     float const bar_height =
         std::clamp((db - m_min_db) * db_to_height, 0.0F, region_h);
 
@@ -356,7 +391,7 @@ bool SpectrumDisplay::sample_at_x(float x, float region_w, float region_h,
   }
 
   // Mirror build_vertices' column decimation so the dot snaps onto the drawn
-  // bar (which is the peak of its pixel column, not a single raw bin).
+  // bar (which is the mean of its pixel column, not a single raw bin).
   const size_t cols =
       std::min(num_bins, std::max<size_t>(1, static_cast<size_t>(region_w)));
   const float col_w = region_w / static_cast<float>(cols);
@@ -367,10 +402,7 @@ bool SpectrumDisplay::sample_at_x(float x, float region_w, float region_h,
   size_t lo = 0;
   size_t hi = 0;
   column_bins(col, cols, num_bins, lo, hi);
-  float db = bars[lo];
-  for (size_t i = lo + 1; i < hi; ++i) {
-    db = std::max(db, bars[i]);
-  }
+  float const db = column_mean(bars.data(), lo, hi);
 
   const float db_to_height = region_h / db_range;
   const float bar_height =
