@@ -18,9 +18,25 @@ live in the README's Conceptual section, not here.
   mapping (spectrum geometry, waterfall width, freq scale, markers, cursor);
   50+ lines across 4 files. Kept the translucent overlay strip instead.
 - **Render-path SIMD** (spectrum column reduce, waterfall decimation,
-  `quantize_db`, bar `get_color`) — each sub-10 µs/frame and the frame is
-  vsync-bound, so vectorizing buys no fps and only grows the binary. Revisit
-  only if running vsync-off or on a 120/144 Hz panel.
+  `quantize_db`, bar `get_color`) — still declined, but on the correct grounds.
+  Measured 2026-07-15 (i7-12700H, tight loop, real sources), median per frame:
+
+  | FFT | `build_vertices` (column reduce + `get_color`) | `add_spectrum_line` (decimation + `quantize_db`) |
+  |----:|---:|---:|
+  | 4096 (default) | 11.5 µs | 3.7 µs |
+  | 16384 | 11.8 µs | 5.4 µs |
+  | 32768 | 13.2 µs | 7.8 µs |
+  | 65536 | 21.5 µs | 15.3 µs |
+
+  **The old "each sub-10 µs/frame" was never measured and was wrong** —
+  `build_vertices` exceeds 10 µs at *every* size, including the default. The
+  reason to decline was never the microseconds: **21.5 µs is 0.065% of a 33 ms
+  frame.** Even a perfect 2× buys ~11 µs, ~0.03% of a frame.
+  **Do not revisit at vsync-off or on a 120/144 Hz panel** — that old escape
+  hatch was unfounded too: at 144 Hz the budget is ~6900 µs and at ~530 fps
+  (uncapped, FFT 1024) it is ~1900 µs, so these loops stay under 1% in both.
+  There is no frame rate at which this pays. Retire the idea rather than
+  re-measure it.
 - **Glyph atlas for the HUD** (bake the font once at init + one
   `SDL_RenderGeometry` call, replacing `blit_text`'s per-string texture cache
   and its mark-sweep). Analysed in full, deliberately not done:
