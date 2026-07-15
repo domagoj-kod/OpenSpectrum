@@ -147,11 +147,95 @@ Measured:
 - **CPU** (DC removal + window + FFT + display update) is sub-2 ms even at FFT
   16384 on a 15 W i5-7300U. Further FFT/SIMD work is not warranted at the
   default sizes.
+
+> **`cpu` is not a measure of how much work the code does.** Read it as
+> work ÷ whatever clock the governor picked. `--max-fps 30` leaves the CPU idle
+> ~97% of the time, so it never leaves its lowest P-state: the T470 `perf stat`
+> runs below report **0.7–0.8 GHz** on a part with a 2.6 GHz base and 3.5 GHz
+> turbo. Same binary, same input, i7-12700H at FFT 65536: **0.95 ms in a tight
+> loop vs 2.37 ms at a 30 fps duty cycle** — 2.5× for identical instructions,
+> from clock ramp plus caches going cold across the 32 ms idle. Frame-to-frame
+> jitter is ±1.6 ms (p10 1.25 / p90 2.89) and is the governor, not the workload.
+>
+> Consequences, in order of how often they get this wrong:
+> 1. **Fine for comparing configurations** — both sides inflate alike, so
+>    "65536 costs more than 32768" holds. That is what the tables below are for.
+> 2. **Useless as a work budget.** The real per-frame DSP at 65536 is ~1.14 ms,
+>    not 3.25. Optimizing against the reported number is chasing the governor:
+>    the fixed clock/cold-cache penalty is ~60% of it and no code change touches it.
+> 3. **The headroom is far larger than "25% of budget" suggests** — that figure
+>    is measured while idling at a quarter of base clock. There is ~4× of clock
+>    in reserve the workload never asks for.
+>
+> Measure real work in a tight loop against the project sources (that is where
+> the 1.14 ms breakdown below comes from); measure *pacing* with `FRAME-TIMING`.
+> Do not mix the two — dividing a tight-loop number by a `FRAME-TIMING` number
+> is how this section previously concluded the FFT was 23% of `cpu` when it is
+> 71% of the work.
 - **The opt-in 32768/65536 sizes invert that.** On an i7-12700H / Direct3D 11
   at 2.048 MS/s, CPU is **0.80 / 1.55 / 3.25 ms** at 16384 / 32768 / 65536
   while `render_build` holds ~1.5 ms — so **65536 is the one configuration
   where this pipeline is DSP-bound**. Roughly 4× the CPU of 16384 (2.4% → 9.8%
-  of one core).
+  of one core). Both sides are governor-inflated (see above), so the *ratio*
+  holds even though the absolute values do not.
+
+**Where the work actually is.** Per-frame stages at FFT 65536, tight loop,
+i7-12700H, measured against the project sources — the breakdown `cpu` cannot
+give you. This is the list to check before proposing any DSP optimization:
+
+| Stage | ms | share |
+|-------|---:|------:|
+| pocketfft transform | 0.812 | **71%** |
+| `update_spectrum` (`nth_element`) | 0.142 | 12% |
+| sign-trick fill + dB/log10 loop | 0.067 | 6% |
+| `get_max_db` | 0.058 | 5% |
+| `apply_window` | 0.029 | 3% |
+| `add_spectrum_line` | 0.017 | 1% |
+| `remove_dc` | 0.014 | 1% |
+| **total real work** | **1.14** | |
+
+The transform dominates; everything around it is already AVX2 and already
+negligible. `get_max_db` is the one unvectorized loop left (a scalar max
+reduction — GCC will not auto-vectorize float max without `-ffast-math`), and
+it is worth 0.05 ms of a 33 ms budget. There is no DSP optimization left that
+pays for its own code.
+
+### The plan cache: less work, worse `cpu` — the worked example
+
+PocketFFT defaults `POCKETFFT_CACHE_SIZE` to 0, rebuilding the plan (factorize +
+twiddles + ~512 KB alloc/free at 65536) on every call, 30×/s.
+`src/fft/pocketfft_wrapper.h` sets it to 1. Measured on the **T470 (i5-7300U),
+FFT 65536, `--max-fps 30`, 40 s**, against the v3.9.0 baseline in `logs/`:
+
+| | v3.9.0 | v3.9.1 | |
+|---|---:|---:|---|
+| page-faults | 271,568 | 9,000 | −97% |
+| instructions | 15,596M | 12,763M | −18% |
+| cpu-cycles | 12,419M | 9,955M | −20% |
+| sys time | 2.34 s | 1.27 s | −46% |
+| task-clock | 14,628 ms | 12,611 ms | −14% |
+| **`cpu` (wall)** | **6.67 ms** | **7.73 ms** | **+16%** |
+| fps | 30.0 | 30.0 | — |
+
+**Strictly less work by every hardware counter, and 16% more wall-clock.** The
+effective clock through the DSP block falls **849 → 789 MHz**: removing sustained
+work gives the governor less reason to ramp, so what remains runs slower. `cpu` is
+wall-clock, so it reports the slowdown and conceals the −20% cycles. The +16% is
+not noise — the interquartile ranges do not overlap, and 32768 shifts the same way
+(4.05 → 4.57, 705 → 680 MHz).
+
+This is what the caveat above means in practice, and it is why the change is kept:
+nothing waits on `cpu` (fps is capped and identical, the frame uses ~9.6 ms of 33,
+and at 65536 the sample window is itself 32 ms — so +1 ms of DSP is ~1.5% of the
+real latency chain), while −20% cycles at a lower clock is less energy. **It is a
+power win that the headline performance metric reports as a regression.**
+
+Two prediction failures worth inheriting, both from this one change:
+1. A **tight-loop micro-benchmark** said 0.830 → 0.715 ms — meaningless here.
+2. A **WSL2 / i7-12700H A/B of the real app** said `cpu` −26%. The T470 said
+   **+16%**. A different governor and clock range flipped the **sign**, not just
+   the magnitude. Deltas do not port across machines — measure on the target.
+   ("WSL2 predicts within 5%" is about *absolute* values on the *same* CPU.)
 - **Latency** is frame-paced: ~16.7 ms/frame at 60 fps vsync. Per-frame compute
   is a small fraction of that, so the frame rate holds at the cap from 4096
   through **65536**. It does not hold beyond: 131072 needs four device
