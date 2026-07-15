@@ -141,47 +141,108 @@ the full pipeline diagram and the SIMD hot-path invariants.
 
 ## Performance & footprint
 
-The pipeline is **render-backend-bound, not DSP-bound — through FFT 16384.**
-Measured:
+At 2.048 MS/s with the default `--max-fps 30`, the pipeline holds **30.0 fps at
+every selectable FFT size, 1024 through 65536**, on a 15 W i5-7300U. CPU is not
+the limit at any size. The rest of this section is how that was measured, what
+the numbers mean, and — more often — what they do not.
 
-- **CPU** (DC removal + window + FFT + display update) is sub-2 ms even at FFT
-  16384 on a 15 W i5-7300U. Further FFT/SIMD work is not warranted at the
-  default sizes.
+### Reading `cpu`
 
-> **`cpu` is not a measure of how much work the code does.** Read it as
-> work ÷ whatever clock the governor picked. `--max-fps 30` leaves the CPU idle
-> ~97% of the time, so it never leaves its lowest P-state: the T470 `perf stat`
-> runs below report **0.7–0.8 GHz** on a part with a 2.6 GHz base and 3.5 GHz
-> turbo. Same binary, same input, i7-12700H at FFT 65536: **0.95 ms in a tight
-> loop vs 2.37 ms at a 30 fps duty cycle** — 2.5× for identical instructions,
-> from clock ramp plus caches going cold across the 32 ms idle. Frame-to-frame
-> jitter is ±1.6 ms (p10 1.25 / p90 2.89) and is the governor, not the workload.
->
-> Consequences, in order of how often they get this wrong:
-> 1. **Fine for comparing configurations** — both sides inflate alike, so
->    "65536 costs more than 32768" holds. That is what the tables below are for.
-> 2. **Useless as a work budget.** The real per-frame DSP at 65536 is ~1.14 ms,
->    not 3.25. Optimizing against the reported number is chasing the governor:
->    the fixed clock/cold-cache penalty is ~60% of it and no code change touches it.
-> 3. **The headroom is far larger than "25% of budget" suggests** — that figure
->    is measured while idling at a quarter of base clock. There is ~4× of clock
->    in reserve the workload never asks for.
->
-> Measure real work in a tight loop against the project sources (that is where
-> the 1.14 ms breakdown below comes from); measure *pacing* with `FRAME-TIMING`.
-> Do not mix the two — dividing a tight-loop number by a `FRAME-TIMING` number
-> is how this section previously concluded the FFT was 23% of `cpu` when it is
-> 71% of the work.
-- **The opt-in 32768/65536 sizes invert that.** On an i7-12700H / Direct3D 11
-  at 2.048 MS/s, CPU is **0.80 / 1.55 / 3.25 ms** at 16384 / 32768 / 65536
-  while `render_build` holds ~1.5 ms — so **65536 is the one configuration
-  where this pipeline is DSP-bound**. Roughly 4× the CPU of 16384 (2.4% → 9.8%
-  of one core). Both sides are governor-inflated (see above), so the *ratio*
-  holds even though the absolute values do not.
+`cpu` in the `FRAME-TIMING` line is wall-clock around DC removal + window + FFT
++ display update. It is **work ÷ whatever clock the governor chose**, not a
+measure of how much work the code does.
 
-**Where the work actually is.** Per-frame stages at FFT 65536, tight loop,
-i7-12700H, measured against the project sources — the breakdown `cpu` cannot
-give you. This is the list to check before proposing any DSP optimization:
+`--max-fps 30` leaves the CPU idle ~97% of the time, so it never leaves its
+lowest P-state. Effective clock (cycles ÷ task-clock) across the sweep below, on
+a part with a **2.6 GHz base / 3.5 GHz turbo**:
+
+| FFT | 1024 | 2048 | 4096 | 8192 | 16384 | 32768 | 65536 |
+|-----|-----:|-----:|-----:|-----:|------:|------:|------:|
+| clock | 350 MHz | 420 MHz | 413 MHz | 454 MHz | 484 MHz | 587 MHz | 749 MHz |
+
+**13–29% of base, and it rises with the workload.** Three consequences:
+
+1. **`cpu` is not comparable across FFT sizes.** A 65536 frame runs on a core
+   clocked 2.1× faster than a 1024 frame. Any "cpu scales as N log N" reading is
+   measuring the governor's response as much as the transform.
+2. **`cpu` is not a work budget.** Most of it is clock state. No code change
+   touches that, so optimising against the number is chasing the governor.
+3. **A same-size, same-session A/B is the only clean use** — and even then the
+   run-to-run spread reaches 13–18% at 32768/65536 (see below), which is larger
+   than most changes worth making.
+
+Corollary: never divide a tight-loop measurement by a `FRAME-TIMING` one. They
+are different regimes; the same work measures ~2.5× apart between them.
+
+### Live testing: FFT sweep, v3.9.0 vs v3.9.1
+
+**Method.** `./bench.sh <binary> <tag>`, both binaries in one session on one
+box. 7 sizes × 2 reps × 40 s, `--play` of a 21 s capture at 2.048 MS/s,
+`--max-fps 30`, SIGINT shutdown. Counters are exact (the event set fits the PMU;
+nothing multiplexed). Conditions recorded per run in `logs/<tag>-conditions.txt`.
+
+**Box.** ThinkPad T470, i5-7300U (2.6 GHz base), Intel HD 620, OpenGL,
+**SMT disabled**, `powersave` / `intel_pstate`, Ubuntu.
+
+`cpu` per run median, ms — both runs shown, because the spread is the point:
+
+| FFT | v3.9.0 | v3.9.1 | verdict |
+|-----|--------|--------|---------|
+| 1024 | 0.13, 0.12 | 0.11, 0.11 | v3.9.1 faster |
+| 2048 | 0.21, 0.22 | 0.19, 0.19 | v3.9.1 faster |
+| **4096** (default) | 0.53, 0.55 | **0.47, 0.47** | **v3.9.1 faster** |
+| 8192 | 1.42, 1.34 | 0.95, 0.94 | v3.9.1 faster |
+| 16384 | 2.64, 2.60 | 2.53, 1.87 | v3.9.1 faster |
+| 32768 | 4.42, 4.83 | 3.77, 4.44 | unresolved — runs overlap |
+| 65536 | 7.06, 6.85 | 6.73, 7.63 | unresolved — runs overlap |
+
+`fps` is **30.0 at every size in both builds**. `render_build` 0.98–1.61 ms and
+`present` 0.93–1.62 ms, both flat across FFT size in both builds — render cost is
+independent of bin count (the scroll path uploads one line, not the pane).
+
+"Unresolved" means the two runs of each build interleave: at 32768/65536 the
+run-to-run spread (13–18%) exceeds any effect. It does not mean *equal*. Two reps
+is thin; raise `REPS` before claiming anything there.
+
+### Finding: PocketFFT plan cache (v3.9.1)
+
+PocketFFT defaults `POCKETFFT_CACHE_SIZE` to 0, which reconstructs the plan —
+factorize, recompute the twiddle tables, allocate and free them — on **every**
+`c2c` call, 30×/s, for a plan that never changes. `src/fft/pocketfft_wrapper.h`
+sets it to 1 (one FFT size is live at a time; a 10-entry cache measured no faster
+for 7× the twiddle memory).
+
+**Result: it helps the small sizes, including the 4096 default, and does nothing
+at the large ones.** The default drops 0.55 → 0.47 ms (−14%); 32768 and 65536 are
+unresolved.
+
+That is what theory predicts, and it is the reason to expect it: **the rebuild is
+O(N) twiddle computation against an O(N log N) transform**, so it is
+proportionally largest where the transform is cheapest, and drowns as N grows.
+
+What it does **not** do, all measured, all previously claimed in this file and
+wrong:
+
+- **It is not a 65536 optimisation.** At 65536 the effect is unresolvable.
+- **It does not cut cycles.** Instructions fall monotonically (−1.5% at 1024 to
+  −12.7% at 65536) while cycles move −3.4%…+0.8%. The removed work was cheap,
+  high-IPC ALU work absorbed in spare issue slots. Fewer instructions ≠ less time.
+- **It does not fix a page-fault storm.** At 65536: 164,468 → 161,898 (−1.6%).
+  The recurring faults are PocketFFT's per-call *scratch* buffer crossing glibc's
+  mmap threshold, which the plan cache does not touch. Fault counts are also
+  bimodal across runs — glibc's dynamic mmap threshold adapts to allocation
+  history — so treat them as an unstable metric.
+- **It is not a power win.** Cycles are flat; there is no energy saving to claim.
+
+Kept because it measurably improves the default size, costs one `#define`, and
+no size shows a reproducible regression.
+
+### Where the per-frame work is
+
+Per-stage cost at FFT 65536, **tight loop, i7-12700H**, measured against the
+project sources. These are *relative shares of real work* — not per-frame cost on
+any machine, and not comparable to the `cpu` figures above, which are duty-cycled
+and governor-limited. Check this list before proposing any DSP optimisation:
 
 | Stage | ms | share |
 |-------|---:|------:|
@@ -192,79 +253,56 @@ give you. This is the list to check before proposing any DSP optimization:
 | `apply_window` | 0.029 | 3% |
 | `add_spectrum_line` | 0.017 | 1% |
 | `remove_dc` | 0.014 | 1% |
-| **total real work** | **1.14** | |
+| **total** | **1.14** | |
 
 The transform dominates; everything around it is already AVX2 and already
-negligible. `get_max_db` is the one unvectorized loop left (a scalar max
-reduction — GCC will not auto-vectorize float max without `-ffast-math`), and
-it is worth 0.05 ms of a 33 ms budget. There is no DSP optimization left that
-pays for its own code.
+negligible. `get_max_db` is the only unvectorized loop left (a scalar max
+reduction — GCC will not auto-vectorize float max without `-ffast-math`) and is
+worth 0.05 ms of a 33 ms frame. There is no DSP optimisation left that pays for
+its own code.
 
-### The plan cache: less work, worse `cpu` — the worked example
+### Latency and the frame-supply ceiling
 
-PocketFFT defaults `POCKETFFT_CACHE_SIZE` to 0, rebuilding the plan (factorize +
-twiddles + ~512 KB alloc/free at 65536) on every call, 30×/s.
-`src/fft/pocketfft_wrapper.h` sets it to 1. Measured on the **T470 (i5-7300U),
-FFT 65536, `--max-fps 30`, 40 s**, against the v3.9.0 baseline in `logs/`:
+Latency is frame-paced: ~16.7 ms/frame at 60 fps vsync, ~33 ms at `--max-fps 30`.
+Per-frame compute is a fraction of that at every size, so the rate holds at the
+cap from 1024 through 65536.
 
-| | v3.9.0 | v3.9.1 | |
-|---|---:|---:|---|
-| page-faults | 271,568 | 9,000 | −97% |
-| instructions | 15,596M | 12,763M | −18% |
-| cpu-cycles | 12,419M | 9,955M | −20% |
-| sys time | 2.34 s | 1.27 s | −46% |
-| task-clock | 14,628 ms | 12,611 ms | −14% |
-| **`cpu` (wall)** | **6.67 ms** | **7.73 ms** | **+16%** |
-| fps | 30.0 | 30.0 | — |
+**65536's headroom is ~4%, and it is arithmetic, not performance.** Frame supply
+is `rate / fft_size` = **31.25/s** at 2.048 MS/s, against the 30 fps default cap.
+The locked 30.0 fps there is the cap sitting just under the supply, so raising
+`--max-fps` above 31 does nothing at that size and any dip in supply drops frames
+immediately. Same wall excludes 131072: four device callbacks per frame cap the
+line rate at ~15.6/s (measured 15.4–16.0). 65536 is simply the last size that
+clears the default cap. Neither is a CPU limit.
 
-**Strictly less work by every hardware counter, and 16% more wall-clock.** The
-effective clock through the DSP block falls **849 → 789 MHz**: removing sustained
-work gives the governor less reason to ramp, so what remains runs slower. `cpu` is
-wall-clock, so it reports the slowdown and conceals the −20% cycles. The +16% is
-not noise — the interquartile ranges do not overlap, and 32768 shifts the same way
-(4.05 → 4.57, 705 → 680 MHz).
+### Memory
 
-This is what the caveat above means in practice, and it is why the change is kept:
-nothing waits on `cpu` (fps is capped and identical, the frame uses ~9.6 ms of 33,
-and at 65536 the sample window is itself 32 ms — so +1 ms of DSP is ~1.5% of the
-real latency chain), while −20% cycles at a lower clock is less energy. **It is a
-power win that the headline performance metric reports as a regression.**
+~51 MB resident at FFT 16384 (native Windows / Direct3D 11, measured at
+`99257e3`; the older "<49 MB" figure was v3.7.0). Bounded, but **scales mildly
+with FFT size** — the frame pool is 12 frames × `fft_size` × 8 B, measured
+**+8 MB going 4096 → 65536**. The waterfall stores one byte per cell (4:1 vs
+float); the ~1 MB IQ write buffer exists only while a capture is running.
 
-Two prediction failures worth inheriting, both from this one change:
-1. A **tight-loop micro-benchmark** said 0.830 → 0.715 ms — meaningless here.
-2. A **WSL2 / i7-12700H A/B of the real app** said `cpu` −26%. The T470 said
-   **+16%**. A different governor and clock range flipped the **sign**, not just
-   the magnitude. Deltas do not port across machines — measure on the target.
-   ("WSL2 predicts within 5%" is about *absolute* values on the *same* CPU.)
-- **Latency** is frame-paced: ~16.7 ms/frame at 60 fps vsync. Per-frame compute
-  is a small fraction of that, so the frame rate holds at the cap from 4096
-  through **65536**. It does not hold beyond: 131072 needs four device
-  callbacks per frame, capping the line rate at ~15.6/s (measured 15.4–16.0
-  fps), which is why it is not a selectable size.
-- **65536's fps headroom is ~4%, and it is arithmetic, not performance.** The
-  `--play`/device frame supply is `rate / fft_size`: at 2.048 MS/s that is
-  **31.25 frames/s at 65536**, against the default 30 fps cap. So the locked
-  30.0 fps measured there is the cap sitting just under the supply — **raising
-  `--max-fps` above 31 does nothing at that size**, and any drop in supply shows
-  up immediately as dropped frames. This is the same wall that excludes 131072
-  (15.6/s); 65536 is simply the last size that clears the default cap. It is not
-  a CPU limit — the frame uses ~9.6 ms of 33 ms on a T470.
-- **Memory** ~51 MB resident at FFT 16384 (native Windows / Direct3D 11,
-  measured at `99257e3`; the older "<49 MB" figure was v3.7.0). It is bounded
-  but **scales mildly with FFT size** — the frame pool is 12 frames ×
-  `fft_size` × 8 B, measured **+8 MB going 4096 → 65536**. The waterfall stores
-  one byte per cell (4:1 vs float); the ~1 MB IQ write buffer exists only while
-  a capture is running.
-- **Renderer** — keep the default backend: Direct3D 11 (Windows), OpenGL
-  (Linux), both hold a clean 60 fps at ~1 ms CPU. **Don't force Vulkan on old
-  Intel iGPUs** (HD 6xx / Gen9): roughly half the frame rate for no benefit. The
-  software renderer works and warns loudly but rasterizes on a single CPU core —
-  use `--max-fps 30` to cut its power and thermal cost.
+> A Linux/WSL2 memory profile reads much higher — mostly the Mesa software-GL
+> backing store from running without GPU passthrough, an artifact of the
+> environment, not heap growth. Direct3D 11 keeps those surfaces in video memory,
+> so the ~51 MB figure is the representative one.
 
-> A Linux/WSL2 memory profile reads much higher — most of it is the Mesa
-> software-GL backing store from running without GPU passthrough, an artifact of
-> the environment, not heap growth. The Direct3D 11 build keeps those surfaces
-> in video memory, so the ~51 MB Direct3D 11 figure is the representative one.
+### Renderer
+
+Keep the default backend: Direct3D 11 (Windows), OpenGL (Linux). Both hold a
+clean 60 fps at ~1 ms CPU.
+
+- **Don't force Vulkan on old Intel iGPUs** (HD 6xx / Gen9): roughly half the
+  frame rate for no benefit.
+- **Software renderer** is the battery/thermal worst case but ~2.5× OpenGL, not a
+  disaster: `render_build` + `present` ≈ **5.9 ms** (3.17 + 2.77; vsync off there,
+  so `present` is real blit work) against ~2.3 ms on OpenGL — T470 / Linux /
+  1050×576 / `--max-fps 30` / FFT 32768. The gap is a flat **+3.6 ms/frame and
+  does not grow with FFT size**. Still single-core, still warns loudly, still a
+  fallback. An earlier "~16 ms" figure does not reproduce; its conditions are
+  unknown. The v3.8.1 case-study figure below (9.7 → 6.7 ms) is a different
+  machine and is not reconcilable with this one — re-measure per box.
 
 ### Benchmark: FFT size vs. renderer
 
@@ -274,6 +312,13 @@ commit `148b0a4` (representative of v3.7.0), replaying a 21 s capture with
 are steady-state averages of the per-second `FRAME-TIMING` log line; the first
 ~1 s after each size change is dropped as warm-up. SMT was left
 enabled, so expect minor run-to-run variance — not order-of-magnitude.
+
+> **These `cpu` values are not comparable to the capped sweep above, and the gap
+> is a useful control.** Uncapped, the CPU is saturated, so the governor ramps.
+> Same box, same FFT 16384: **1.6 ms here vs 2.60 ms at `--max-fps 30`** — the
+> same work, 1.6× apart, purely from clock state. Read this table for the
+> *renderer-vs-data-rate crossover* it was built to show; do not read its `cpu`
+> column as the cost of the DSP.
 
 Representative raw lines (timestamp/thread prefix stripped):
 
@@ -316,15 +361,23 @@ Two regimes, and the crossover is the whole story:
 **Power note.** "Smaller FFT = higher fps" holds only in the renderer-bound
 regime — and higher fps means *more* GPU/battery draw, not less. For long
 unattended runs the lever points the other way: `--max-fps 30` pins every size to
-30 fps, at which point the per-frame CPU gap (0.05 ms at 1024 vs 1.6 ms at 16384)
-is noise. So `--max-fps` is the real power control, and **through 16384** FFT
-size is primarily a resolution/latency choice.
+30 fps. **`--max-fps` is the real power control**; FFT size is a second-order one.
 
-That stops being true at the opt-in sizes. At 65536 the per-frame CPU is ~3.25
-ms on an i7-12700H (and roughly double that on a T470-class part) — no longer
-noise against a 33 ms budget, and ~4× the DSP load of 16384 for a resolution
-gain the pane cannot render (see below). **At 32768/65536, FFT size is a real
-power lever**; pick them for narrow-signal work, not as a default.
+Sizing that against cycles rather than wall-clock (the sweep above, T470, whole
+process over 40 s, so it includes the producer thread and GL):
+
+| FFT | 4096 | 16384 | 32768 | 65536 |
+|-----|-----:|------:|------:|------:|
+| cycles | 3,163 M | 4,106 M | 5,733 M | 9,125 M |
+| vs 4096 | — | +30% | +81% | **+189%** |
+
+So through 16384 FFT size is primarily a resolution/latency choice costing ~30%
+more cycles than the default. **At 32768/65536 it becomes a real power lever** —
+65536 is ~2.9× the default's cycles, and it also drags the core to a higher clock
+(413 → 749 MHz), which costs energy again on top. Pick the opt-in sizes for
+narrow-signal work, not as a default, and see
+[FFT size, resolution, and latency](#fft-size-resolution-and-latency) for why the
+resolution they buy is not visible on the pane.
 
 ### Case study: the panel-text render regression (v3.8.0 → v3.8.1)
 
@@ -367,6 +420,12 @@ v3.8.1 cut instructions 44% and cycles 54% below v3.8.0, landing under v3.7.0 �
 the panel now renders cheaper than the pre-panel UI did. On the same Windows box,
 Task Manager tracked it in power terms at FFT 16384: CPU / GPU roughly
 1% / 4.5% (v3.7.0) → 2% / 9% (v3.8.0) → 0.8% / 3.5% (v3.8.1).
+
+> **This is the measurement to copy.** It compares *counters* over a fixed
+> workload with SMT disabled, not wall-clock — which is why its conclusion still
+> stands while every wall-clock claim in this file has had to be redone. A ±60%
+> swing in instructions is real regardless of what clock the governor picked; a
+> ±16% swing in `cpu` usually is not.
 
 The fix is two changes:
 
