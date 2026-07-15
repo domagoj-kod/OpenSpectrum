@@ -11,6 +11,16 @@ live in `docs/TECHNICAL.md`.
 - [ ] **Clang/LLVM 21 as a second compiler** (ThinLTO, vectorization remarks).
   Port cost is `-flto=thin`/`lld`; keep GCC primary. Not a sanitizer play — GCC
   already has `-fsanitize=address,undefined`; add a `sanitize:` target instead.
+- [ ] **Re-render at native resolution on maximize.** Today the renderer is
+  pinned to a 1050×576 logical canvas (`SDL_SetRenderLogicalPresentation`) and
+  SDL point-samples it up to the window: maximizing costs no VRAM and adds no
+  detail. Worth doing because at 4K the pane goes ~1.4 kHz/px → ~530 Hz/px —
+  the one condition under which 32768/65536 would show what they compute. Four
+  costs: waterfall history is sized to width (resample or discard it, live);
+  `m_hist_counts` must stay in lockstep with it; `PixelBuffer` + both displays +
+  scroll textures + the freq-scale cache all realloc; and the three bugs logical
+  presentation currently solves for free come back. **Do not just delete that
+  call** — read the comment at `sdl_renderer.cpp:143` first.
 
 ## Declined / out of scope — don't re-tread
 
