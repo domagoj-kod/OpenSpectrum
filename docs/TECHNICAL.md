@@ -241,6 +241,14 @@ Two prediction failures worth inheriting, both from this one change:
   through **65536**. It does not hold beyond: 131072 needs four device
   callbacks per frame, capping the line rate at ~15.6/s (measured 15.4–16.0
   fps), which is why it is not a selectable size.
+- **65536's fps headroom is ~4%, and it is arithmetic, not performance.** The
+  `--play`/device frame supply is `rate / fft_size`: at 2.048 MS/s that is
+  **31.25 frames/s at 65536**, against the default 30 fps cap. So the locked
+  30.0 fps measured there is the cap sitting just under the supply — **raising
+  `--max-fps` above 31 does nothing at that size**, and any drop in supply shows
+  up immediately as dropped frames. This is the same wall that excludes 131072
+  (15.6/s); 65536 is simply the last size that clears the default cap. It is not
+  a CPU limit — the frame uses ~9.6 ms of 33 ms on a T470.
 - **Memory** ~51 MB resident at FFT 16384 (native Windows / Direct3D 11,
   measured at `99257e3`; the older "<49 MB" figure was v3.7.0). It is bounded
   but **scales mildly with FFT size** — the frame pool is 12 frames ×
