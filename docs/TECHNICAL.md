@@ -174,6 +174,13 @@ a part with a **2.6 GHz base / 3.5 GHz turbo**:
 Corollary: never divide a tight-loop measurement by a `FRAME-TIMING` one. They
 are different regimes; the same work measures ~2.5× apart between them.
 
+And the converse, which is easier to get wrong: **a number measured on another
+machine is not a wrong number.** `cpu` at FFT 65536 is ~3.3 ms on an i7-12700H
+and ~7 ms on an i5-7300U; both are correct, and neither refutes the other. Before
+retracting a figure, check the machine it was labelled with — every performance
+claim in this file names its box for that reason. Retract on evidence from the
+same box, not from a different one.
+
 ### Live testing: FFT sweep, v3.9.0 vs v3.9.1
 
 **Method.** `./bench.sh <binary> <tag>`, both binaries in one session on one
@@ -203,6 +210,35 @@ independent of bin count (the scroll path uploads one line, not the pane).
 "Unresolved" means the two runs of each build interleave: at 32768/65536 the
 run-to-run spread (13–18%) exceeds any effect. It does not mean *equal*. Two reps
 is thin; raise `REPS` before claiming anything there.
+
+### Live testing: Windows / Direct3D 11, live device
+
+**Corroborating only — the T470 sweep above is the primary dataset.** Spot check
+of the shipped Windows build (v3.9.1, `a772ae7`) against a live RTL-SDR, not
+`--play`: i7-12700H / Direct3D 11 / `--max-fps 30`, **SMT enabled** (locked-down
+machine, BIOS not accessible), one session, two sizes, no reps, and **no `perf`**
+— so no counters, and wall-clock is all there is. Weigh it accordingly: it is
+enough to confirm a figure previously measured on the same box under the same
+conditions, and not enough to build on. Per-second `FRAME-TIMING` medians:
+
+| FFT | cpu | render_build | present | windows |
+|-----|----:|-------------:|--------:|--------:|
+| 4096 (default) | **0.13** (0.25 incl. waterfall fill) | 1.15 | 0.46 | 13 |
+| 65536 | **3.32** (p25–p75 3.23–3.38) | 1.26 | 0.51 | 73 |
+
+Two things worth taking from it:
+
+- **The crossover is real and lands between 16384 and 32768, on both machines.**
+  At the 4096 default the render stage dominates the DSP by ~12× on Windows
+  (1.61 vs 0.13) and ~6× on the T470 (3.08 vs 0.47). At 65536 it inverts: the
+  DSP is **1.9× the render stage** on Windows (3.32 vs 1.77) and ~3.8× on the
+  T470 (7.24 vs 1.91). So *render-bound through 16384, DSP-bound at 32768/65536*
+  is an accurate description of this pipeline — read "bound" as *which stage
+  dominates*, not as *what fails*: the frame rate is 30.0 either way.
+- **Measurement noise is machine-dependent.** The 12700H holds a 4.6%
+  interquartile spread at 65536 where the i5-7300U spreads 13–18%. A faster part
+  that ramps quickly is also a quieter instrument — do not assume a spread
+  measured on one box transfers to another.
 
 ### Finding: PocketFFT plan cache (v3.9.1)
 
