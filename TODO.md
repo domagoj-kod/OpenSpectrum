@@ -1,7 +1,8 @@
 # TODO
 
 Active backlog only. Completed work lives in git log; knowledge/diagnostics
-live in the README's Conceptual section, not here.
+live in the README's Conceptual section, not here. Measured performance claims
+live in `docs/TECHNICAL.md`.
 
 ## Open
 
@@ -18,65 +19,41 @@ live in the README's Conceptual section, not here.
   mapping (spectrum geometry, waterfall width, freq scale, markers, cursor);
   50+ lines across 4 files. Kept the translucent overlay strip instead.
 - **Render-path SIMD** (spectrum column reduce, waterfall decimation,
-  `quantize_db`, bar `get_color`) — still declined, but on the correct grounds.
-  Measured 2026-07-15 (i7-12700H, tight loop, real sources), median per frame:
-
-  | FFT | `build_vertices` (column reduce + `get_color`) | `add_spectrum_line` (decimation + `quantize_db`) |
-  |----:|---:|---:|
-  | 4096 (default) | 11.5 µs | 3.7 µs |
-  | 16384 | 11.8 µs | 5.4 µs |
-  | 32768 | 13.2 µs | 7.8 µs |
-  | 65536 | 21.5 µs | 15.3 µs |
-
-  **The old "each sub-10 µs/frame" was never measured and was wrong** —
-  `build_vertices` exceeds 10 µs at *every* size, including the default. The
-  reason to decline was never the microseconds: **21.5 µs is 0.065% of a 33 ms
-  frame.** Even a perfect 2× buys ~11 µs, ~0.03% of a frame.
-  **Do not revisit at vsync-off or on a 120/144 Hz panel** — that old escape
-  hatch was unfounded too: at 144 Hz the budget is ~6900 µs and at ~530 fps
-  (uncapped, FFT 1024) it is ~1900 µs, so these loops stay under 1% in both.
-  There is no frame rate at which this pays. Retire the idea rather than
-  re-measure it.
-- **Glyph atlas for the HUD** (bake the font once at init + one
-  `SDL_RenderGeometry` call, replacing `blit_text`'s per-string texture cache
-  and its mark-sweep). Analysed in full, deliberately not done:
-  - **LOC: net ~−50, not −400.** The text subsystem is only ~290 lines and the
-    98-line `BITMAP_FONT` table *stays* — it is what bakes the atlas.
-  - **Perf: it enables nothing.** Maybe `render_build` ~2.4→~1.9 ms on D3D11.
-    The frame spends ~5.5 ms of a 33 ms budget even at FFT 65536; there is no
-    deadline to relieve.
-  - **Bigger FFT sizes do not change this** (asked and answered 2026-07-14).
-    The atlas saves a *fixed* text cost regardless of FFT size; 32768/65536
-    grow `cpu` (DSP), a different stage — so as a fraction of a 65536 frame the
-    atlas's value *falls*. And 65536 is opt-in; the 4096 default spends ~0.15 ms
-    on DSP.
-  - **Real value is concept reduction**, not lines or speed: it deletes a whole
-    mental model (per-frame texture lifecycle + mark-sweep + cache-key-by-
-    colour+string + invalidation) in favour of "bake once, emit quads". Decide
-    it on comprehension grounds or when text load grows — never on LOC/perf.
-  - **It pessimizes the software renderer** (asked and answered 2026-07-15).
-    The atlas's win is collapsing N blits into one batched `SDL_RenderGeometry`
-    — it saves *draw-call overhead*, a GPU-backend concept. The software
-    renderer has no draw calls to batch: `SDL_RenderCopy` takes an optimized
-    blit path (row copies for axis-aligned, unscaled, same-format rects),
-    `SDL_RenderGeometry` goes through the general triangle rasteriser with
-    per-pixel interpolation. So it trades a row-copy for a rasteriser to save
-    overhead that isn't there — and does it on the battery/thermal worst case.
-  - **Its win is below the measurement noise floor.** The ~0.5 ms it claims is
-    3× smaller than the governor's own frame-to-frame jitter (±1.6 ms; see the
-    `cpu` caveat in `docs/TECHNICAL.md`). It cannot be shown to work, which for
-    a codebase heading to junior maintainers is the worst kind of change: it
-    can't be defended, so it can't be safely modified later either.
-  - **Risk if attempted:** the `BLENDMODE_NONE` opaque backdrop behind
-    status/PEAK needs explicit filled rects (glyph quads only draw lit pixels),
-    and it touches every overlay call site — re-verify the whole HUD.
+  `quantize_db`, bar `get_color`) — **retired, not deferred.** `build_vertices`
+  measures 11.5 µs at FFT 4096 and 21.5 µs at 65536: **0.065% of a 33 ms frame.**
+  No frame rate makes it pay — a 144 Hz budget is ~6900 µs, uncapped at FFT 1024
+  is ~1900 µs. Don't re-measure it.
+- **Glyph atlas for the HUD** (bake the font at init + one `SDL_RenderGeometry`,
+  replacing `blit_text`'s per-string texture cache and mark-sweep) — **declined.**
+  Net ~−50 LOC, not −400: `BITMAP_FONT` stays, it is what bakes the atlas. Its
+  ~0.5 ms claim is 3× below the governor's own frame-to-frame jitter, so it
+  cannot be shown to work. It pessimizes the software renderer — batching saves
+  *draw-call overhead*, which a software rasteriser doesn't have, so it would
+  trade an optimized blit for a triangle rasteriser on the worst-case backend.
+  And it touches every overlay call site, including the `BLENDMODE_NONE` backdrop
+  behind status/PEAK (glyph quads only draw lit pixels, so that needs explicit
+  filled rects). Its one real value is concept reduction — revisit on
+  comprehension grounds if text load grows, never on LOC or speed.
 
 ## Do not redo
 
-Already vectorized: `SignalProcessor::apply_window`/`remove_dc`, `FftAnalyzer`
-post-FFT power/dB + `fast_log10_avx2`, waterfall RGBA LUT gather, waterfall
-downsample inner sum. FFT is PocketFFT (numpy-speed). The pipeline is
-render-bound, not DSP-bound **through FFT 16384** — the opt-in 32768/65536
-sizes invert that (65536 is the one DSP-bound config), but they are not the
-default and the frame still finishes in ~5.5 ms of a 33 ms budget. See
-CLAUDE.md's performance profile before acting on either claim.
+**Already vectorized:** `SignalProcessor::apply_window`/`remove_dc`, `FftAnalyzer`
+post-FFT power/dB + `fast_log10_avx2`, the sign-trick input fill, waterfall RGBA
+LUT gather, waterfall downsample inner sum. FFT is PocketFFT with the plan cached
+(`src/fft/pocketfft_wrapper.h`).
+
+**Tried, worked:** plan cache (`POCKETFFT_CACHE_SIZE 1`) — 0.55 → 0.47 ms at the
+4096 default, nothing resolvable at 32768/65536. Panel-text string cache +
+`STATIC` textures (v3.8.1) — −44% instructions, −54% cycles vs v3.8.0.
+
+**Tried, didn't work / not worth it:** render-path SIMD and the glyph atlas
+(above). OpenMP across FFT butterflies — PocketFFT returns 1 thread for a single
+1D transform by construction, so it means forking vendored code; and the win is
+unusable anyway (fps is capped, latency is frame-paced, and waking a second core
+30×/s costs more power than it saves on a 15 W part).
+
+**Nothing left in the DSP.** At 65536 the transform is 71% of real work;
+`get_max_db` is the only unvectorized loop and is worth 0.05 ms of a 33 ms frame.
+Every size 1024–65536 holds 30 fps on a 15 W i5-7300U. Read the `cpu` caveat in
+`docs/TECHNICAL.md` before acting on any performance number — `cpu` is wall-clock
+divided by whatever clock the governor picked, not a measure of work.
