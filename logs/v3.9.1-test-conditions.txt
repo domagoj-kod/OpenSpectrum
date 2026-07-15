@@ -1,0 +1,13 @@
+tag:        v3.9.1-test
+date:       2026-07-15T13:23:32+02:00
+binary:     ./OpenSpectrum-v3.9.1-test-x86_64.AppImage (2525688 bytes)
+commit:     n/a (DIRTY)
+capture:    data/capture_20260707T105702Z_92.600MHz.iq
+cpu:        Intel(R) Core(TM) i5-7300U CPU @ 2.60GHz
+cores:      2 logical
+smt:        notsupported
+governor:   powersave
+driver:     intel_pstate
+perf:       yes
+events:     task-clock,context-switches,cpu-migrations,page-faults,cycles,instructions,branches,branch-misses,L1-dcache-load-misses,LLC-load-misses
+sweep:      sizes=[1024 2048 4096 8192 16384 32768 65536] reps=2 dur=40s settle=5s

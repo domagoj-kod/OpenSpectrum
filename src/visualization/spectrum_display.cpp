@@ -215,10 +215,11 @@ void SpectrumDisplay::update_spectrum(const std::vector<float> &db_values) {
     }
     // nth_element needs a mutable copy — m_spectrum_data must stay in bin
     // order. Noise bins are iid, so a strided subsample estimates the same
-    // median: at 16K bins a quarter-sample is still stable to ~0.1 dB, for a
-    // quarter of the copy + selection cost (which is otherwise ~0.2 ms/frame,
-    // a third of the whole DSP budget, spent on a number that barely moves).
-    // resize() is a no-op after the first frame of a given size.
+    // median: at 16K bins a quarter-sample is still stable to ~0.1 dB. Copy +
+    // select measures 0.039 ms unstrided vs 0.004 ms at stride 4 (FFT 16384;
+    // 0.153 vs 0.058 at 65536), so this saves ~0.03–0.10 ms/frame — a small win
+    // on an already-cheap step, kept because it is free, not because this was
+    // ever a bottleneck. resize() is a no-op after the first frame of a size.
     const size_t m = (n + kMedianStride - 1) / kMedianStride;
     m_scratch.resize(m);
     for (size_t i = 0; i < m; ++i) {

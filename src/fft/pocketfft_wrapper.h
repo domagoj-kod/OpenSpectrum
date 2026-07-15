@@ -4,44 +4,19 @@
 #include <complex>
 #include <vector>
 
-// Cache the FFT plan across calls. Upstream defaults this to 0, which rebuilds
-// the plan (factorize + recompute the twiddle tables + alloc/free ~512 KB at
-// 65536) on every c2c call, 30x/s.
+// Cache the FFT plan. Upstream defaults this to 0, which reconstructs the plan
+// -- factorize, recompute the twiddle tables, allocate and free them -- on
+// every c2c call, 30x/s, for a plan that never changes. Do not set it back to
+// 0.
 //
-// This is kept for POWER, not for `cpu` — and `cpu` gets WORSE. Measured on the
-// T470 (i5-7300U), FFT 65536, --max-fps 30, 40 s, vs the v3.9.0 baseline in
-// logs/:
-//   page-faults   271568 -> 9000   (-97%)
-//   instructions  15596M -> 12763M (-18%)
-//   cpu-cycles    12419M ->  9955M (-20%)
-//   sys time       2.34s ->  1.27s (-46%)
-//   task-clock     14628 -> 12611ms(-14%)
-//   cpu (wall)      6.67 ->  7.73ms(+16%)  <-- yes, up
-//   fps             30.0 ->  30.0          (unchanged)
-// Strictly less work, strictly more wall-clock. The core runs the DSP block at
-// 849 -> 789 MHz once the sustained work is gone: less to do, so the governor
-// ramps less. `cpu` is wall-clock, so it reports the slowdown and hides the
-// -20% cycles. See the `cpu` caveat in docs/TECHNICAL.md — this is the worked
-// example of it.
+// The rebuild is O(N) against an O(N log N) transform, so it costs most where
+// the transform is cheapest: on a 15 W i5-7300U it is worth 0.55 -> 0.47 ms at
+// the 4096 default, and nothing resolvable at 32768/65536. Method and full
+// numbers: docs/TECHNICAL.md, "Finding: PocketFFT plan cache".
 //
-// Do NOT "fix" the +16% by reverting: nothing waits on `cpu` (fps is capped and
-// identical, the frame uses ~9.6 ms of 33 ms, and at 65536 the sample window is
-// itself 32 ms, so +1 ms of DSP is ~1.5% of the real latency chain). Fewer
-// cycles at a lower clock is less energy, which is priority #2 for a
-// battery-measured instrument.
-//
-// Two traps for whoever measures this next, both of which caught the author:
-//   1. A tight-loop micro-benchmark says 0.830 -> 0.715 ms and is meaningless
-//      here — cache-hot at full turbo is not the shipped duty cycle.
-//   2. A WSL2/i7-12700H A/B of the real app said cpu -26%. The T470 said +16%.
-//      A different governor and clock range gives a different SIGN, not just a
-//      different magnitude. Deltas do not port across machines; measure on the
-//      target. (The "WSL2 predicts within 5%" note in CLAUDE.md is about
-//      absolute values on the *same* CPU, and does not license this.)
-//
-// One entry suffices: exactly one FFT size is live at a time, so a size change
-// is the only miss and it already reallocates everything. A 10-entry cache
-// measured no faster for 7x the twiddle memory.
+// One entry, not ten: exactly one FFT size is live at a time, so a size change
+// is the only miss and it already reallocates everything. 10 measured no faster
+// for 7x the twiddle memory.
 //
 // This header is the only include site for pocketfft_hdronly.h, so the define
 // cannot skew across translation units.

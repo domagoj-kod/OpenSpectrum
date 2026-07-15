@@ -23,7 +23,8 @@ struct DeviceConstraints {
   // 32768/65536 are opt-in, not a better default: at 2.048 MS/s across a ~1400
   // px pane the display shows ~1.4 kHz/px, so 16384's 125 Hz RBW is already
   // ~11x finer than anything visible — the extra bins buy resolution you cannot
-  // see and cost 2x/4x the DSP (measured 0.83 -> 1.63 -> 3.5 ms cpu). They earn
+  // see, and cost +81%/+189% cycles over the 4096 default (T470; every size
+  // still holds 30 fps, so the cost is power, not frame rate). They earn
   // their place for narrow-signal work, not for the default view. 131072 is
   // deliberately absent: it needs 4 device callbacks per frame, which caps the
   // line rate at ~15.6/s — the exact thing rtl_sdr_device.cpp's buf_len=65536
