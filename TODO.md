@@ -38,6 +38,19 @@ live in the README's Conceptual section, not here.
     mental model (per-frame texture lifecycle + mark-sweep + cache-key-by-
     colour+string + invalidation) in favour of "bake once, emit quads". Decide
     it on comprehension grounds or when text load grows — never on LOC/perf.
+  - **It pessimizes the software renderer** (asked and answered 2026-07-15).
+    The atlas's win is collapsing N blits into one batched `SDL_RenderGeometry`
+    — it saves *draw-call overhead*, a GPU-backend concept. The software
+    renderer has no draw calls to batch: `SDL_RenderCopy` takes an optimized
+    blit path (row copies for axis-aligned, unscaled, same-format rects),
+    `SDL_RenderGeometry` goes through the general triangle rasteriser with
+    per-pixel interpolation. So it trades a row-copy for a rasteriser to save
+    overhead that isn't there — and does it on the battery/thermal worst case.
+  - **Its win is below the measurement noise floor.** The ~0.5 ms it claims is
+    3× smaller than the governor's own frame-to-frame jitter (±1.6 ms; see the
+    `cpu` caveat in `docs/TECHNICAL.md`). It cannot be shown to work, which for
+    a codebase heading to junior maintainers is the worst kind of change: it
+    can't be defended, so it can't be safely modified later either.
   - **Risk if attempted:** the `BLENDMODE_NONE` opaque backdrop behind
     status/PEAK needs explicit filled rects (glyph quads only draw lit pixels),
     and it touches every overlay call site — re-verify the whole HUD.
