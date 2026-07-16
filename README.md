@@ -103,8 +103,6 @@ Options:
   -s, --fft-size N    FFT size: 1024, 2048, 4096, 8192, 16384,
                       32768, 65536 (default: 4096; larger = finer
                       bins and more CPU)
-  -w, --width N       Display width in pixels (default: 1050)
-  -H, --height N      Display height in pixels (default: 576)
   -W, --window NAME   Window function: rectangle, hann, hamming,
                       blackman, blackman-harris, flat-top
                       (default: blackman-harris)
@@ -129,6 +127,10 @@ Options:
 
 Tuning steps default to **1 MHz / 1 dB**; hold **Shift** for fine
 (**0.1 MHz / 0.1 dB**) or **Ctrl** for coarse (**10 MHz / 10 dB**).
+
+The scene renders at a fixed **1280×720** internal resolution and the GPU
+scales it to fill the window — resize or maximize freely, on any display from
+768p to 4K, at the same render cost. There is no display-size option.
 
 ### Keyboard Controls
 

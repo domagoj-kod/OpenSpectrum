@@ -189,7 +189,11 @@ box. 7 sizes × 2 reps × 40 s, `--play` of a 21 s capture at 2.048 MS/s,
 nothing multiplexed). Conditions recorded per run in `logs/<tag>-conditions.txt`.
 
 **Box.** ThinkPad T470, i5-7300U (2.6 GHz base), Intel HD 620, OpenGL,
-**SMT disabled**, `powersave` / `intel_pstate`, Ubuntu.
+**SMT disabled**, `powersave` / `intel_pstate`, Ubuntu. Taken at the then-default
+**1050×576** canvas; the shipped canvas is now a fixed 1280×720 (~1.5× the
+pixels). `cpu` here is DSP-side (DC + window + FFT + display update) and barely
+moves with canvas size — the raster cost lives in `render_build`/`present`, which
+rise sub-linearly and still hold 30.0 fps.
 
 `cpu` per run median, ms — both runs shown, because the spread is the point:
 

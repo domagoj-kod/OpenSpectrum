@@ -11,18 +11,22 @@ live in `docs/TECHNICAL.md`.
 - [ ] **Clang/LLVM 21 as a second compiler** (ThinLTO, vectorization remarks).
   Port cost is `-flto=thin`/`lld`; keep GCC primary. Not a sanitizer play — GCC
   already has `-fsanitize=address,undefined`; add a `sanitize:` target instead.
-- [ ] **Re-render at native resolution on maximize.** Today the renderer is
-  pinned to a 1050×576 logical canvas (`SDL_SetRenderLogicalPresentation`) and
-  SDL point-samples it up to the window: maximizing costs no VRAM and adds no
-  detail. Worth doing because at 4K the pane goes ~1.4 kHz/px → ~530 Hz/px —
-  the one condition under which 32768/65536 would show what they compute. Four
-  costs: waterfall history is sized to width (resample or discard it, live);
-  `m_hist_counts` must stay in lockstep with it; `PixelBuffer` + both displays +
-  scroll textures + the freq-scale cache all realloc; and the three bugs logical
-  presentation currently solves for free come back. **Do not just delete that
-  call** — read the comment at `sdl_renderer.cpp:143` first.
-
 ## Declined / out of scope — don't re-tread
+
+- **Re-render at native resolution on maximize** — **declined; fixed 720p
+  upscale is the chosen design.** The renderer is pinned to a fixed 1280×720
+  logical canvas (`SDL_SetRenderLogicalPresentation`, no CLI knob) and the GPU
+  point-samples it to any window/display. Native re-render would, at 4K, take
+  the pane ~1.4 kHz/px → ~530 Hz/px — the one condition under which 32768/65536
+  show what they compute — but it costs 2–3× the raster/GPU/RAM on the weak
+  target for resolution the mean-trace column decimation discards anyway, and it
+  reintroduces four problems the fixed canvas gives us for free: waterfall
+  history depth and panel layout become window-size-dependent again (the
+  inconsistency this replaced), `m_hist_counts` must track a live-resized
+  history, `PixelBuffer` + both displays + scroll textures + the freq-scale
+  cache all realloc on resize, and the three bugs logical presentation solves
+  come back. If ever revisited, **do not just delete that call** — read the
+  comment at `sdl_renderer.cpp:143` first.
 
 - **Audio demod (NBFM/WBFM/AM)** — out of scope for a spectrum analyzer.
 - **Reserved left-gutter axes** — insets both plots and shifts every freq↔x
