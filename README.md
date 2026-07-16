@@ -12,7 +12,7 @@ backends (RTL2832U today, proprietary hardware tomorrow) drop in without
 touching the pipeline.
 
 
-https://github.com/user-attachments/assets/b4c1f860-a24d-412e-80e4-df56691a20e1
+https://github.com/user-attachments/assets/f758865f-75fa-4cd9-9109-d0f49247ab4c
 
 > [!IMPORTANT]
 > RTL-SDR outputs complex IQ samples, so the observed bandwidth is roughly equal
