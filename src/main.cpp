@@ -274,6 +274,9 @@ static void async_sample_callback(FrameHandle samples_frame) {
 
 auto main(int argc, char *argv[]) -> int {
   enable_ftz_daz();
+#ifndef NDEBUG
+  format_frequency_selftest();
+#endif
 
   // Parse command-line arguments
   AppConfig const config = parse_arguments(argc, argv);
