@@ -11,8 +11,6 @@ namespace openspectrum {
 // Configuration structure for command-line arguments
 struct AppConfig {
   size_t fft_size = 4096;
-  size_t display_width = 1050;
-  size_t display_height = 576;        // 576i screen resolution config
   float center_freq_hz = 92600000.0f; // 92.6 MHz
   float sample_rate_hz = 2048000.0f;  // 2.048 MS/s
   float gain_db = 10.0f;              // 10 dB

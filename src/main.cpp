@@ -320,8 +320,16 @@ auto main(int argc, char *argv[]) -> int {
 
   // Configuration
   const size_t FFT_SIZE = config.fft_size;
-  const size_t DISPLAY_WIDTH = config.display_width;
-  const size_t DISPLAY_HEIGHT = config.display_height;
+  // Fixed 720p logical canvas. SDL renders the whole scene at this resolution
+  // and the GPU point-samples it up to any window/display (see the logical
+  // presentation in SdlRenderer). Fixed, not a CLI knob, so the waterfall
+  // history depth (~12 s at 30 fps), the instrument panel layout and the
+  // per-frame render cost are identical on a 1366x768 laptop and a 4K panel —
+  // only the final upscale blit grows. Bumping this raises render/GPU cost on
+  // every machine forever; 1080p was rejected (3.4x the pixels, downscaled on
+  // sub-1080p displays, buys resolution the mean-trace decimation discards).
+  constexpr size_t DISPLAY_WIDTH = 1280;
+  constexpr size_t DISPLAY_HEIGHT = 720;
   const size_t WATERFALL_LINES = DISPLAY_HEIGHT / 2;
 
   try {

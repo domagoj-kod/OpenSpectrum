@@ -48,8 +48,6 @@ void print_usage(const char *argv0) {
       << "  -s, --fft-size N    FFT size: 1024, 2048, 4096, 8192, 16384,\n"
       << "                      32768, 65536 (default: 4096; larger = finer\n"
       << "                      bins and more CPU)\n"
-      << "  -w, --width N       Display width in pixels (default: 1050)\n"
-      << "  -H, --height N      Display height in pixels (default: 576)\n"
       << "  -W, --window NAME   Window function: rectangle, hann, hamming,\n"
       << "                      blackman, blackman-harris, flat-top\n"
       << "                      (default: blackman-harris)\n"
@@ -110,20 +108,6 @@ auto parse_arguments(int argc, char *argv[]) -> AppConfig {
     } else if (arg == "-s" || arg == "--fft-size") {
       if (i + 1 >= argc || !parse_num(argv[i + 1], config.fft_size)) {
         std::cerr << "Error: Invalid FFT size value\n";
-        print_usage(argv[0]);
-        std::exit(1);
-      }
-      ++i;
-    } else if (arg == "-w" || arg == "--width") {
-      if (i + 1 >= argc || !parse_num(argv[i + 1], config.display_width)) {
-        std::cerr << "Error: Invalid width value\n";
-        print_usage(argv[0]);
-        std::exit(1);
-      }
-      ++i;
-    } else if (arg == "-H" || arg == "--height") {
-      if (i + 1 >= argc || !parse_num(argv[i + 1], config.display_height)) {
-        std::cerr << "Error: Invalid height value\n";
         print_usage(argv[0]);
         std::exit(1);
       }
