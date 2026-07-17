@@ -64,7 +64,11 @@ LUT gather, waterfall downsample inner sum. FFT is PocketFFT with the plan cache
 (above). OpenMP across FFT butterflies — PocketFFT returns 1 thread for a single
 1D transform by construction, so it means forking vendored code; and the win is
 unusable anyway (fps is capped, latency is frame-paced, and waking a second core
-30×/s costs more power than it saves on a 15 W part).
+30×/s costs more power than it saves on a 15 W part). **fast-math on PocketFFT**
+(`-funsafe-math-optimizations -fno-math-errno` on `fft_analyzer.o`) — a dev-box
+microbench says −28%; the target says **+2.4% instructions and no cycle change**.
+Measured, rejected, don't re-try on the microbench number: `docs/TECHNICAL.md` →
+*Finding: fast-math on PocketFFT*.
 
 **Nothing left in the DSP.** At 65536 the transform is 71% of real work;
 `get_max_db` is the only unvectorized loop and is worth 0.05 ms of a 33 ms frame.

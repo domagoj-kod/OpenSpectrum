@@ -277,6 +277,67 @@ wrong:
 Kept because it measurably improves the default size, costs one `#define`, and
 no size shows a reproducible regression.
 
+### Finding: fast-math on PocketFFT — rejected (2026-07-17)
+
+PocketFFT is the only code here fast-math can reach: every other hot DSP loop is
+hand-written AVX2 intrinsics and is immune (log10 output was byte-identical
+across builds), and FMA is already on at `-march=haswell`. It is header-only and
+included solely via `pocketfft_wrapper.h`, whose only caller is
+`fft_analyzer.cpp` — so `-funsafe-math-optimizations -fno-math-errno` scopes
+cleanly to that one object. (Never global `-ffast-math`: it additionally implies
+`-ffinite-math-only`, which folds `isnan`/`isinf` to constants app-wide for zero
+extra speed.)
+
+A microbench of the transform in isolation — WSL2, GCC 15.2, i7-12700H — measured
+**−25% at 4096 and −28% at 16384/65536**, at an accuracy cost of nothing that
+matters (max dB error 0.00347 → 0.00365 at 65536, against the display's 0.47 dB
+quantization step).
+
+**Result on the target: no win, and a small instruction regression.** Whole-app
+A/B on the i5-7300U — two same-day CI AppImages, same capture, 7 sizes × 2 reps ×
+40 s, HT off:
+
+| FFT | instructions | rep noise | cycles | rep noise |
+|-----|-------------:|----------:|-------:|----------:|
+| 1024–8192 | +0.1…+0.7% | 0.1–0.4% | flat | 1.0–3.5% |
+| 16384 | +0.8% | 0.3% | −2.2% | 1.9% |
+| 32768 | **+2.3%** | 0.3% | −0.2% | 0.8% |
+| 65536 | **+2.4%** | 0.3% | −1.8% | 8.7% |
+
+Instructions are reproducible to 0.1–0.4% across reps, so +2.4% is real. Cycles
+are a wash at every size — the reps interleave (65536: base 9.56/10.15 G vs test
+9.26/10.10 G). 16384's −2.2% is barely outside its own noise and its instructions
+rose; it is not a win.
+
+**This is not whole-app dilution — the transform genuinely did not get faster.**
+Instructions per frame run 2.69 M at 1024 to 10.62 M at 65536, so the
+size-independent baseline (render, SDL, playback, panel) is ~2.65 M and the DSP
+is **~75% of instructions at 65536**, consistent with the 71% share measured
+below. A 25% cheaper transform would have shown as ~−19% total. It measured
++2.4%.
+
+The live hypothesis is **the compiler**: the microbench was local GCC 15.2 on
+Alder Lake; the shipped AppImage is built on ubuntu-24.04, which is GCC 13, and
+runs here on Kaby Lake. Different vectorizer, different µarch, different answer.
+
+Not pursued, because **CI is what ships**. Users get the GCC-13 AppImage, so a
+win that only exists under GCC 15.2 on a developer's box is unreachable
+downstream. Claiming it would mean bumping the CI toolchain — its own change,
+its own full-app A/B, its own risk surface — for a payoff still unproven on the
+target. Nothing was broken to begin with: every size already holds 30.0 fps.
+
+Two things this run re-confirms, both already argued in *Reading `cpu`* above:
+
+- **`cpu` could not have answered this.** At 65536 it read 6.97/7.88 ms (base) vs
+  7.44/8.80 ms (test) — a spread that supports any conclusion you like. It is
+  useful only as a sanity check that the run was sane, which it was: base
+  brackets the ~7 ms already documented here.
+- **Deltas do not port across machines — this is the second time.** The plan
+  cache predicted −26% on WSL2 and was unresolvable on the T470; fast-math
+  predicted −28% and delivered nothing. A microbench on the dev box is a
+  hypothesis, not a result. **If you re-run the microbench and see 28%, this
+  section is why that number does not mean what it looks like.**
+
 ### Where the per-frame work is
 
 Per-stage cost at FFT 65536, **tight loop, i7-12700H**, measured against the
