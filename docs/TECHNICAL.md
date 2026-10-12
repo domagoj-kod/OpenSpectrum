@@ -551,49 +551,87 @@ the bottleneck there, the whole-scene raster dominates.
 
 ## Adding a new SDR device
 
-The device sits behind a narrow surface, so adding hardware doesn't touch the
-rest of the pipeline. There is one concrete backend today, `RtlSdrDevice`
-(`src/hardware/rtl_sdr_device.{h,cpp}`), and no abstract base class yet —
-extracting an `SdrDeviceBase` is the natural refactor once a second device
-lands. Until then a new backend simply mirrors `RtlSdrDevice`'s public interface.
+Every producer of IQ samples implements `SampleSource`
+(`src/hardware/sample_source.h`). There are two today: `RtlSdrDevice` (live
+RTL2832U) and `IqPlaybackSource` (`--play`). After the block in `main.cpp` that
+constructs one of them, nothing refers to a concrete receiver: tuning limits,
+retuning, the FFT-size restart, the capture sidecar's device name and the drop
+count all go through the interface.
 
-### 1. Mirror the interface
-
-Feed the pipeline **asynchronously**: register a callback, and the device's
-producer thread pushes pooled `FrameHandle`s of IQ samples as they arrive.
+### 1. Implement the interface
 
 ```cpp
 // src/hardware/new_sdr_device.h
 #pragma once
-#include "openspectrum/frame_pool.h"
-#include <functional>
+#include "sample_source.h"
 
-class NewSdrDevice {
+class NewSdrDevice : public openspectrum::SampleSource {
 public:
-    bool open();
-    void close();
-    bool is_open() const;
+    const char *name() const noexcept override { return "NewSDR"; }
+    openspectrum::TuningLimits limits() const noexcept override;
 
-    void set_frequency(uint32_t freq_hz);
-    void set_sample_rate(uint32_t rate_hz);
-    void set_gain(float gain_db);
+    bool open() override;
+    void start(size_t chunk_size) override; // spawn the producer thread
+    void stop() override;                   // join it
 
-    // Register a sink, then start. The device owns its producer thread and
-    // hands the pipeline cache-aligned FrameHandles.
-    using FrameCallback = std::function<void(openspectrum::FrameHandle)>;
-    void set_frame_callback(FrameCallback cb);
-    void start_streaming(size_t buffer_count = 8);
-    void stop_streaming();
+    void set_frequency(uint64_t freq_hz) override;
+    void set_gain(float gain_db) override;
+    uint64_t dropped_samples() const noexcept override;
 };
 ```
 
+What the pipeline expects of it:
+
+- **Frames.** The producer thread calls `m_frame_callback` with pooled
+  `FrameHandle`s of at most `chunk_size` complex-float samples, scaled to
+  [-1, 1). The source owns its pool (see `RtlSdrDevice::start`); `start` is
+  called again with a new `chunk_size` after every FFT-size change.
+- **Frequency is 64-bit** end to end (CLI, `ControlState`, sidecar, scale).
+  32 bits end at 4.29 GHz, below the 5.8 GHz band.
+- **`limits()`** is read once after `open()` and clamps the tuning and gain
+  keys. Sample rate is still a constructor/setter matter of the concrete
+  class, as are one-shot options such as the RTL bias tee.
+- **`dropped_samples()`** counts what the receiver's API reports as lost
+  (overflow flags, sequence gaps). It is sampled at capture start and stop and
+  written to the sidecar. `RtlSdrDevice` can only count its own allocation
+  failures, because librtlsdr does not report USB overruns.
+
 ### 2. Wire it in
 
-`main.cpp` constructs the device, points its frame callback at
-`async_sample_callback`, and starts streaming. Swapping in your backend is the
-only change — everything downstream consumes `FrameHandle`s and is
-source-agnostic. (The `--play` path proves it: it drives the same callback with
-no device at all.) The processor, FFT, and visualization stay untouched.
+Construct it in the source-selection block in `main.cpp` (search for "The one
+place a receiver is chosen"), apply any one-shot options, and move it into
+`source`. Add its library to `BASE_LDFLAGS` in the Makefile.
+
+## Capture files
+
+`Ctrl+S` (or `--iq-log`) writes `data/capture_<UTC start>_<freq>.iq` and a
+`.meta.json` sidecar beside it.
+
+Samples are interleaved I/Q, little-endian, no header:
+
+| `--iq-format` | Per sample | Read with numpy as | Disk rate at 2.048 MS/s |
+|---|---|---|---|
+| `cf32` (default) | 2 × float32, 8 bytes | `np.fromfile(f, np.complex64)` | 16 MB/s |
+| `cs16` | 2 × int16, 4 bytes, full scale 32768 | `np.fromfile(f, np.int16)` then pair up, `/ 32768` | 8 MB/s |
+
+`cs16` loses nothing against a receiver of 16 bits or fewer; it is the format
+to use once a wide receiver makes the disk the limit (20 MS/s is 160 MB/s as
+`cf32`). `--play` reads either, from the sidecar's `sample_format`.
+
+Sidecar fields a consumer should check before trusting a file:
+
+- `capture.timestamp_unix` / `timestamp_iso8601` — capture **start**, UTC.
+- `capture.sample_format` — `cf32_le` or `cs16_le`. Sidecars older than
+  version 1.1 lack it and are `cf32_le`.
+- `capture.dropped_samples` — losses the source reported during the capture.
+- `capture.write_error` — `true` if a short write (disk full) ended the
+  capture. The file is then valid up to its own length; `sample_count`
+  includes samples that never reached the disk.
+- `signal.measured_sample_rate_hz` — samples received after the first batch,
+  over the time between first and last write. A value clearly below
+  `sample_rate_hz` means samples were lost before the source could count them.
+  Batches arrive in bursts (16 ms each on the RTL), so read it on captures of
+  tens of seconds: over 60 s the burst jitter is about 0.03 %.
 
 ## Testing & hardware checks
 

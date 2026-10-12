@@ -18,7 +18,7 @@ namespace openspectrum {
 auto handle_control_key(ControlState &state, SDL_Keycode key, bool shift_held,
                         bool ctrl_held) -> bool {
   // Step sizes, adjusted by modifiers
-  uint32_t current_freq_step = 1000000; // 1 MHz default
+  uint64_t current_freq_step = 1000000; // 1 MHz default
   float current_gain_step = 1.0F;       // 1 dB default
 
   if (shift_held) {
@@ -38,10 +38,9 @@ auto handle_control_key(ControlState &state, SDL_Keycode key, bool shift_held,
   // Frequency controls
   case SDLK_PLUS:
   case SDLK_EQUALS: {
-    uint32_t const prev = state.get_frequency();
-    uint32_t const new_freq =
-        std::min(state.get_frequency() + current_freq_step,
-                 constraints.max_frequency_hz);
+    uint64_t const prev = state.get_frequency();
+    uint64_t const new_freq =
+        std::min(prev + current_freq_step, constraints.max_frequency_hz);
     if (new_freq != prev) {
       state.set_frequency(new_freq);
       LOG_INFO("[FREQ+] " + format_frequency(prev) + " -> " +
@@ -54,10 +53,13 @@ auto handle_control_key(ControlState &state, SDL_Keycode key, bool shift_held,
 
   case SDLK_MINUS:
   case SDLK_UNDERSCORE: {
-    uint32_t const prev = state.get_frequency();
-    uint32_t const new_freq =
-        std::max(state.get_frequency() - current_freq_step,
-                 constraints.min_frequency_hz);
+    // Guarded subtraction: unsigned wrap below the step sent a tune-down
+    // from under 1 MHz to the top of the range.
+    uint64_t const prev = state.get_frequency();
+    uint64_t const new_freq =
+        prev > constraints.min_frequency_hz + current_freq_step
+            ? prev - current_freq_step
+            : constraints.min_frequency_hz;
     if (new_freq != prev) {
       state.set_frequency(new_freq);
       LOG_INFO("[FREQ-] " + format_frequency(prev) + " -> " +

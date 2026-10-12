@@ -1182,7 +1182,7 @@ void SdlRenderer::rebuild_freq_scale_ticks() {
   SDL_SetRenderTarget(m_renderer, nullptr);
 }
 
-void SdlRenderer::render_frequency_scale(uint32_t center_hz,
+void SdlRenderer::render_frequency_scale(uint64_t center_hz,
                                          uint32_t sample_rate_hz,
                                          size_t spectrum_height) {
   if (center_hz != m_freq_scale_center_hz ||

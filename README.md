@@ -113,6 +113,8 @@ Options:
   --iq-log            Enable IQ data logging to file
   --iq-duration SEC   Capture duration in seconds (default: 0 = manual)
   --iq-output FILE    Output filename prefix (default: auto-generated)
+  --iq-format FMT     Capture sample format: cf32 (float32 pairs, default)
+                      or cs16 (int16 pairs, half the size)
   --play FILE.iq      Replay a recorded IQ capture instead of opening hardware
   --help              Show this help message
 ```

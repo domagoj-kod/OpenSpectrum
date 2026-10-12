@@ -71,7 +71,7 @@ public:
   // Render dynamic frequency scale at the bottom of the spectrum display.
   // Labels span center_hz ± sample_rate_hz/2. Caches textures; rebuilds only
   // when center_hz or sample_rate_hz changes.
-  void render_frequency_scale(uint32_t center_hz, uint32_t sample_rate_hz,
+  void render_frequency_scale(uint64_t center_hz, uint32_t sample_rate_hz,
                               size_t spectrum_height);
 
   // Get dimensions
@@ -370,7 +370,7 @@ private:
   // Rebuilt only when center_hz or sample_rate changes; render_overlays() does
   // one SDL_RenderCopy per frame instead of N state-changing draw calls.
   SDL_Texture *m_freq_scale_texture = nullptr;
-  uint32_t m_freq_scale_center_hz = 0;
+  uint64_t m_freq_scale_center_hz = 0;
   uint32_t m_freq_scale_sample_rate_hz = 0;
   size_t m_freq_scale_spectrum_height = 0;
 

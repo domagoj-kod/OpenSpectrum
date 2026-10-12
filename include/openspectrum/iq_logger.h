@@ -24,11 +24,18 @@ struct IqCaptureStats {
   double duration_seconds = 0.0;
 };
 
+// On-disk sample layout, interleaved I/Q, little-endian. CF32 is two float32
+// per sample (8 bytes); CS16 is two int16 per sample (4 bytes), full scale
+// 32768, which loses nothing against a receiver of 16 bits or fewer and halves
+// the disk rate that a wide capture is bound by.
+enum class IqSampleFormat { CF32, CS16 };
+
 // Configuration for IQ logging
 struct IqLoggerConfig {
   std::string output_directory = "data";
   std::string filename_prefix = "capture";
   size_t buffer_size_bytes = 1048576; // 1 MB default buffer
+  IqSampleFormat format = IqSampleFormat::CF32;
 };
 
 // Callback type
@@ -42,14 +49,19 @@ public:
 
   // Start a new capture
   // Returns true if successfully started
-  bool start_capture(uint32_t center_freq_hz, uint32_t sample_rate_hz,
+  bool start_capture(uint64_t center_freq_hz, uint32_t sample_rate_hz,
                      float gain_db, size_t fft_size = 0,
                      const std::string &window_function = "",
-                     const std::string &notes = "");
+                     const std::string &notes = "",
+                     const std::string &device = "");
 
   // Write IQ samples (thread-safe). Pointer + count keeps the producer-thread
   // hot path allocation-free.
   void write_samples(const std::complex<float> *samples, size_t count);
+
+  // Samples the source reported lost during this capture. Call before
+  // stop_capture(); written to the sidecar as capture.dropped_samples.
+  void set_dropped_samples(uint64_t count);
 
   // Stop current capture and finalize files
   void stop_capture();
@@ -79,21 +91,34 @@ private:
   void write_metadata();
   void update_stats(const std::complex<float> *samples, size_t count);
   void flush_buffer();
+  void append_bytes(const uint8_t *data, size_t size);
   std::string generate_metadata_json() const;
 
   IqLoggerConfig m_config;
   mutable IqCaptureStats m_stats;
 
   // Capture parameters
-  uint32_t m_center_freq_hz = 0;
+  uint64_t m_center_freq_hz = 0;
   uint32_t m_sample_rate_hz = 0;
   float m_gain_db = 0.0f;
   size_t m_fft_size = 0;
   std::string m_window_function;
   std::string m_notes;
+  std::string m_device;
 
-  // Timing
+  // Integrity. A short write ends the capture (m_write_error); losses the
+  // source saw arrive through set_dropped_samples().
+  uint64_t m_dropped_samples = 0;
+  bool m_write_error = false;
+
+  // Timing. The first and last write times, with the samples that arrived
+  // after the first batch, give the rate the stream actually delivered — the
+  // only loss check that works for a source that cannot report its own drops.
   double m_start_time = 0.0;
+  std::string m_start_iso8601;
+  double m_first_write_time = 0.0;
+  double m_last_write_time = 0.0;
+  size_t m_first_write_count = 0;
 
   // Files
   FILE *m_data_file = nullptr;

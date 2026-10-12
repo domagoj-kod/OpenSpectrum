@@ -3,10 +3,11 @@
 #include "rtl_sdr_device.h"
 #include "logger.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <rtl-sdr.h>
-#include <utility>
 
 // Convert interleaved unsigned-8-bit IQ to float in [-1, 1): out = x/127.5 - 1.
 // Both I and Q take the same transform, so it's a flat uint8->float run (n =
@@ -27,6 +28,17 @@ static void convert_iq_u8_to_f32(const unsigned char *__restrict src,
 // callbacks serially, so at most one device frame is in flight. A handful of
 // spares covers the resize/realloc edge; 4 is ample.
 static constexpr size_t kDeviceFramePoolFrames = 4;
+
+// USB DMA ring depth for rtlsdr_read_async (buf_len = 65536 B each, see
+// start()) -> 32 buffers = 2 MB in flight. Windows WinUSB has no usbfs cap;
+// Linux usbfs defaults to 16 MB, so 2 MB sits comfortably under it on both —
+// no per-platform split needed. This is a latency/robustness knob, not a
+// memory one: each 64 KB buffer is ~16 ms of samples at 2.048 Msps, so 32
+// buffers give ~0.5 s of slack to absorb callback-thread scheduling jitter
+// before libusb runs out of submitted transfers and drops samples. Kept
+// generous (vs librtlsdr's 15 default) for slow/high-latency consumers —
+// notably WSL2 usbipd. Shrinking it saves <1 MB while narrowing that window.
+static constexpr uint32_t kStreamBuffers = 32;
 
 RtlSdrDevice::RtlSdrDevice(uint32_t index, size_t pool_capacity)
     : m_index(index), m_fft_size(pool_capacity) {
@@ -58,20 +70,25 @@ void RtlSdrDevice::close() {
 }
 
 RtlSdrDevice::~RtlSdrDevice() {
-  stop_streaming(); // Stop async thread before closing device
+  stop(); // Stop async thread before closing device
   close();
 }
 
-void RtlSdrDevice::reset_buffer() {
-  if (m_dev != nullptr) {
-    rtlsdr_reset_buffer(m_dev);
+// R820T tuning range, or the ADC's own 0-14.4 MHz (Nyquist of the 28.8 MHz
+// crystal) once direct sampling is on.
+auto RtlSdrDevice::limits() const noexcept -> openspectrum::TuningLimits {
+  if (m_direct_sampling) {
+    return {0, 14'400'000, 0.0F, 49.6F};
   }
+  return {500'000, 1'700'000'000, 0.0F, 49.6F};
 }
 
-void RtlSdrDevice::set_frequency(uint32_t freq_hz) {
-  m_center_freq = freq_hz;
+void RtlSdrDevice::set_frequency(uint64_t freq_hz) {
+  // librtlsdr tunes in 32 bits; limits() keeps callers far below that.
+  m_center_freq = static_cast<uint32_t>(
+      std::min<uint64_t>(freq_hz, std::numeric_limits<uint32_t>::max()));
   if (m_dev != nullptr) {
-    rtlsdr_set_center_freq(m_dev, freq_hz);
+    rtlsdr_set_center_freq(m_dev, m_center_freq);
   }
 }
 
@@ -124,6 +141,7 @@ auto RtlSdrDevice::set_direct_sampling(int mode) -> bool {
     LOG_ERROR("Failed to enable direct sampling mode " + std::to_string(mode));
     return false;
   }
+  m_direct_sampling = mode != 0;
   LOG_INFO("Direct sampling mode " + std::to_string(mode) +
            (mode == 2   ? " (Q-branch)"
             : mode == 1 ? " (I-branch)"
@@ -131,25 +149,17 @@ auto RtlSdrDevice::set_direct_sampling(int mode) -> bool {
   return true;
 }
 
-void RtlSdrDevice::set_fft_size(size_t fft_size) {
-  if (m_fft_size != fft_size) {
-    m_fft_size = fft_size;
-    // Recreate pool with new size
-    m_frame_pool = std::make_shared<openspectrum::FramePool>(
-        m_fft_size, kDeviceFramePoolFrames);
-  }
-}
-
-void RtlSdrDevice::set_frame_callback(FrameCallback cb) {
-  m_frame_callback = std::move(cb);
-}
-
 // Async streaming control
 // NOTE: rtlsdr_read_async() BLOCKS the calling thread until canceled.
 // We must run it in a separate thread to avoid freezing the main thread.
-void RtlSdrDevice::start_streaming(size_t buffer_count) {
+void RtlSdrDevice::start(size_t chunk_size) {
   if (m_dev == nullptr || m_streaming) {
     return;
+  }
+  if (m_fft_size != chunk_size) {
+    m_fft_size = chunk_size;
+    m_frame_pool = std::make_shared<openspectrum::FramePool>(
+        m_fft_size, kDeviceFramePoolFrames);
   }
 
   // Reset buffer before starting
@@ -159,7 +169,7 @@ void RtlSdrDevice::start_streaming(size_t buffer_count) {
   // rtlsdr_read_async BLOCKS until canceled, so we can't call it from main
   // thread
   m_thread_running = true;
-  m_async_thread = std::thread([this, buffer_count]() {
+  m_async_thread = std::thread([this]() {
     // Smaller USB transfer buffer than the librtlsdr default (262144 B). At
     // 2.048 Msps the default delivers one callback every ~64 ms, which capped
     // the waterfall line rate at ~15.6 lines/s (one displayed line per buffer,
@@ -169,9 +179,9 @@ void RtlSdrDevice::start_streaming(size_t buffer_count) {
     // high-latency paths (e.g. WSL2 usbipd) for no visible gain.
     uint32_t buf_len = 65536;
     LOG_INFO("Starting RTL-SDR async thread...");
-    int ret = rtlsdr_read_async(m_dev, static_callback, this,
-                                static_cast<uint32_t>(buffer_count), buf_len);
-    // A negative return is normal on shutdown: stop_streaming() clears
+    int ret = rtlsdr_read_async(m_dev, static_callback, this, kStreamBuffers,
+                                buf_len);
+    // A negative return is normal on shutdown: stop() clears
     // m_thread_running and then calls rtlsdr_cancel_async(), which makes this
     // blocking call return with a libusb error (typically -5 NOT_FOUND) as the
     // in-flight transfers are torn down. Only flag a genuine error if we did
@@ -187,10 +197,11 @@ void RtlSdrDevice::start_streaming(size_t buffer_count) {
     m_thread_running = false;
   });
   m_streaming = true;
-  LOG_INFO("RTL-SDR async streaming started from worker thread.");
+  LOG_INFO("RTL-SDR async streaming started with " +
+           std::to_string(kStreamBuffers) + " buffers.");
 }
 
-void RtlSdrDevice::stop_streaming() {
+void RtlSdrDevice::stop() {
   if (m_dev == nullptr || !m_streaming) {
     return;
   }
@@ -236,7 +247,11 @@ void RtlSdrDevice::process_callback_with_pool(unsigned char *buf,
   while (offset < count) {
     openspectrum::FrameHandle frame_handle = m_frame_pool->acquire();
     if (!frame_handle) {
-      LOG_DEBUG("process_callback_with_pool: pool exhausted, dropping buffer");
+      // The pool grows on demand, so this is an allocation failure. Count the
+      // rest of the transfer as lost; the capture sidecar reports the total.
+      m_dropped.fetch_add(count - offset, std::memory_order_relaxed);
+      LOG_ERROR("RTL-SDR: no frame available, dropped " +
+                std::to_string(count - offset) + " samples");
       return;
     }
 

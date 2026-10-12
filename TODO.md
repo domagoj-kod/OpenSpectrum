@@ -6,6 +6,11 @@ live in `docs/TECHNICAL.md`.
 
 ## Open
 
+- [ ] **A wideband receiver backend.** `SampleSource` and 64-bit frequency are
+  in, but only the RTL2832U implements it, so "works with other receivers" is
+  untested on hardware. One SoapySDR subclass would cover most receivers and
+  report real overflows through `dropped_samples()`. Open with it: sample rate
+  as part of the interface, and the 1/0.1/10 MHz tuning steps (slow across GHz).
 - [ ] **click-to-tune + persisted config** (largest, most-wanted). Click the
   spectrum to retune; persist last freq/gain/FFT/window/palette across runs.
 - [ ] **Clang/LLVM 21 as a second compiler** (ThinLTO, vectorization remarks).

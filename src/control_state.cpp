@@ -2,7 +2,7 @@
 
 #include "openspectrum/control_state.h"
 #include "format.h"
-#include "rtl_sdr_device.h"
+#include "sample_source.h"
 #include "signal_processor.h"
 
 #include <algorithm>
@@ -36,7 +36,7 @@ auto ControlState::format_gain(float db) -> std::string {
 }
 
 // Setters for initial configuration
-void ControlState::set_frequency(uint32_t hz) {
+void ControlState::set_frequency(uint64_t hz) {
   frequency_hz = std::clamp(hz, constraints.min_frequency_hz,
                             constraints.max_frequency_hz);
 }
@@ -164,7 +164,7 @@ auto ControlState::get_status_fields() const -> StatusFields {
 }
 
 // Apply all pending changes to device (batch update)
-void ControlState::apply_to_device(RtlSdrDevice &dev) const {
+void ControlState::apply_to_device(SampleSource &dev) const {
   // Only reprogram the tuner when a value actually changed. set_frequency() and
   // set_gain() each issue blocking USB control transfers (PLL retune, gain-mode
   // switch); calling them unconditionally every frame was the render-loop

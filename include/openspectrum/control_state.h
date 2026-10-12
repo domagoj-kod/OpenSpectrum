@@ -8,16 +8,16 @@
 #include <string>
 #include <vector>
 
-// Forward declaration for RtlSdrDevice (defined in global namespace)
-class RtlSdrDevice;
-
 namespace openspectrum {
 
-// Device constraints structure. Defaults are the RTL2832U/R820T tuning range;
-// playback and direct-sampling modes override via set_constraints().
+class SampleSource;
+
+// Device constraints structure. The tuning and gain defaults are the
+// RTL2832U/R820T range; main() replaces them with the active source's
+// limits() via set_constraints().
 struct DeviceConstraints {
-  uint32_t min_frequency_hz = 500000;     // 500 kHz
-  uint32_t max_frequency_hz = 1700000000; // 1.7 GHz
+  uint64_t min_frequency_hz = 500000;     // 500 kHz
+  uint64_t max_frequency_hz = 1700000000; // 1.7 GHz
   float min_gain_db = 0.0f;
   float max_gain_db = 49.6f; // RTL2832U max
   // 32768/65536 are opt-in, not a better default: at 2.048 MS/s across a ~1400
@@ -48,13 +48,13 @@ public:
   ControlState &operator=(const ControlState &) = delete;
 
   // Getters for current values
-  uint32_t get_frequency() const noexcept { return frequency_hz; }
+  uint64_t get_frequency() const noexcept { return frequency_hz; }
   float get_gain() const noexcept { return gain_db; }
   size_t get_fft_size() const noexcept { return fft_size; }
   WindowFunction get_window() const noexcept { return window_function; }
 
   // Setters (for initial configuration)
-  void set_frequency(uint32_t hz);
+  void set_frequency(uint64_t hz);
   void set_gain(float db);
   void set_fft_size(size_t size);
   void set_window(WindowFunction w);
@@ -150,7 +150,7 @@ public:
   void clear_trace_reset() noexcept { m_trace_reset = false; }
 
   // Apply all pending changes to device (batch update)
-  void apply_to_device(RtlSdrDevice &dev) const;
+  void apply_to_device(SampleSource &dev) const;
 
 private:
   bool fft_size_supported(size_t size) const;
@@ -159,7 +159,7 @@ private:
   DeviceConstraints constraints;
 
   // Current values
-  uint32_t frequency_hz = 100000000;
+  uint64_t frequency_hz = 100000000;
   float gain_db = 20.0f;
   size_t fft_size = 4096;
   WindowFunction window_function = WindowFunction::BLACKMAN_HARRIS;
@@ -191,7 +191,7 @@ private:
   // throttled the displayed frame rate (worst over high-latency USB paths such
   // as WSL2 usbipd). Now writes fire only when freq/gain actually change.
   mutable bool m_device_applied = false;
-  mutable uint32_t m_applied_frequency_hz = 0;
+  mutable uint64_t m_applied_frequency_hz = 0;
   mutable float m_applied_gain_db = 0.0f;
 };
 

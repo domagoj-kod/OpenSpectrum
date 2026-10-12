@@ -64,6 +64,8 @@ void print_usage(const char *argv0) {
          "manual)\n"
       << "  --iq-output FILE    Output filename prefix (default: "
          "auto-generated)\n"
+      << "  --iq-format FMT     Capture sample format: cf32 (float32 pairs,\n"
+      << "                      default) or cs16 (int16 pairs, half the size)\n"
       << "  --play FILE.iq      Replay a recorded IQ capture instead of "
          "opening\n"
       << "                      hardware (loops; reads freq/rate from the\n"
@@ -85,14 +87,16 @@ auto parse_arguments(int argc, char *argv[]) -> AppConfig {
     std::string_view const arg = argv[i];
 
     if (arg == "-f" || arg == "--freq") {
-      if (i + 1 >= argc || !parse_num(argv[i + 1], config.center_freq_hz)) {
+      if (i + 1 >= argc || !parse_num(argv[i + 1], config.center_freq_hz) ||
+          config.center_freq_hz < 0.0 || config.center_freq_hz > 1e12) {
         std::cerr << "Error: Invalid frequency value\n";
         print_usage(argv[0]);
         std::exit(1);
       }
       ++i;
     } else if (arg == "-r" || arg == "--rate") {
-      if (i + 1 >= argc || !parse_num(argv[i + 1], config.sample_rate_hz)) {
+      if (i + 1 >= argc || !parse_num(argv[i + 1], config.sample_rate_hz) ||
+          config.sample_rate_hz < 1.0 || config.sample_rate_hz > 4e9) {
         std::cerr << "Error: Invalid sample rate value\n";
         print_usage(argv[0]);
         std::exit(1);
@@ -179,6 +183,18 @@ auto parse_arguments(int argc, char *argv[]) -> AppConfig {
       }
       config.iq_output_file = argv[++i];
       config.iq_logging_enabled = true; // Enable logging if output is set
+    } else if (arg == "--iq-format") {
+      std::string_view const fmt = i + 1 < argc ? argv[i + 1] : "";
+      if (fmt == "cf32") {
+        config.iq_format = IqSampleFormat::CF32;
+      } else if (fmt == "cs16") {
+        config.iq_format = IqSampleFormat::CS16;
+      } else {
+        std::cerr << "Error: --iq-format must be cf32 or cs16\n";
+        print_usage(argv[0]);
+        std::exit(1);
+      }
+      ++i;
     } else if (arg == "--play") {
       if (i + 1 >= argc) {
         std::cerr << "Error: IQ playback filename required\n";

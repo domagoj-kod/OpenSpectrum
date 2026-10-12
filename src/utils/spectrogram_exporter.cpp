@@ -101,7 +101,7 @@ ExportResult SpectrogramExporter::write_png(const std::string &filename,
 // Write JSON metadata file
 void SpectrogramExporter::write_metadata(
     const std::string &filename, int image_width, int image_height,
-    const std::string &image_type, uint32_t center_freq_hz,
+    const std::string &image_type, uint64_t center_freq_hz,
     uint32_t sample_rate_hz, float gain_db, size_t fft_size,
     const std::string &window_function, const std::string &color_map,
     const std::string &notes, const std::string &iso8601_timestamp) {
@@ -166,7 +166,7 @@ void SpectrogramExporter::write_metadata(
 }
 
 ExportResult SpectrogramExporter::export_framebuffer(
-    const uint8_t *rgba, size_t width, size_t height, uint32_t center_freq_hz,
+    const uint8_t *rgba, size_t width, size_t height, uint64_t center_freq_hz,
     uint32_t sample_rate_hz, float gain_db, size_t fft_size,
     const std::string &window_function, const std::string &color_map,
     const std::string &notes) {

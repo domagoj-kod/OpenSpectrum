@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <iomanip>
 #include <sstream>
 #include <utility>
 
@@ -35,7 +36,7 @@ bool IqLogger::create_output_directory() {
 }
 
 std::string IqLogger::generate_filename(const std::string &extension) const {
-  std::string timestamp = get_iso8601_timestamp();
+  const std::string &timestamp = m_start_iso8601;
   std::string freq_str = format_frequency(m_center_freq_hz);
   // Replace spaces in frequency string
   freq_str.erase(std::remove(freq_str.begin(), freq_str.end(), ' '),
@@ -55,10 +56,11 @@ std::string IqLogger::generate_filename(const std::string &extension) const {
   return filename;
 }
 
-bool IqLogger::start_capture(uint32_t center_freq_hz, uint32_t sample_rate_hz,
+bool IqLogger::start_capture(uint64_t center_freq_hz, uint32_t sample_rate_hz,
                              float gain_db, size_t fft_size,
                              const std::string &window_function,
-                             const std::string &notes) {
+                             const std::string &notes,
+                             const std::string &device) {
   std::lock_guard<std::mutex> lock(m_mutex);
 
   // Already capturing?
@@ -73,10 +75,19 @@ bool IqLogger::start_capture(uint32_t center_freq_hz, uint32_t sample_rate_hz,
   m_fft_size = fft_size;
   m_window_function = window_function;
   m_notes = notes;
+  m_device = device;
 
   // Reset statistics
   m_stats = IqCaptureStats{};
+  m_dropped_samples = 0;
+  m_write_error = false;
+  m_first_write_time = 0.0;
+  m_last_write_time = 0.0;
+  m_first_write_count = 0;
   m_start_time = get_unix_timestamp();
+  // Taken once: the sidecar is rewritten at stop, and stamping it then put the
+  // end time under a field every reader takes for the start.
+  m_start_iso8601 = get_iso8601_timestamp();
 
   // Allocate the write-coalescing buffer for the duration of this capture.
   m_buffer.resize(m_config.buffer_size_bytes);
@@ -144,10 +155,29 @@ void IqLogger::flush_buffer() {
                 std::to_string(m_buffer_pos) +
                 " bytes — stopping capture to preserve file integrity");
       m_capturing = false;
+      m_write_error = true;
+      m_stats.duration_seconds = get_unix_timestamp() - m_start_time;
       std::fclose(m_data_file);
       m_data_file = nullptr;
+      write_metadata(); // the sidecar must say the file is cut short
     }
     m_buffer_pos = 0;
+  }
+}
+
+void IqLogger::append_bytes(const uint8_t *data, size_t size) {
+  size_t done = 0;
+  while (done < size && m_data_file != nullptr) {
+    size_t const to_copy =
+        std::min(size - done, m_config.buffer_size_bytes - m_buffer_pos);
+    std::memcpy(&m_buffer[m_buffer_pos], data + done, to_copy);
+    m_buffer_pos += to_copy;
+    done += to_copy;
+
+    // Flush if buffer is full
+    if (m_buffer_pos >= m_config.buffer_size_bytes) {
+      flush_buffer();
+    }
   }
 }
 
@@ -158,27 +188,39 @@ void IqLogger::write_samples(const std::complex<float> *samples, size_t count) {
     return;
   }
 
+  m_last_write_time = get_unix_timestamp();
+  if (m_first_write_count == 0) {
+    m_first_write_time = m_last_write_time;
+    m_first_write_count = count;
+  }
+
   // Update statistics
   update_stats(samples, count);
 
-  // Write samples to buffer
-  const uint8_t *data_ptr = reinterpret_cast<const uint8_t *>(samples);
-  size_t data_size = count * sizeof(std::complex<float>);
-  size_t remaining = data_size;
-
-  while (remaining > 0) {
-    size_t to_copy =
-        std::min(remaining, m_config.buffer_size_bytes - m_buffer_pos);
-    std::memcpy(&m_buffer[m_buffer_pos], data_ptr + (data_size - remaining),
-                to_copy);
-    m_buffer_pos += to_copy;
-    remaining -= to_copy;
-
-    // Flush if buffer is full
-    if (m_buffer_pos >= m_config.buffer_size_bytes) {
-      flush_buffer();
-    }
+  if (m_config.format == IqSampleFormat::CF32) {
+    append_bytes(reinterpret_cast<const uint8_t *>(samples),
+                 count * sizeof(std::complex<float>));
+    return;
   }
+
+  // CS16: scale to int16 a block at a time. The clamp only bites at exactly
+  // +1.0, which 32768 would wrap.
+  const auto *in = reinterpret_cast<const float *>(samples);
+  int16_t block[1024];
+  for (size_t done = 0; done < count * 2;) {
+    size_t const n = std::min(count * 2 - done, std::size(block));
+    for (size_t i = 0; i < n; ++i) {
+      block[i] = static_cast<int16_t>(
+          std::clamp(std::lrintf(in[done + i] * 32768.0F), -32768L, 32767L));
+    }
+    append_bytes(reinterpret_cast<const uint8_t *>(block), n * sizeof(int16_t));
+    done += n;
+  }
+}
+
+void IqLogger::set_dropped_samples(uint64_t count) {
+  std::lock_guard<std::mutex> lock(m_mutex);
+  m_dropped_samples = count;
 }
 
 void IqLogger::stop_capture() {
@@ -246,20 +288,29 @@ std::string IqLogger::generate_metadata_json() const {
   double duration =
       m_capturing ? (end_time - m_start_time) : m_stats.duration_seconds;
 
+  // Fixed notation: the default six significant digits printed the Unix start
+  // time as 1.79181e+09, a resolution of about three hours.
+  ss << std::fixed << std::setprecision(3);
+
   ss << "{\n";
-  ss << "  \"version\": \"1.0\",\n";
+  ss << "  \"version\": \"1.1\",\n";
 
   // Capture info
   ss << "  \"capture\": {\n";
-  ss << R"(    "timestamp_iso8601": ")" << get_iso8601_timestamp() << "\",\n";
+  ss << R"(    "timestamp_iso8601": ")" << m_start_iso8601 << "\",\n";
   ss << "    \"timestamp_unix\": " << m_start_time << ",\n";
   ss << "    \"duration_seconds\": " << duration << ",\n";
-  ss << "    \"sample_count\": " << m_stats.sample_count << "\n";
+  ss << "    \"sample_format\": \""
+     << (m_config.format == IqSampleFormat::CS16 ? "cs16_le" : "cf32_le")
+     << "\",\n";
+  ss << "    \"sample_count\": " << m_stats.sample_count << ",\n";
+  ss << "    \"dropped_samples\": " << m_dropped_samples << ",\n";
+  ss << "    \"write_error\": " << (m_write_error ? "true" : "false") << "\n";
   ss << "  },\n";
 
   // Device info
   ss << "  \"device\": {\n";
-  ss << "    \"type\": \"RTL2832U\",\n";
+  ss << R"(    "type": ")" << escape_json_string(m_device) << "\",\n";
   ss << "    \"index\": 0\n";
   ss << "  },\n";
 
@@ -267,14 +318,24 @@ std::string IqLogger::generate_metadata_json() const {
   ss << "  \"signal\": {\n";
   ss << "    \"center_frequency_hz\": " << m_center_freq_hz << ",\n";
   ss << "    \"sample_rate_hz\": " << m_sample_rate_hz << ",\n";
-  ss << "    \"gain_db\": " << m_gain_db << ",\n";
+  // Rate the stream delivered, from the samples after the first batch over the
+  // time between the first and last write. Well below sample_rate_hz means
+  // samples were lost upstream. Batches arrive in bursts, so it settles only
+  // over captures of tens of seconds.
+  if (m_last_write_time > m_first_write_time) {
+    ss << "    \"measured_sample_rate_hz\": "
+       << static_cast<double>(m_stats.sample_count - m_first_write_count) /
+              (m_last_write_time - m_first_write_time)
+       << ",\n";
+  }
+  ss << "    \"gain_db\": " << m_gain_db;
   if (m_fft_size > 0) {
-    ss << "    \"fft_size\": " << m_fft_size << ",\n";
+    ss << ",\n    \"fft_size\": " << m_fft_size;
   }
   if (!m_window_function.empty()) {
-    ss << R"(    "window_function": ")" << m_window_function << "\"\n";
+    ss << ",\n" << R"(    "window_function": ")" << m_window_function << "\"";
   }
-  ss << "  },\n";
+  ss << "\n  },\n";
 
   // Environment
   ss << "  \"environment\": {\n";
@@ -291,16 +352,18 @@ std::string IqLogger::generate_metadata_json() const {
 
   // Statistics
   ss << "  \"statistics\": {\n";
+  // min/max start at +-inf, which is not JSON; an empty capture has none.
   ss << "    \"average_signal_db\": " << m_stats.average_db << ",\n";
-  ss << "    \"min_signal_db\": " << m_stats.min_db << ",\n";
-  ss << "    \"max_signal_db\": " << m_stats.max_db << "\n";
+  if (m_stats.sample_count > 0) {
+    ss << "    \"min_signal_db\": " << m_stats.min_db << ",\n";
+    ss << "    \"max_signal_db\": " << m_stats.max_db << "\n";
+  } else {
+    ss << "    \"min_signal_db\": null,\n";
+    ss << "    \"max_signal_db\": null\n";
+  }
   ss << "  },\n";
 
-  // Notes
-  if (!m_notes.empty()) {
-    ss << R"(  "notes": ")" << escape_json_string(m_notes) << "\"\n";
-  }
-
+  ss << R"(  "notes": ")" << escape_json_string(m_notes) << "\"\n";
   ss << "}";
 
   return ss.str();

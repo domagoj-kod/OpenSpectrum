@@ -24,18 +24,25 @@ namespace openspectrum {
 // leading zeros and 1.009/1.090 GHz both collapsed toward "1.9". It's intended
 // for status bars, log lines, and JSON "*_formatted" fields, not for
 // round-tripping a numeric value.
-inline std::string format_frequency(uint32_t hz) {
-  char buf[32];
+// 64-bit on purpose: 32 bits end at 4.29 GHz, below the 5.8 GHz band.
+inline std::string format_frequency(uint64_t hz) {
+  char buf[40];
+  auto const whole = [hz](uint64_t unit) {
+    return static_cast<unsigned long long>(hz / unit);
+  };
+  auto const frac = [hz](uint64_t unit) {
+    return static_cast<unsigned>((hz % unit) / (unit / 1000));
+  };
   if (hz >= 1000000000) {
-    std::snprintf(buf, sizeof buf, "%u.%03u GHz", hz / 1000000000u,
-                  (hz % 1000000000u) / 1000000u);
+    std::snprintf(buf, sizeof buf, "%llu.%03u GHz", whole(1000000000),
+                  frac(1000000000));
   } else if (hz >= 1000000) {
-    std::snprintf(buf, sizeof buf, "%u.%03u MHz", hz / 1000000u,
-                  (hz % 1000000u) / 1000u);
+    std::snprintf(buf, sizeof buf, "%llu.%03u MHz", whole(1000000),
+                  frac(1000000));
   } else if (hz >= 1000) {
-    std::snprintf(buf, sizeof buf, "%u.%03u kHz", hz / 1000u, hz % 1000u);
+    std::snprintf(buf, sizeof buf, "%llu.%03u kHz", whole(1000), frac(1000));
   } else {
-    std::snprintf(buf, sizeof buf, "%u Hz", hz);
+    std::snprintf(buf, sizeof buf, "%llu Hz", whole(1));
   }
   return buf;
 }
@@ -50,6 +57,7 @@ inline void format_frequency_selftest() {
   assert(format_frequency(100009000) == "100.009 MHz"); // latent MHz pad
   assert(format_frequency(1005) == "1.005 kHz");        // latent kHz pad
   assert(format_frequency(999) == "999 Hz");
+  assert(format_frequency(5800000000) == "5.800 GHz"); // past 32 bits
 }
 #endif
 
