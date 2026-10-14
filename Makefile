@@ -58,6 +58,14 @@ else
     RES_OBJ =
 endif
 
+# USRP support through UHD, opt-in: `make UHD=1` (also `make release UHD=1`).
+# Off by default so the stock build and the release bundles do not grow a
+# dependency on UHD and Boost. UHD is GPL-3, as is this program.
+ifeq ($(UHD),1)
+    BASE_CXXFLAGS += -DOPENSPECTRUM_UHD
+    BASE_LDFLAGS += -luhd
+endif
+
 # Default to debug build (safe default)
 .DEFAULT_GOAL := all
 CFLAGS   := $(BASE_CFLAGS) -O0 -DOPENSPECTRUM_DEBUG
@@ -117,7 +125,8 @@ INCLUDE_DIR := include
 # incremental, rather than making `release` force a full LTO rebuild every time.
 # Size still tells you what you have: ~367 KB release, ~1.1 MB debug.
 CONFIG ?= debug
-BUILD_DIR := build/$(CONFIG)
+# UHD=1 changes a define, so it gets its own object dir for the same reason.
+BUILD_DIR := build/$(CONFIG)$(if $(filter 1,$(UHD)),-uhd)
 HARDWARE_DIR := $(SRC_DIR)/hardware
 SIGNAL_DIR := $(SRC_DIR)/signal
 FFT_DIR := $(SRC_DIR)/fft
@@ -132,6 +141,9 @@ INCLUDES := -I$(THIRD_PARTY) -I$(THIRD_PARTY)/pocketfft -I$(THIRD_PARTY_STB) -I$
 
 # Source files
 HARDWARE_SRCS := $(wildcard $(HARDWARE_DIR)/*.cpp)
+ifneq ($(UHD),1)
+    HARDWARE_SRCS := $(filter-out $(HARDWARE_DIR)/uhd_device.cpp,$(HARDWARE_SRCS))
+endif
 SIGNAL_SRCS := $(wildcard $(SIGNAL_DIR)/*.cpp)
 FFT_SRCS := $(wildcard $(FFT_DIR)/*.cpp)
 VIS_SRCS := $(wildcard $(VIS_DIR)/*.cpp)

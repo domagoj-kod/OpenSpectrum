@@ -6,11 +6,21 @@ live in `docs/TECHNICAL.md`.
 
 ## Open
 
-- [ ] **A wideband receiver backend.** `SampleSource` and 64-bit frequency are
-  in, but only the RTL2832U implements it, so "works with other receivers" is
-  untested on hardware. One SoapySDR subclass would cover most receivers and
-  report real overflows through `dropped_samples()`. Open with it: sample rate
-  as part of the interface, and the 1/0.1/10 MHz tuning steps (slow across GHz).
+- [ ] **Prove the USRP backend on hardware.** `UhdDevice` (`make UHD=1`,
+  `--device uhd`) builds against UHD 4.9 and fails cleanly with no device; it
+  has **not yet received a sample**. To run on a B210, in order: the host's
+  ceiling with `benchmark_rate`; a rate sweep through `--iq-log` (pass:
+  `dropped_samples` 0, `measured_sample_rate_hz` within 0.03 %, file size =
+  `sample_count` x 4 for `cs16`); a forced stall (`kill -STOP` for 1 s) that
+  must give a non-zero `dropped_samples`; a CW tone by cable whose phase stays
+  linear over the capture; a one-hour soak; USB pulled mid-capture. Results go
+  to `docs/TECHNICAL.md`. Known risk: captures are written on the receive
+  thread (`IqLogger::write_samples`), 80 MB/s at 20 MS/s `cs16`; move the
+  writer to its own thread only if the sweep loses samples at a rate
+  `benchmark_rate` holds. Not done: the Windows build with UHD, `--antenna`,
+  other USRP families, the second channel.
+- [ ] **Sample rate in `SampleSource`, and tuning steps.** The rate is still a
+  setter of each concrete class; the 1/0.1/10 MHz steps are slow across GHz.
 - [ ] **click-to-tune + persisted config** (largest, most-wanted). Click the
   spectrum to retune; persist last freq/gain/FFT/window/palette across runs.
 - [ ] **Clang/LLVM 21 as a second compiler** (ThinLTO, vectorization remarks).

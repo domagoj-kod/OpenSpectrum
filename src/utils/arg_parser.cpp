@@ -54,6 +54,11 @@ void print_usage(const char *argv0) {
       << "  --max-fps N         Cap render rate to N fps to cut GPU/battery "
          "draw\n"
       << "                      (default: 30; 0 = uncapped, vsync-limited)\n"
+      << "  --device NAME       Receiver: rtl (default) or uhd (a USRP; "
+         "needs a\n"
+      << "                      build with UHD=1). The three options below "
+         "are\n"
+      << "                      RTL-only\n"
       << "  --ppm N             Crystal frequency correction in ppm "
          "(default: 0)\n"
       << "  --bias-t            Power the antenna port (4.5 V bias tee)\n"
@@ -152,6 +157,15 @@ auto parse_arguments(int argc, char *argv[]) -> AppConfig {
         print_usage(argv[0]);
         std::exit(1);
       }
+      ++i;
+    } else if (arg == "--device") {
+      std::string_view const dev = i + 1 < argc ? argv[i + 1] : "";
+      if (dev != "rtl" && dev != "uhd") {
+        std::cerr << "Error: --device must be rtl or uhd\n";
+        print_usage(argv[0]);
+        std::exit(1);
+      }
+      config.use_uhd = dev == "uhd";
       ++i;
     } else if (arg == "--ppm") {
       if (i + 1 >= argc || !parse_num(argv[i + 1], config.ppm_correction)) {

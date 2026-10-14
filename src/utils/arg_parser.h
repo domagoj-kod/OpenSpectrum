@@ -36,6 +36,9 @@ struct AppConfig {
   bool bias_tee = false;        // 4.5 V antenna-port power
   bool direct_sampling = false; // Q-branch direct sampling (HF, 0-14.4 MHz)
 
+  // Receiver: the RTL2832U, or a USRP through UHD (builds with `make UHD=1`)
+  bool use_uhd = false;
+
   // IQ playback: replay a .iq capture instead of opening hardware
   std::string play_file;
 };

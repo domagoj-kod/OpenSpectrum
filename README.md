@@ -74,6 +74,7 @@ remove `-march=haswell` from `CXXFLAGS` in the Makefile.
 | `librtlsdr-dev` | RTL-SDR support | `sudo apt install librtlsdr-dev` |
 | `libsdl3-dev` | GUI rendering | `sudo apt install libsdl3-dev` |
 | `pkg-config` | Dependency detection | `sudo apt install pkg-config` |
+| `libuhd-dev` | Optional: USRP support (`make UHD=1`) | `sudo apt install libuhd-dev uhd-host` |
 
 - **macOS (Homebrew):** `brew install librtlsdr sdl3 pkg-config`
 - **Windows (MSYS2):** `pacman -S mingw-w64-x86_64-{gcc,make,rtl-sdr,sdl3}`
@@ -108,6 +109,7 @@ Options:
                       (default: blackman-harris)
   --max-fps N         Cap render rate to N fps (default: 30; 0 = uncapped)
   --ppm N             Crystal frequency correction in ppm (default: 0)
+  --device NAME       Receiver: rtl (default) or uhd (a USRP; needs a build with UHD=1)
   --bias-t            Power the antenna port (4.5 V bias tee)
   --direct-sampling   Q-branch direct sampling for HF (tunes 0-14.4 MHz)
   --iq-log            Enable IQ data logging to file

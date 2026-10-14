@@ -552,8 +552,9 @@ the bottleneck there, the whole-scene raster dominates.
 ## Adding a new SDR device
 
 Every producer of IQ samples implements `SampleSource`
-(`src/hardware/sample_source.h`). There are two today: `RtlSdrDevice` (live
-RTL2832U) and `IqPlaybackSource` (`--play`). After the block in `main.cpp` that
+(`src/hardware/sample_source.h`). There are three today: `RtlSdrDevice` (live
+RTL2832U), `UhdDevice` (a B200-series USRP, `--device uhd`, see below) and
+`IqPlaybackSource` (`--play`). After the block in `main.cpp` that
 constructs one of them, nothing refers to a concrete receiver: tuning limits,
 retuning, the FFT-size restart, the capture sidecar's device name and the drop
 count all go through the interface.
@@ -602,6 +603,34 @@ Construct it in the source-selection block in `main.cpp` (search for "The one
 place a receiver is chosen"), apply any one-shot options, and move it into
 `source`. Add its library to `BASE_LDFLAGS` in the Makefile.
 
+### USRP through UHD
+
+`UhdDevice` (`src/hardware/uhd_device.*`) is compiled only by `make UHD=1`
+(`libuhd-dev`; objects go to `build/<config>-uhd/`). The stock build and the
+release bundles carry no UHD or Boost. Run it with `--device uhd`; `-r` is then
+the USRP's rate and the three RTL-only options are ignored.
+
+- **UHD directly, not SoapySDR.** For a USRP, SoapySDR is a wrapper around UHD,
+  which has to be installed either way (it loads the firmware and FPGA image
+  into the device on every power-up). SoapySDR becomes worth its two extra
+  layers with the first wideband receiver that is not a USRP.
+- **B200 series only.** The device is opened as `type=b200`. An empty address
+  also searches the network for X-series devices, and on a WSL2 host with
+  nothing attached that search never returned.
+- **The rate must be exact.** `set_sample_rate` fails if the device answers
+  with a different rate than asked, because the sidecar records the asked one.
+- **Samples are scaled by 1/32768 here.** They are taken from UHD as `sc16`
+  and converted in `convert_iq_s16_to_f32`, so a `cs16` capture (which
+  multiplies by 32768 and rounds) holds the receiver's own integers. `open()`
+  asserts that round trip over every int16 in debug builds.
+- **Losses are counted in samples, from the device clock.** Each received
+  packet carries the sample time of its first sample. The receive loop keeps
+  the time the next packet must start at; a later start is a gap, and its
+  length in samples is added to `dropped_samples()`. This does not depend on
+  UHD flagging an overflow.
+- **A new streamer per `start()`.** A reused one delivers packets from before
+  the stop, and the gap count would report the pause as a loss.
+
 ## Capture files
 
 `Ctrl+S` (or `--iq-log`) writes `data/capture_<UTC start>_<freq>.iq` and a
@@ -643,6 +672,20 @@ behavior is verified by running it against live hardware or a recorded capture
 rtl_test -t       # list available RTL-SDR devices
 rtl_eeprom        # device info
 ```
+
+For a USRP (`uhd-host`; `uhd_images_downloader` once, for the FPGA image):
+
+```bash
+uhd_find_devices --args type=b200
+uhd_usrp_probe --args type=b200   # must report USB 3, not USB 2
+/usr/libexec/uhd/examples/benchmark_rate --args type=b200 --rx_rate 10e6 --duration 60
+```
+
+`benchmark_rate` is the host's ceiling without any of our code: a rate it
+cannot hold without overflows is not one to expect from OpenSpectrum. Under
+WSL2 the device needs `usbipd attach --wsl --auto-attach` (it re-enumerates
+after the firmware load), and the rates measured there are those of USB/IP,
+not of the receiver.
 
 ## Security hardening
 

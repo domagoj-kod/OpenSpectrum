@@ -5,6 +5,9 @@
 #include "hardware/iq_playback.h"
 #include "hardware/rtl_sdr_device.h"
 #include "hardware/sample_source.h"
+#ifdef OPENSPECTRUM_UHD
+#include "hardware/uhd_device.h"
+#endif
 #include "openspectrum/control_state.h"
 #include "openspectrum/frame_pool.h"
 #include "openspectrum/iq_logger.h"
@@ -421,6 +424,19 @@ auto main(int argc, char *argv[]) -> int {
         LOG_ERROR("Failed to open IQ playback file");
         return 1;
       }
+    } else if (config.use_uhd) {
+#ifdef OPENSPECTRUM_UHD
+      LOG_INFO("Initializing USRP (UHD)...");
+      auto usrp = std::make_unique<UhdDevice>();
+      if (!usrp->open() || !usrp->set_sample_rate(effective_rate)) {
+        LOG_ERROR("Failed to open a USRP at the requested sample rate");
+        return 1;
+      }
+      source = std::move(usrp);
+#else
+      LOG_ERROR("--device uhd needs a build with UHD support (make UHD=1)");
+      return 1;
+#endif
     } else {
       LOG_INFO("Initializing RTL-SDR device...");
       auto rtl = std::make_unique<RtlSdrDevice>();
