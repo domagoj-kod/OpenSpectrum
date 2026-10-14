@@ -701,7 +701,7 @@ void SdlRenderer::render_panel() {
   for (size_t i = 0; i < shown; ++i) {
     if (i < m_markers.size()) {
       const Marker &m = m_markers[i];
-      char id[8];
+      char id[16]; // "M" + any int + NUL
       std::snprintf(id, sizeof(id), "M%d", m.index);
       char rest[40];
       if (m.on_screen) {
@@ -713,7 +713,7 @@ void SdlRenderer::render_panel() {
       blit_text(id, kMag, cx, my);
       blit_text(rest, kValue, rest_x, my);
     } else {
-      char id[8];
+      char id[16]; // "M" + any int + NUL
       std::snprintf(id, sizeof(id), "M%d", static_cast<int>(i) + 1);
       blit_text(id, kGhost, cx, my);
       blit_text("---", kGhost, rest_x, my);
