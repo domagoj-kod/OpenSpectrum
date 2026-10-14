@@ -26,13 +26,13 @@ Binary: `openspectrum` (Linux) / `openspectrum.exe` (Windows/MSYS2). No test sui
 
 Release flags: `-march=haswell` (AVX2+FMA3), `-flto`, `-ffunction-sections -fdata-sections -fvisibility=hidden -fvisibility-inlines-hidden` + `-Wl,--gc-sections`, `-falign-functions=32 -falign-loops=32` (hot loops in one DSB fetch line). See `TRIM_CFLAGS`/`TRIM_LDFLAGS` in the Makefile. `-s` (strip at link, release-only) drops the ~40K symbol table — there's no DWARF in the binary, so it costs nothing at runtime; debug/profile keep symbols for gdb/gprof.
 
-**Linting is gradual** — format/tidy only lines changed vs a base ref, never the whole tree (a full pass would reflow the hand-tuned AVX2 blocks + the 8x16 font table). Config in `.clang-tidy` / `.clang-format`. Wrapper:
+**Linting covers the whole tree** (`src/`; `third_party/` is vendored and built with `-isystem`, so its warnings stay out). The tree is clang-format and clang-tidy clean; keep it that way. The 8x16 font table is fenced with `// clang-format off`. Config in `.clang-tidy` / `.clang-format`. Wrapper:
 ```bash
-./lint.sh            # format changed lines vs main + clang-tidy the diff
-./lint.sh --check    # non-mutating; non-zero exit if anything is flagged
-./lint.sh HEAD~3     # arbitrary base ref
+./lint.sh            # format in place + clang-tidy
+./lint.sh --check    # change nothing; non-zero exit if anything is flagged
+UHD=1 ./lint.sh      # also tidy uhd_device.cpp (needs the UHD headers)
 ```
-Its `-I` flags mirror the Makefile's `INCLUDES`; the **per-module dirs are required** (e.g. `control_state.h` includes `signal_processor.h` from `src/signal/`) — a bare `-Isrc -Iinclude` yields `file not found`.
+It fails if `clang-format` or `clang-tidy` is missing (Ubuntu: `apt install clang-tidy`). Its include flags mirror the Makefile's `INCLUDES`; the **per-module dirs are required** (e.g. `control_state.h` includes `signal_processor.h` from `src/signal/`) — a bare `-Isrc -Iinclude` yields `file not found`.
 
 **Header-dep tracking**: compile rules pass `DEPFLAGS := -MMD -MP` → a `.d` beside each `.o`, `-included` at the Makefile bottom, so editing a header rebuilds dependents. `DEPFLAGS` is kept **separate from `CXXFLAGS`** because `release`/`profile*` override `CXXFLAGS` via recursive make and would strip it. A new compile rule must append `$(DEPFLAGS)`.
 
