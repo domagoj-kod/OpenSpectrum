@@ -112,12 +112,12 @@ Both panes autoscale, and both anchor their **bottom on the median, never the mi
 
 A periodogram bin of Gaussian noise is exponentially distributed, so `min` over N bins is an *extreme-value statistic with no physical meaning*: at FFT 16384 the deepest null lands **~42 dB below the actual noise floor** and re-rolls every frame. Anchoring there stretched the spectrum pane over ~90 dB (half of it empty, floor pinned mid-screen, labels jittering) and stretched the waterfall LUT over ~80 dB the content never occupies (floor at mid-palette → the whole pane washed out to uniform light blue). The median sits a fixed **1.6 dB** below the floor's mean power and is stable to ~0.05 dB. `max` *is* fine as the top: it is signal-dominated, and even for pure noise only lands ~10 dB above the floor.
 
-- `SpectrumDisplay::update_spectrum` → `nth_element` over a **stride-4 subsample** into `m_scratch` (noise bins are iid, so a quarter-sample gives the same median to ~0.1 dB; sorting all 16K cost ~0.2 ms/frame — a third of the DSP budget — for a number that barely moves). Bottom = median − `kFloorMargin` (10 dB), top = max + 5.
+- `SpectrumDisplay::update_spectrum` → `nth_element` over a **stride-4 subsample** into `m_scratch` (noise bins are iid, so a quarter-sample gives the same median to ~0.1 dB; sorting all 16K cost ~0.2 ms/frame — a third of the DSP budget — for a number that barely moves). Bottom = median − `kFloorMargin` (10 dB), top = max + 5, rising at once but falling at most `kTopDecayDb` (0.5 dB) per frame — a per-frame top pumped ~10 dB in a bursty band.
 - `WaterfallDisplay::update_global_range` → cumulative walk to the median bucket. This is what the histogram is *for*: a percentile is O(256) and L1-resident, cheaper than the min/max scan it replaced.
 
 Related invariants, same root cause — **the drawn trace must not be a peak detector**: the per-pixel-column reduction in `build_vertices` is a **mean** (`column_mean`), not a max. Max-of-12-bins reads ~4.9 dB high (E[max of n exponentials] = Hₙ) and still spreads ~1.8 dB — that is the "grass" on the noise floor. Nothing is lost by averaging: **max-hold is the peak detector** and keeps `std::max`; it is the trace that promises those semantics. `sample_at_x` must mirror whatever `build_vertices` does, or the cursor dot floats off the bar.
 
-Sanity check when touching any of this: peak + 5 must equal the top axis label exactly.
+Sanity check when touching any of this: while the peak is steady or rising, peak + 5 must equal the top axis label exactly.
 
 ### WaterfallDisplay
 History = `RingBuffer<vector<uint8_t>>`; dB quantized to `uint8_t` over a fixed -120..0 dB range (4:1 vs float). RGBA LUT (`m_rgba_lut[256]`, `uint32_t`) maps quantized → color; render inner loop is `memcpy`/pixel (scalar) or `_mm256_i32gather_epi32`×8 (AVX2).

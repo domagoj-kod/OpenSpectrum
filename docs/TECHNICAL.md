@@ -95,7 +95,10 @@ minimum. A periodogram bin of Gaussian noise is exponentially distributed, so th
 every frame. Anchoring there stretched the pane across ~90 dB (half of it empty),
 pinned the floor at mid-screen, and made the axis labels jitter. The median sits a
 fixed 1.6 dB below the floor's mean power and is stable to ~0.05 dB. The top
-tracks the peak (`max + 5 dB`) — `max` is signal-dominated and well behaved.
+tracks the peak (`max + 5 dB`) — `max` is signal-dominated and well behaved —
+but only on the way up: it falls at most 0.5 dB per frame (`kTopDecayDb`). In a
+bursty band a frame-by-frame top swung ~10 dB at 16 MS/s (2.44 GHz, B210, FFT
+65536; a frame there is 4 ms of every 33) and rescaled the whole trace with it.
 
 The y-axis is **signed dBFS**: `-83dB` means 83 dB below full scale, the same
 reference as the PEAK readout above.

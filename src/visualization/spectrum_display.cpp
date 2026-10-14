@@ -199,6 +199,10 @@ void SpectrumDisplay::update_spectrum(const std::vector<float> &db_values) {
 
   // Autoscale. The top tracks the peak: max is dominated by real signals, and
   // for pure noise it only lands ~10 dB above the floor, so it is well behaved.
+  // It follows a rising peak at once but falls at most kTopDecayDb per frame:
+  // in a busy band (2.4 GHz at 16 MS/s, where a frame is 4 ms of every 33)
+  // bursts come and go between frames, and a top that tracked each frame's
+  // max swung ~10 dB and rescaled the whole trace with it.
   //
   // The bottom tracks the *median* bin, not the min. A single periodogram bin
   // of Gaussian noise is exponentially distributed, so min over N bins is an
@@ -227,7 +231,8 @@ void SpectrumDisplay::update_spectrum(const std::vector<float> &db_values) {
     }
     auto mid = m_scratch.begin() + static_cast<std::ptrdiff_t>(m / 2);
     std::nth_element(m_scratch.begin(), mid, m_scratch.end());
-    set_db_range(*mid - kFloorMargin, max_val + 5.0F);
+    m_top_db = std::max(max_val + 5.0F, m_top_db - kTopDecayDb);
+    set_db_range(*mid - kFloorMargin, m_top_db);
   }
 
   // The live render path draws the spectrum on the GPU from build_vertices();

@@ -3,6 +3,7 @@
 
 #include <array>
 #include <cstdint>
+#include <limits>
 #include <vector>
 
 #include "openspectrum/attributes.h"
@@ -156,6 +157,12 @@ private:
   // Take every Nth bin for the median estimate. Noise bins are iid, so this
   // costs accuracy the axis cannot show and saves most of the selection work.
   static constexpr size_t kMedianStride = 4;
+  // How far the autoscaled top may fall per frame (15 dB/s at 30 fps). It
+  // rises at once, so a burst is never clipped, and settles over about a
+  // second once it is gone, instead of rescaling the pane every frame.
+  static constexpr float kTopDecayDb = 0.5F;
+  // Autoscaled top; -inf until the first frame seeds it.
+  float m_top_db = -std::numeric_limits<float>::infinity();
 
   float m_min_db = -120.0f;
   float m_max_db = 0.0f;
