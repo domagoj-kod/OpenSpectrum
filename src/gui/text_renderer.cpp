@@ -153,13 +153,13 @@ auto TextRenderer::render_text(const std::string &text, SDL_Color color)
     return nullptr;
   }
 
-  // SDL3 defaults alpha-format textures to SDL_BLENDMODE_BLEND (SDL2 was
-  // always SDL_BLENDMODE_NONE). Under NONE the transparent fill below renders
-  // as opaque black — that *is* the black backdrop behind the status bar,
-  // PEAK, and IQ text. Keep NONE here; call sites that want real transparency
-  // (freq-scale labels, timing overlay) set BLEND explicitly on the result.
+  // SDL3 defaults alpha-format textures to SDL_BLENDMODE_BLEND. Under NONE the
+  // transparent fill below renders as opaque black — that *is* the black
+  // backdrop behind the status bar, PEAK, and IQ text. Keep NONE here; call
+  // sites that want real transparency (freq-scale labels, timing overlay) set
+  // BLEND explicitly on the result.
   SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_NONE);
-  // Nearest matches SDL2's default; keeps the bitmap font crisp when the
+  // Nearest (SDL3 defaults to linear) keeps the bitmap font crisp when the
   // logical-presentation scaling stretches overlays on window resize.
   SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_NEAREST);
 

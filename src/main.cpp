@@ -57,17 +57,14 @@ using namespace openspectrum;
 
 static std::atomic<bool> g_running{true};
 
-// Async sample processing - thread-safe queue for async RTL-SDR callbacks
-// OLD: static std::queue<std::vector<std::complex<float>>> g_sample_queue;
-// NEW: Use FrameHandle queue for zero-allocation
+// Frames from the producer thread to the render loop. Pooled FrameHandles, so
+// the hot path allocates nothing.
 static std::queue<FrameHandle> g_sample_queue;
 static std::mutex g_sample_mutex;
 static std::condition_variable g_sample_cv;
 static size_t g_async_fft_size = 0;
 
-// Accumulator for samples that don't match FFT size exactly
-// OLD: static std::vector<std::complex<float>> g_sample_accumulator;
-// NEW: Use FrameHandle for accumulator
+// Collects deliveries shorter than the FFT size into one frame.
 static FrameHandle g_sample_accumulator_frame;
 static std::mutex g_accumulator_mutex;
 
@@ -80,11 +77,11 @@ static std::shared_ptr<FramePool> g_frame_pool;
 static size_t g_callback_log_count = 0;
 
 // IQ capture tap. The logger lives in main(); the callback writes raw samples
-// to it BEFORE the drain-to-newest throttle, so captures are full-rate rather
-// than the ~1-frame-per-render-tick decimation the old render-loop tap
-// produced. g_iq_capturing gates the hot path so an idle callback never touches
-// the logger's mutex; the logger's own mutex remains the correctness boundary
-// (write_samples no-ops if a concurrent stop_capture already closed the file).
+// to it BEFORE the drain-to-newest throttle, so captures are full-rate, not
+// one frame per render tick. g_iq_capturing gates the hot path so an idle
+// callback never touches the logger's mutex; the logger's own mutex remains the
+// correctness boundary (write_samples no-ops if a concurrent stop_capture
+// already closed the file).
 static IqLogger *g_iq_logger = nullptr;
 static std::atomic<bool> g_iq_capturing{false};
 
@@ -325,8 +322,7 @@ auto main(int argc, char *argv[]) -> int {
     // so there is ample headroom to cap at the display refresh. Without vsync,
     // presenting ~62 fps into a 60 Hz panel
     // tears and beats at ~2 Hz — visible as a periodic waterfall "blink" and a
-    // doubled spectrum peak while tuning. (Vsync appeared to do nothing in
-    // earlier tests only because we were then stuck below 60 fps.)
+    // doubled spectrum peak while tuning.
     SdlRenderer renderer(DISPLAY_WIDTH, DISPLAY_HEIGHT, "OpenSpectrum SDR");
     if (!renderer.is_valid()) {
       LOG_ERROR("Failed to initialize SDL3 renderer");

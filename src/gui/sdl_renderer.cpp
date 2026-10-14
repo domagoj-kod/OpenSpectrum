@@ -84,9 +84,8 @@ SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title)
 #endif
 
   // SDL3: Use SDL_CreateWindowWithProperties for window creation. Position is
-  // set explicitly: SDL3's plain SDL_CreateWindow no longer centers windows
-  // (SDL2 passed SDL_WINDOWPOS_CENTERED), so without these props placement is
-  // left to the window manager.
+  // set explicitly: SDL3's plain SDL_CreateWindow does not center windows, so
+  // without these props placement is left to the window manager.
   SDL_PropertiesID window_props = SDL_CreateProperties();
   SDL_SetStringProperty(window_props, SDL_PROP_WINDOW_CREATE_TITLE_STRING,
                         title.c_str());
@@ -110,8 +109,7 @@ SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title)
   }
 
   // SDL3: a null driver name makes SDL try every renderer in priority order,
-  // ending with software — no manual software fallback needed (SDL2 required
-  // an explicit second SDL_CreateRenderer call with SDL_RENDERER_SOFTWARE).
+  // ending with software — no manual software fallback needed.
   m_renderer = SDL_CreateRenderer(m_window, nullptr);
   if (m_renderer == nullptr) {
     SDL_DestroyWindow(m_window);
@@ -171,8 +169,7 @@ SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title)
   SDL_SetTextureScaleMode(m_texture, SDL_SCALEMODE_NEAREST);
 
   // Persistent base-frame compose target (see m_frame_tex docs). Full window
-  // size so its blit to screen goes through the same logical-size scaling as
-  // the old whole-texture copy did.
+  // size so its blit to screen goes through the logical-size scaling.
   m_frame_tex = SDL_CreateTexture(
       m_renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_TARGET,
       static_cast<int>(width), static_cast<int>(height));
@@ -185,9 +182,9 @@ SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title)
                              std::string(SDL_GetError()));
   }
   SDL_SetTextureBlendMode(m_frame_tex, SDL_BLENDMODE_NONE);
-  // SDL3 defaults textures to SDL_SCALEMODE_LINEAR (SDL2 was nearest).
-  // m_frame_tex is what the logical-presentation scaling stretches on window
-  // resize; nearest keeps the waterfall pixel-crisp like the SDL2 build.
+  // SDL3 defaults textures to SDL_SCALEMODE_LINEAR. m_frame_tex is what the
+  // logical-presentation scaling stretches on window resize; nearest keeps the
+  // waterfall pixel-crisp.
   SDL_SetTextureScaleMode(m_frame_tex, SDL_SCALEMODE_NEAREST);
 
   // Clear it once so present_frame() shows black (not uninitialized GPU memory)
@@ -479,11 +476,11 @@ void SdlRenderer::draw_markers() {
 }
 
 void SdlRenderer::draw_trigger() {
-  // Only the red threshold line lives on the plot now. The "TRIG @ x dB" value
-  // and the frozen "SPACE to resume" hint moved to the panel — the old on-plot
-  // tag collided with the cursor readout and the centered banner covered the
-  // marker "Mn" tags. armed stays true through a freeze, so this also draws the
-  // line on the held spectrum.
+  // Only the red threshold line is drawn on the plot. The "TRIG @ x dB" value
+  // and the frozen "SPACE to resume" hint live in the panel: on the plot they
+  // collide with the cursor readout and cover the marker "Mn" tags. armed
+  // stays true through a freeze, so this also draws the line on the held
+  // spectrum.
   if (!m_trigger_armed) {
     return;
   }
@@ -561,7 +558,6 @@ void SdlRenderer::draw_cursor_readout() {
   // Fixed top-left panel. Anchoring it to the cursor/trace made it ride the
   // fast spectrum refresh — vibrating and ghosting. A static position keeps the
   // text readable; the marker line + dot still convey the measured location.
-  // The top-left is otherwise clear now (the timing HUD moved to the panel).
   const float bx = 8.0F + static_cast<float>(axis_strip_width());
   const float by = 8.0F;
 
@@ -1027,8 +1023,8 @@ bool SdlRenderer::ensure_wf_scroll_textures(size_t wf_height,
       m_wf_line_tex == nullptr) {
     return false;
   }
-  // Nearest to match SDL2's default (SDL3 defaults to linear); these are
-  // blitted 1:1 but keep them consistent with m_frame_tex.
+  // Nearest (SDL3 defaults to linear); these are blitted 1:1 but keep them
+  // consistent with m_frame_tex.
   SDL_SetTextureScaleMode(m_wf_scroll_tex, SDL_SCALEMODE_NEAREST);
   SDL_SetTextureScaleMode(m_wf_scroll_aux, SDL_SCALEMODE_NEAREST);
   SDL_SetTextureScaleMode(m_wf_line_tex, SDL_SCALEMODE_NEAREST);

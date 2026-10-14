@@ -85,8 +85,7 @@ public:
   [[nodiscard]] size_t plot_width() const noexcept { return m_plot_width; }
 
   // Right-panel status fields (formatted by ControlState). Fed on change; the
-  // panel draws them as a green-label / white-value grid. Replaces the old
-  // bottom status bar.
+  // panel draws them as a green-label / white-value grid.
   struct PanelStatus {
     std::string freq;
     std::string gain;
@@ -321,9 +320,8 @@ private:
 
   // Text rendering (panel + overlays). Every distinct label/value is rasterized
   // to an SDL_Texture once and cached (see m_text_cache); blit_text reuses it
-  // until it goes a frame undrawn. v3.8.0 blitted these fresh every frame
-  // (SDL_CreateTexture + upload + destroy, ~15-40x/frame) — a real render/power
-  // cost the caching removes.
+  // until it goes a frame undrawn. Uncached, each would be an SDL_CreateTexture
+  // + upload + destroy, 15 to 40 times a frame.
   std::unique_ptr<TextRenderer> m_text_renderer;
 
   // blit_text string-texture cache. Key = 4 colour bytes + the string. Bounded

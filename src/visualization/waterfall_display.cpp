@@ -111,10 +111,10 @@ void WaterfallDisplay::update_global_range() {
   }
 
 #ifndef NDEBUG
-  // Cross-check the incremental counts against a brute-force recount — the
-  // O(n) work we removed from the hot path, kept only in debug builds as an
-  // oracle. Comparing the buckets themselves (rather than a statistic derived
-  // from them) pins the actual invariant: the histogram is in lockstep with
+  // Cross-check the incremental counts against a brute-force recount — O(n)
+  // work kept out of the hot path, here only in debug builds as an oracle.
+  // Comparing the buckets themselves (rather than a statistic derived from
+  // them) pins the actual invariant: the histogram is in lockstep with
   // m_history, whatever we go on to read out of it.
   int32_t bf[256] = {};
   for (size_t i = 0; i < m_history.size(); ++i) {

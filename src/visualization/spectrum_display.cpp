@@ -297,8 +297,8 @@ void SpectrumDisplay::build_vertices(float region_w, float region_h,
   // More bins than pixels wastes the GPU on sub-pixel overdraw (16K FFT → ~12
   // bars/px at the default width). Collapse to one bar per pixel column,
   // averaging the bins that land in it. Averaging is what makes the floor a
-  // line rather than grass: mean-of-12 leaves ~1.25 dB of spread, where the
-  // max-of-12 this used to do read ~4.9 dB high (E[max of n exponentials] =
+  // line rather than grass: mean-of-12 leaves ~1.25 dB of spread, where a
+  // max-of-12 would read ~4.9 dB high (E[max of n exponentials] =
   // H_n) and still spread ~1.8 dB. Spikes are not lost — max-hold (below) is
   // the peak detector, and it is the trace that promises peak semantics.
   // cols == num_bins when the FFT is already narrower than the pane, so

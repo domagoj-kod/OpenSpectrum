@@ -73,9 +73,9 @@ public:
   // Build GPU draw geometry for the current spectrum: one colored quad per bin
   // (4 vertices + 6 indices), positioned in the spectrum region [0,region_w) x
   // [0,region_h). Drawn by SdlRenderer::render_spectrum via SDL_RenderGeometry,
-  // replacing the old per-frame CPU pixel paint + full texture upload. The out
-  // buffers are cleared and refilled (caller reuses them frame-to-frame so the
-  // capacity is retained — no per-frame allocation).
+  // so no pixels are painted or uploaded per frame. The out buffers are cleared
+  // and refilled (caller reuses them frame-to-frame so the capacity is retained
+  // — no per-frame allocation).
   OS_HOT void build_vertices(float region_w, float region_h,
                              std::vector<SDL_Vertex> &verts,
                              std::vector<int> &indices) const;

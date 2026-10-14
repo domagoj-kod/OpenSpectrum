@@ -240,11 +240,9 @@ void RtlSdrDevice::process_callback_with_pool(unsigned char *buf,
   // but pool frames hold capacity() (= FFT size, e.g. 4096), so emit the buffer
   // as a run of capacity-sized frames. The async callback's accumulator
   // reassembles them into FFT-sized chunks for the display, and the IQ capture
-  // tap sees the full-rate stream. (This previously truncated to a single frame
-  // via min(count, capacity), silently dropping ~7/8 of every transfer — fine
-  // for the display, which only consumes the newest frame per render, but it
-  // made IQ captures a heavily decimated record. Display line rate is unchanged
-  // because the render loop's drain-to-newest throttle still governs it.)
+  // tap sees the full-rate stream. Do not cut this to one frame per transfer:
+  // the display would not notice (it shows the newest frame per render), but
+  // captures would keep only ~1/8 of the samples.
   size_t offset = 0;
   while (offset < count) {
     FrameHandle frame_handle = m_frame_pool->acquire();
