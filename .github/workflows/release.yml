@@ -12,6 +12,14 @@ on:
         description: "Label for a manual test build (e.g. v2.4.1-test). Builds artifacts but does NOT publish a Release."
         required: false
         default: "dev"
+      uhd:
+        description: "Build with USRP support (make UHD=1). Manual test builds only; tagged releases stay without it."
+        type: boolean
+        default: false
+
+# Both packaging scripts call make, which reads UHD from the environment.
+env:
+  UHD: ${{ inputs.uhd && '1' || '' }}
 
 # Allow the built-in token to create the Release and upload assets.
 permissions:
@@ -25,7 +33,10 @@ concurrency:
 jobs:
   linux:
     name: Linux AppImage
-    runs-on: ubuntu-latest
+    # Pinned, not ubuntu-latest: the AppImage runs only on distros whose glibc
+    # is at least the build host's, so a runner upgrade would silently drop the
+    # older ones.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
         with:
@@ -42,7 +53,11 @@ jobs:
             libxkbcommon-dev libdecor-0-dev libegl-dev libgl-dev \
             file desktop-file-utils zsync curl
 
-      # Ubuntu 24.04 (ubuntu-latest) has no libsdl3-dev package — SDL3 first
+      - name: Install UHD
+        if: inputs.uhd
+        run: sudo apt-get install -y --no-install-recommends libuhd-dev libboost-dev
+
+      # Ubuntu 24.04 has no libsdl3-dev package — SDL3 first
       # ships in 25.04. Build it from source, pinned to the version used in
       # development. Staying on the 24.04 runner keeps the AppImage's glibc
       # baseline old (= runs on more distros), which a newer container would
@@ -100,19 +115,23 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up MSYS2 (MINGW64)
+      - name: Set up MSYS2 (UCRT64)
         uses: msys2/setup-msys2@v2
         with:
-          msystem: MINGW64
+          msystem: UCRT64
           update: true
           install: >-
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-pkgconf
-            mingw-w64-x86_64-sdl3
-            mingw-w64-x86_64-rtl-sdr
-            mingw-w64-x86_64-libusb
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-sdl3
+            mingw-w64-ucrt-x86_64-rtl-sdr
+            mingw-w64-ucrt-x86_64-libusb
             make
             zip
+
+      - name: Install UHD
+        if: inputs.uhd
+        run: pacman -S --noconfirm --needed mingw-w64-ucrt-x86_64-libuhd mingw-w64-ucrt-x86_64-boost
 
       - name: Build & bundle zip
         run: |

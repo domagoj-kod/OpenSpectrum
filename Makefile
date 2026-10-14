@@ -15,6 +15,11 @@ VERSION_DEF := -DOPENSPECTRUM_VERSION=$(VERSION)
 # SDL3 flags (detect via pkg-config, fallback to manual)
 SDL3_CFLAGS := $(shell pkg-config --cflags sdl3 2>/dev/null || echo "")
 SDL3_LDFLAGS := $(shell pkg-config --libs sdl3 2>/dev/null || echo "-lSDL3")
+# On Windows SDL's pkg-config adds -mwindows, which makes a GUI-subsystem .exe:
+# no console, so --help, the log and every startup error vanish in a terminal.
+# This program reports through stdout (the Linux desktop entry asks for a
+# terminal too), so it stays a console program.
+SDL3_LDFLAGS := $(filter-out -mwindows,$(SDL3_LDFLAGS))
 
 # Platform-specific configuration
 ifeq ($(OS),Windows_NT)
@@ -64,6 +69,12 @@ endif
 ifeq ($(UHD),1)
     BASE_CXXFLAGS += -DOPENSPECTRUM_UHD
     BASE_LDFLAGS += -luhd
+    # UHD reports errors by throwing. On Windows libuhd.dll uses the shared GCC
+    # runtime, and an exception cannot cross into an .exe that linked its own
+    # static copy, so this build takes the runtime as DLLs too.
+    STATIC_RUNTIME := -static-libgcc -static-libstdc++
+    BASE_CXXFLAGS := $(filter-out $(STATIC_RUNTIME),$(BASE_CXXFLAGS))
+    BASE_LDFLAGS := $(filter-out $(STATIC_RUNTIME),$(BASE_LDFLAGS))
 endif
 
 # Default to debug build (safe default)

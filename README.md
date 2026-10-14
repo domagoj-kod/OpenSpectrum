@@ -74,10 +74,10 @@ remove `-march=haswell` from `CXXFLAGS` in the Makefile.
 | `librtlsdr-dev` | RTL-SDR support | `sudo apt install librtlsdr-dev` |
 | `libsdl3-dev` | GUI rendering | `sudo apt install libsdl3-dev` |
 | `pkg-config` | Dependency detection | `sudo apt install pkg-config` |
-| `libuhd-dev` | Optional: USRP support (`make UHD=1`) | `sudo apt install libuhd-dev uhd-host` |
+| `libuhd-dev` | Optional: USRP support (`make UHD=1`) | `sudo apt install libuhd-dev libboost-dev uhd-host` |
 
 - **macOS (Homebrew):** `brew install librtlsdr sdl3 pkg-config`
-- **Windows (MSYS2):** `pacman -S mingw-w64-x86_64-{gcc,make,rtl-sdr,sdl3}`
+- **Windows (MSYS2):** `pacman -S mingw-w64-ucrt-x86_64-{gcc,make,rtl-sdr,sdl3}`
 
 ```bash
 git clone https://github.com/domagoj-kod/OpenSpectrum.git

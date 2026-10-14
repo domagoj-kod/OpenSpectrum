@@ -3,7 +3,7 @@
 # non-system DLL it needs (SDL3, librtlsdr, libusb, libwinpthread, ...). This is
 # what the old hand-made zips were missing, making them unrunnable.
 #
-# Run inside an MSYS2 MINGW64 shell (locally or in CI).
+# Run inside an MSYS2 UCRT64 shell (locally or in CI).
 #   Usage: packaging/windows-bundle.sh [VERSION]
 set -euo pipefail
 
@@ -28,6 +28,7 @@ mkdir -p "$STAGE"
 cp openspectrum.exe "$STAGE/"
 [ -f README.md ] && cp README.md "$STAGE/"
 [ -f LICENSE ]   && cp LICENSE   "$STAGE/"
+[ "${UHD:-}" = 1 ] && cp packaging/uhd-sweep.ps1 "$STAGE/"
 
 echo ">> Collecting MinGW runtime DLLs (ldd is recursive, so this is complete)…"
 # Keep only DLLs under the MSYS2 toolchain prefix; the C:\Windows system DLLs
