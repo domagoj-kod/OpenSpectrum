@@ -36,7 +36,7 @@ CLANG_TIDY_DIFF="${CLANG_TIDY_DIFF:-clang-tidy-diff}"
 # Mirrors the Makefile's INCLUDES (per-module dirs are required — e.g.
 # control_state.h does #include "signal_processor.h", which lives in src/signal).
 INCLUDES=(
-  -Ithird_party -Ithird_party/pocketfft -Ithird_party/stb
+  -isystem third_party -isystem third_party/pocketfft -isystem third_party/stb
   -Iinclude -Isrc -Isrc/hardware -Isrc/signal -Isrc/fft
   -Isrc/visualization -Isrc/utils -Isrc/gui
 )

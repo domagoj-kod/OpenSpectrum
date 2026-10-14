@@ -146,7 +146,9 @@ UTILS_DIR := $(SRC_DIR)/utils
 GUI_DIR := $(SRC_DIR)/gui
 
 # Include paths
-INCLUDES := -I$(THIRD_PARTY) -I$(THIRD_PARTY)/pocketfft -I$(THIRD_PARTY_STB) -I$(HARDWARE_DIR) -I$(INCLUDE_DIR) \
+# -isystem: vendored headers are not ours to fix, and their warnings (47 from
+# PocketFFT alone) would bury the ones that are.
+INCLUDES := -isystem $(THIRD_PARTY) -isystem $(THIRD_PARTY)/pocketfft -isystem $(THIRD_PARTY_STB) -I$(HARDWARE_DIR) -I$(INCLUDE_DIR) \
             -I$(SIGNAL_DIR) -I$(FFT_DIR) -I$(VIS_DIR) -I$(UTILS_DIR) \
             -I$(GUI_DIR) -I$(INCLUDE_DIR)/openspectrum $(SDL3_CFLAGS)
 
