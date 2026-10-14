@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cassert>
 #include <chrono>
 #include <complex>
 #include <condition_variable>
@@ -29,6 +30,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <exception>
+#include <initializer_list>
 #include <memory>
 #include <mutex>
 #include <queue>
@@ -72,6 +74,9 @@ static std::mutex g_accumulator_mutex;
 // shared_ptr (not unique_ptr) so FrameHandle's return path can hold a
 // weak_ptr<FramePool> and safely no-op when the pool has been destroyed.
 static std::shared_ptr<FramePool> g_frame_pool;
+
+// How many callbacks have been logged; only the first few are.
+static size_t g_callback_log_count = 0;
 
 // IQ capture tap. The logger lives in main(); the callback writes raw samples
 // to it BEFORE the drain-to-newest throttle, so captures are full-rate rather
@@ -154,61 +159,25 @@ static void async_sample_callback(FrameHandle samples_frame) {
     g_sample_accumulator_frame.reset();
   }
 
-  // Add new samples to accumulator
+  // Add new samples to the accumulator, which holds one frame (its capacity is
+  // the FFT size). Sources deliver whole frames or exact fractions of one, so
+  // normally everything fits. A USRP delivers a short frame after an overflow,
+  // and from then on what is held plus the next frame is more than one frame:
+  // take what completes the frame and drop the rest. That costs the display a
+  // few samples next to a gap it already has; captures are tapped above and
+  // lose nothing. (Dropping the held part instead never completed a frame
+  // while every delivery came short, which a sustained overflow does.)
   size_t const samples_count = samples_frame.size();
   size_t const current_accum_size = g_sample_accumulator_frame.size();
-  size_t const new_total = current_accum_size + samples_count;
-
-  // Ensure accumulator has enough capacity
-  if (new_total > g_sample_accumulator_frame.capacity()) {
-    // Need a bigger frame than the current accumulator. The replacement comes
-    // from the same pool, so its capacity is the FFT size.
-    //
-    // Invariant that keeps this safe: buf_len (65536 B = 32768 complex) and
-    // every supported FFT size are powers of two, so a device chunk is either a
-    // whole number of frames (fft_size <= 32768 — the accumulator drains to
-    // empty every callback) or an exact fraction of one (fft_size 65536 — two
-    // callbacks per frame, so the accumulator carries 32768 across and
-    // new_total lands exactly *on* capacity, never past it). Either way
-    // new_total never exceeds one frame. The guard below is defensive:
-    // FFTFrame::resize only sets the logical size (the data block is fixed at
-    // capacity), and its assert is compiled out under NDEBUG, so a future
-    // buf_len / FFT-size change that broke that power-of-two relationship would
-    // silently write past the allocation. If the data won't fit, drop this
-    // buffer rather than corrupt the heap.
-    FrameHandle new_accum =
-        g_frame_pool ? g_frame_pool->acquire() : FrameHandle(nullptr);
-    if (!new_accum) {
-      return; // Pool exhausted
-    }
-    if (new_total > new_accum.capacity()) {
-      return; // invariant violated (see above) — drop, don't overrun
-    }
-    new_accum.resize(new_total);
-
-    // Copy existing data to new accumulator
-    if (current_accum_size > 0) {
-      std::copy_n(g_sample_accumulator_frame.data(), current_accum_size,
-                  new_accum.data());
-    }
-
-    // Add new samples
-    std::copy_n(samples_frame.data(), samples_count,
-                new_accum.data() + current_accum_size);
-    new_accum.resize(current_accum_size + samples_count);
-
-    // Replace old accumulator (old will be returned to pool)
-    g_sample_accumulator_frame = std::move(new_accum);
-  } else {
-    // Copy samples to accumulator
-    std::copy_n(samples_frame.data(), samples_count,
-                g_sample_accumulator_frame.data() + current_accum_size);
-    g_sample_accumulator_frame.resize(new_total);
-  }
+  size_t const take =
+      std::min(samples_count,
+               g_sample_accumulator_frame.capacity() - current_accum_size);
+  std::copy_n(samples_frame.data(), take,
+              g_sample_accumulator_frame.data() + current_accum_size);
+  g_sample_accumulator_frame.resize(current_accum_size + take);
 
   // Log first few callbacks to verify samples are arriving
-  static size_t callback_count = 0;
-  if (callback_count++ < 5) {
+  if (g_callback_log_count++ < 5) {
     LOG_INFO("Async callback: received " + std::to_string(samples_count) +
              " samples, total accumulated: " +
              std::to_string(g_sample_accumulator_frame.size()));
@@ -265,10 +234,63 @@ static void async_sample_callback(FrameHandle samples_frame) {
   }
 }
 
+#ifndef NDEBUG
+// Debug builds run this at startup. It feeds async_sample_callback deliveries
+// numbered 0, 1, 2, ... and returns how many frames came out, checking that
+// each is a full frame of consecutive samples. `whole` says nothing may be
+// dropped, so the frames must also follow one another.
+static auto accumulate_selftest_run(size_t fft_size,
+                                    std::initializer_list<size_t> deliveries,
+                                    bool whole) -> size_t {
+  g_frame_pool = std::make_shared<FramePool>(fft_size, MAIN_FRAME_POOL_FRAMES);
+  g_async_fft_size = fft_size;
+  auto const source_pool = std::make_shared<FramePool>(fft_size, 1);
+  size_t frames = 0;
+  float next_in = 0.0F;
+  float next_out = 0.0F;
+  for (size_t const n : deliveries) {
+    FrameHandle in = source_pool->acquire();
+    in.resize(n);
+    for (size_t k = 0; k < n; ++k) {
+      in[k] = {next_in, 0.0F};
+      next_in += 1.0F;
+    }
+    async_sample_callback(std::move(in));
+    for (; !g_sample_queue.empty(); g_sample_queue.pop(), ++frames) {
+      FrameHandle const &out = g_sample_queue.front();
+      assert(out.size() == fft_size);
+      assert(!whole || out[0].real() == next_out);
+      for (size_t k = 1; k < fft_size; ++k) {
+        assert(out[k].real() == out[k - 1].real() + 1.0F);
+      }
+      next_out = out[fft_size - 1].real() + 1.0F;
+    }
+  }
+  g_sample_accumulator_frame = FrameHandle(nullptr);
+  g_frame_pool.reset();
+  g_async_fft_size = 0;
+  return frames;
+}
+
+static void accumulate_selftest() {
+  g_callback_log_count = 5; // keep the first-callbacks log for the real source
+  // Whole frames, and halves (an RTL-SDR at FFT 65536): nothing is dropped.
+  assert(accumulate_selftest_run(16, {16, 16, 16}, true) == 3);
+  assert(accumulate_selftest_run(16, {8, 8, 8, 8, 8, 8}, true) == 3);
+  // One short delivery (a USRP after an overflow): every later one still
+  // completes a frame.
+  assert(accumulate_selftest_run(16, {11, 16, 16, 16, 16}, false) == 4);
+  // Every delivery short (a sustained overflow): frames still come out.
+  assert(accumulate_selftest_run(16, {11, 11, 11, 11, 11, 11}, false) == 3);
+  g_callback_log_count = 0;
+}
+#endif
+
 auto main(int argc, char *argv[]) -> int {
   enable_ftz_daz();
 #ifndef NDEBUG
   format_frequency_selftest();
+  accumulate_selftest();
 #endif
 
   // Parse command-line arguments

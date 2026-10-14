@@ -631,6 +631,70 @@ the USRP's rate and the three RTL-only options are ignored.
 - **A new streamer per `start()`.** A reused one delivers packets from before
   the stop, and the gap count would report the pause as a loss.
 
+Measured 2026-10-13 on a B210, USB 3, through WSL2 usbipd, release build,
+2.44 GHz, 30 s `cs16` captures:
+
+| Run | Samples in file | `dropped_samples` | `measured_sample_rate_hz` |
+|---|---|---|---|
+| 2.048 MS/s | 60 903 424 | 0 | 2 048 033 (+16 ppm) |
+| 4 MS/s | 118 976 512 | 0 | 4 000 029 (+7 ppm) |
+| 2.048 MS/s, process stopped for 1 s (`kill -STOP`) | 58 875 523 | 2 006 180 | 1 980 578 (-3.3 %) |
+
+Each file is exactly `sample_count` x 4 bytes. The third row is the control
+that the counter is not a decorative zero: file plus dropped is 60 881 703,
+the same 29.7 s as the clean run, and the measured rate falls by the missing
+share. That run also found a display freeze, since fixed: the short frame
+after an overflow left the accumulator in `async_sample_callback` off the
+frame boundary and it refused every frame after it.
+
+usbipd is the limit here, not the receiver: UHD's own `benchmark_rate` held
+2.048 MS/s cleanly, had one overrun in 20 s at 5 MS/s, and from 10 MS/s up
+delivered about 5.6 MS/s whatever was asked.
+
+Measured the same day on native Windows 11 (the same laptop, USB 3, the CI
+build with UCRT64 and UHD 4.8), `packaging/uhd-sweep.ps1`: 20 s `cs16`
+captures at 2.44 GHz, at the smallest and the largest FFT size.
+
+| Rate | FFT 1024: dropped | FFT 65536: dropped |
+|---|---|---|
+| 2 MS/s | 0 | 0 |
+| 4 MS/s | 0 | 0 |
+| 8 MS/s | 0 | 54 875 (0.03 %) |
+| 16 MS/s | 0 | 74 436 (0.02 %) |
+| 32 MS/s | 431 805 414 (68 %) | 441 763 553 (70 %) |
+| 56 MS/s | 965 619 240 (87 %) | capture did not end |
+
+Every file was `sample_count` x 4 bytes with no write error, the clean runs
+were within 43 ppm of the asked rate, and the whole program used under half a
+core. Samples in the file plus samples dropped come to 19.8 to 19.9 s of the
+asked rate in both collapsed runs, so the loss count holds up even there.
+
+The collapse above 16 MS/s is the host, not this program. UHD's own
+`benchmark_rate` (Ettus's Windows build of UHD 4.8, no disk, 20 s) on the same
+machine: 16 MS/s clean (320 071 215 received, 0 dropped), 32 MS/s 86 % lost
+(86 415 808 received), 56 MS/s 95 % lost (58 399 801 received). Through this
+program more arrived at both rates than through the benchmark, so the capture
+write on the receive thread is not what limits it here. The benchmark is
+still clean at 20 MS/s (400 189 579 received) and loses 57 % at 24 MS/s and
+75 % at 28 MS/s, so this host's ceiling is between 20 and 24 MS/s. Every
+failing run reports about 1260 overruns in 20 s whatever the rate, one per
+15.9 ms; that is close to Windows' default 15.6 ms timer tick, which suggests
+the recovery after an overflow waits for a tick, but that is a reading of the
+number, not a finding. Whether another host or UHD's transport settings move
+the ceiling is not measured. The 56 MS/s run at FFT 65536 never completed a
+frame, because every delivery came short and the accumulator dropped what it
+held each time; it now completes the frame and drops the excess instead.
+Rerun on 2026-10-14 (build `3567187`): that run ends on time, and 32 and
+56 MS/s both draw at 30 fps while losing.
+
+The small losses below the ceiling are rare and not tied to the FFT size.
+Over the 28 runs of 20 s below the ceiling on 2026-10-14 (five passes of 8
+and 16 MS/s at both sizes, then one full sweep), six lost samples, each time
+in one burst (one UHD `O`): 16 MS/s 3 of 12, 102 to 132 thousand samples (6
+to 8 ms); 8 MS/s 2 of 12, 13 thousand; 4 MS/s 1 of 2, 8 thousand; 2 MS/s
+none of 2. Four were at FFT 1024 and two at 65536. The benchmark had none at 16 MS/s, but in a single run; whether
+the capture writer on the receive thread causes them is not measured.
+
 ## Capture files
 
 `Ctrl+S` (or `--iq-log`) writes `data/capture_<UTC start>_<freq>.iq` and a

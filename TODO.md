@@ -6,19 +6,22 @@ live in `docs/TECHNICAL.md`.
 
 ## Open
 
-- [ ] **Prove the USRP backend on hardware.** `UhdDevice` (`make UHD=1`,
-  `--device uhd`) builds against UHD 4.9 and fails cleanly with no device; it
-  has **not yet received a sample**. To run on a B210, in order: the host's
-  ceiling with `benchmark_rate`; a rate sweep through `--iq-log` (pass:
-  `dropped_samples` 0, `measured_sample_rate_hz` within 0.03 %, file size =
-  `sample_count` x 4 for `cs16`); a forced stall (`kill -STOP` for 1 s) that
-  must give a non-zero `dropped_samples`; a CW tone by cable whose phase stays
-  linear over the capture; a one-hour soak; USB pulled mid-capture. Results go
-  to `docs/TECHNICAL.md`. Known risk: captures are written on the receive
-  thread (`IqLogger::write_samples`), 80 MB/s at 20 MS/s `cs16`; move the
-  writer to its own thread only if the sweep loses samples at a rate
-  `benchmark_rate` holds. Not done: the Windows build with UHD, `--antenna`,
-  other USRP families, the second channel.
+- [ ] **Rare small losses on the B210 below the host ceiling.** Six of 28
+  captures of 20 s lost one burst each (one UHD `O`, 8 to 132 thousand
+  samples), at 4, 8 and 16 MS/s and at both FFT sizes, so neither explains it
+  (Windows sweep, 2026-10-14, in `docs/TECHNICAL.md`). Next: the same sweep
+  without `--iq-log`, counting `O` in the logs, to tell the capture writer
+  (`IqLogger::write_samples` runs on the receive thread) from the host.
+- [ ] **Run the RTL-SDR on the source interface.** `SampleSource` and 64-bit
+  tuning were merged without a live RTL run (the dongle was away): a 30 s
+  `--iq-log` capture, then `dropped_samples`, size and measured rate in the
+  sidecar.
+- [ ] **Rest of the USRP hardware tests.** Done: native Windows sweep up to
+  the host ceiling (20 to 24 MS/s), `benchmark_rate`, the Windows UHD build.
+  Left: a CW tone by cable (at least 30 dB of attenuation) whose phase stays
+  linear over the capture; a one-hour soak; USB pulled mid-capture
+  (`--iq-duration` is checked only while frames arrive); native Linux;
+  `--antenna`, other USRP families, the second channel.
 - [ ] **Sample rate in `SampleSource`, and tuning steps.** The rate is still a
   setter of each concrete class; the 1/0.1/10 MHz steps are slow across GHz.
 - [ ] **click-to-tune + persisted config** (largest, most-wanted). Click the
