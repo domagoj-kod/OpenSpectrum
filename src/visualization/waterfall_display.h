@@ -50,10 +50,17 @@ public:
   [[nodiscard]] const std::vector<SDL_Rect> &get_dirty_rects() const {
     return m_dirty_rects;
   }
-  void clear_dirty_rects() { m_dirty_rects.clear(); }
+  // main() calls this once the renderer has taken the frame. Only then is a
+  // pending full upload done: cleared any earlier, a LUT change goes down the
+  // scroll path and the rows already on screen keep their old colours.
+  void mark_rendered() {
+    m_dirty_rects.clear();
+    m_needs_full_render = false;
+  }
 
-  // GPU scroll support: true after reset/LUT-rebuild (full upload needed once),
-  // false in steady state where only the newest line changes.
+  // GPU scroll support: true while history fills and for one frame after a
+  // reset/LUT rebuild, false in steady state where only the newest line
+  // changes.
   [[nodiscard]] bool needs_full_render() const noexcept {
     return m_needs_full_render || !m_history.full();
   }

@@ -101,7 +101,7 @@ After `add_spectrum_line()`, main.cpp checks `needs_full_render()`:
 - **Full** (`true`, while `m_history` is filling or after `reset()`/`rebuild_rgba_lut()`): upload entire `m_pixels` via `render_displays()`.
 - **Scroll** (`false`, only when `m_history.full()`): render only the newest line; `render_displays_scroll()` GPU-shifts `m_wf_scroll_tex` up by `line_height` and uploads the new bottom strip via `m_wf_line_tex` (~5 KB vs ~1.5 MB/frame).
 
-`needs_full_render()` returns `m_needs_full_render || !m_history.full()` — the flag alone is insufficient (cleared inside `render()` before main.cpp reads it).
+`needs_full_render()` returns `m_needs_full_render || !m_history.full()` — the flag alone is insufficient: `mark_rendered()` clears it after every frame, fill included. Only `mark_rendered()` may clear it: cleared any earlier (e.g. in `render()`), a LUT change goes down the scroll path and the waterfall keeps its old colours.
 
 **Transition continuity**: scroll textures are allocated lazily in `render_displays_scroll()` (`ensure_wf_scroll_textures()`); on the first scroll call (`m_wf_scroll_valid` false) the seed branch copies the current waterfall from `m_texture` shifted up by `line_height` instead of clearing to black → seamless fill→scroll.
 

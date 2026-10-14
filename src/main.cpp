@@ -1224,7 +1224,7 @@ auto main(int argc, char *argv[]) -> int {
             spectrum_display.height(), waterfall_display.height(),
             waterfall_display.get_line_height());
       }
-      waterfall_display.clear_dirty_rects();
+      waterfall_display.mark_rendered();
 
       if (!render_ok) {
         LOG_ERROR("Render failed");

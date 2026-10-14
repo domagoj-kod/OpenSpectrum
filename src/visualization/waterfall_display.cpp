@@ -346,10 +346,6 @@ void WaterfallDisplay::render() {
     y_offset += line_height;
   }
 
-  if (m_history.full()) {
-    m_needs_full_render =
-        false; // next frame: scroll path (m_wf_scroll_tex now seeded)
-  }
   m_dirty_rects.push_back(
       {0, 0, static_cast<int>(m_width), static_cast<int>(m_height)});
 }
