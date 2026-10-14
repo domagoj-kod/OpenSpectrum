@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "openspectrum/iq_logger.h"
+#include "iq_logger.h"
 
 #include "format.h"
 #include "logger.h"

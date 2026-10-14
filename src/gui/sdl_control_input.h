@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
-#include "openspectrum/control_state.h"
+#include "control_state.h"
 
 #include <SDL3/SDL.h>
 

@@ -13,7 +13,7 @@
 
 #include <SDL3/SDL.h>
 
-#include "openspectrum/attributes.h"
+#include "attributes.h"
 
 namespace openspectrum {
 

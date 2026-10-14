@@ -6,7 +6,7 @@
 #include <span>
 #include <vector>
 
-#include "openspectrum/attributes.h"
+#include "attributes.h"
 #include "pocketfft_wrapper.h"
 
 namespace openspectrum {

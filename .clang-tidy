@@ -58,5 +58,5 @@ CheckOptions:
 WarningsAsErrors: ''
 # Search semantics (no leading '^'): matches the absolute paths that
 # compile_commands.json carries, so header diagnostics are actually emitted.
-HeaderFilterRegex: '(src|include)/.*\.(h|hpp)$'
+HeaderFilterRegex: 'src/.*\.h$'
 FormatStyle:     file

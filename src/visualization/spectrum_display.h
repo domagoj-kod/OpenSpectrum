@@ -6,7 +6,7 @@
 #include <limits>
 #include <vector>
 
-#include "openspectrum/attributes.h"
+#include "attributes.h"
 
 // Forward declaration for SDL types
 #include <SDL3/SDL.h>

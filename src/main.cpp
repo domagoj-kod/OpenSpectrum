@@ -8,11 +8,11 @@
 #ifdef OPENSPECTRUM_UHD
 #include "hardware/uhd_device.h"
 #endif
-#include "openspectrum/control_state.h"
-#include "openspectrum/frame_pool.h"
-#include "openspectrum/iq_logger.h"
-#include "openspectrum/spectrogram_exporter.h"
+#include "control_state.h"
+#include "frame_pool.h"
+#include "iq_logger.h"
 #include "signal/signal_processor.h"
+#include "spectrogram_exporter.h"
 #include "utils/arg_parser.h"
 #include "utils/format.h"
 #include "utils/logger.h"

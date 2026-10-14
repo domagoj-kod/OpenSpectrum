@@ -73,7 +73,7 @@ The throttle (`while(!queue.empty()) move+pop`) runs inside the dequeue lock; ea
 **Shutdown is not an error path**: `stop_streaming()` cancels the transfer → `rtlsdr_read_async` returns negative (e.g. -5) on the callback thread. Expected, gated on `m_thread_running`; do not log as ERROR. Only a negative return while still running is a real fault.
 
 ### Key data structures
-- **FramePool / FrameHandle** (`include/openspectrum/frame_pool.h`): 64-byte-aligned pool of `complex<float>` buffers. `FrameHandle` is RAII (destruction returns to its pool). Never copy; always move.
+- **FramePool / FrameHandle** (`src/utils/frame_pool.h`): 64-byte-aligned pool of `complex<float>` buffers. `FrameHandle` is RAII (destruction returns to its pool). Never copy; always move.
 - **RingBuffer<T>** (`src/utils/ring_buffer.h`): fixed-capacity circular buffer. `[0]`=oldest, `back()`=newest. `full()` gates the waterfall scroll path.
 - **PixelBuffer** (`src/visualization/spectrum_display.h`): non-copyable raw `uint8_t*` RGBA buffer, used by both displays.
 
@@ -165,7 +165,7 @@ History = `RingBuffer<vector<uint8_t>>`; dB quantized to `uint8_t` over a fixed 
 **SDL3 texture defaults**: SDL3 defaults alpha textures to `BLENDMODE_BLEND` + `SCALEMODE_LINEAR` (SDL2 was NONE/nearest). Transparent-filled text under `BLENDMODE_NONE` renders **opaque black** (the backdrop behind status/PEAK/IQ text). `render_text()` sets `BLENDMODE_NONE` + `SCALEMODE_NEAREST` on every texture it returns; call sites wanting transparency (freq-scale labels, timing overlay) opt into `BLEND`. All textures set `SCALEMODE_NEAREST` so resize scaling stays pixel-crisp.
 
 ## Code-layout discipline
-`include/openspectrum/attributes.h` defines `OS_HOT`/`OS_COLD` (gated on GCC/Clang, else no-op):
+`src/utils/attributes.h` defines `OS_HOT`/`OS_COLD` (gated on GCC/Clang, else no-op):
 - **`OS_HOT`** on per-frame functions: `FftAnalyzer::execute`, `SignalProcessor::apply_window`/`remove_dc`, `WaterfallDisplay::add_spectrum_line`, `SpectrumDisplay::update_spectrum`, `SdlRenderer::render_displays`/`render_displays_scroll`/`present_frame`.
 - **`OS_COLD`** on init/one-shot: constructors, `precompute_window` + `compute_*` builders, `parse_arguments`, `print_usage`.
 

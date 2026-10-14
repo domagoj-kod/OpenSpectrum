@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "openspectrum/control_state.h"
+#include "control_state.h"
 #include "format.h"
 #include "sample_source.h"
 #include "signal_processor.h"

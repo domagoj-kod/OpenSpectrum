@@ -125,7 +125,6 @@ debug:
 SRC_DIR := src
 THIRD_PARTY := third_party
 THIRD_PARTY_STB := third_party/stb
-INCLUDE_DIR := include
 # One object dir per config. All three configs compile the same sources with
 # different flags, but make only tracks source *timestamps*, not flags — so a
 # shared build/ silently relinked whatever objects were already there. `make
@@ -148,9 +147,9 @@ GUI_DIR := $(SRC_DIR)/gui
 # Include paths
 # -isystem: vendored headers are not ours to fix, and their warnings (47 from
 # PocketFFT alone) would bury the ones that are.
-INCLUDES := -isystem $(THIRD_PARTY) -isystem $(THIRD_PARTY)/pocketfft -isystem $(THIRD_PARTY_STB) -I$(HARDWARE_DIR) -I$(INCLUDE_DIR) \
+INCLUDES := -isystem $(THIRD_PARTY) -isystem $(THIRD_PARTY)/pocketfft -isystem $(THIRD_PARTY_STB) -I$(SRC_DIR) -I$(HARDWARE_DIR) \
             -I$(SIGNAL_DIR) -I$(FFT_DIR) -I$(VIS_DIR) -I$(UTILS_DIR) \
-            -I$(GUI_DIR) -I$(INCLUDE_DIR)/openspectrum $(SDL3_CFLAGS)
+            -I$(GUI_DIR) $(SDL3_CFLAGS)
 
 # Source files
 HARDWARE_SRCS := $(wildcard $(HARDWARE_DIR)/*.cpp)

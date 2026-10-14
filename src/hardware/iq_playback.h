@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
-#include "openspectrum/attributes.h"
-#include "openspectrum/frame_pool.h"
-#include "openspectrum/iq_logger.h"
+#include "attributes.h"
+#include "frame_pool.h"
+#include "iq_logger.h"
 #include "sample_source.h"
 
 #include <atomic>

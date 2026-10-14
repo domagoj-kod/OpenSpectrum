@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
-#include "openspectrum/frame_pool.h"
+#include "frame_pool.h"
 
 #include <cstddef>
 #include <cstdint>
