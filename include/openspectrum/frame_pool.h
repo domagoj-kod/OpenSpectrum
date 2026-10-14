@@ -23,6 +23,9 @@ struct alignas(64) FFTFrame {
   std::complex<float> *data{nullptr};
 
   FFTFrame() = default;
+  // Owns data: a copy would free it twice.
+  FFTFrame(const FFTFrame &) = delete;
+  FFTFrame &operator=(const FFTFrame &) = delete;
 
   ~FFTFrame() {
 #ifdef _WIN32
