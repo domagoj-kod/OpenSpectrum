@@ -24,6 +24,8 @@
 
 #include "pocketfft_hdronly.h"
 
+namespace openspectrum {
+
 // Type compatibility with existing code
 using pocketfft_cpx = std::complex<float>;
 
@@ -39,3 +41,5 @@ inline void pocketfft_forward(const std::vector<pocketfft_cpx> &in,
   pocketfft::c2c(shape, stride_in, stride_out, axes, pocketfft::FORWARD,
                  in.data(), out.data(), 1.0f);
 }
+
+} // namespace openspectrum

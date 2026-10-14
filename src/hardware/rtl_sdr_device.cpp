@@ -9,6 +9,8 @@
 #include <limits>
 #include <rtl-sdr.h>
 
+namespace openspectrum {
+
 // Convert interleaved unsigned-8-bit IQ to float in [-1, 1): out = x/127.5 - 1.
 // Both I and Q take the same transform, so it's a flat uint8->float run (n =
 // 2 * sample count). A free function with __restrict params so the compiler
@@ -42,8 +44,8 @@ static constexpr uint32_t kStreamBuffers = 32;
 
 RtlSdrDevice::RtlSdrDevice(uint32_t index, size_t pool_capacity)
     : m_index(index), m_fft_size(pool_capacity) {
-  m_frame_pool = std::make_shared<openspectrum::FramePool>(
-      m_fft_size, kDeviceFramePoolFrames);
+  m_frame_pool =
+      std::make_shared<FramePool>(m_fft_size, kDeviceFramePoolFrames);
 }
 
 auto RtlSdrDevice::open() -> bool {
@@ -76,7 +78,7 @@ RtlSdrDevice::~RtlSdrDevice() {
 
 // R820T tuning range, or the ADC's own 0-14.4 MHz (Nyquist of the 28.8 MHz
 // crystal) once direct sampling is on.
-auto RtlSdrDevice::limits() const noexcept -> openspectrum::TuningLimits {
+auto RtlSdrDevice::limits() const noexcept -> TuningLimits {
   if (m_direct_sampling) {
     return {0, 14'400'000, 0.0F, 49.6F};
   }
@@ -158,8 +160,8 @@ void RtlSdrDevice::start(size_t chunk_size) {
   }
   if (m_fft_size != chunk_size) {
     m_fft_size = chunk_size;
-    m_frame_pool = std::make_shared<openspectrum::FramePool>(
-        m_fft_size, kDeviceFramePoolFrames);
+    m_frame_pool =
+        std::make_shared<FramePool>(m_fft_size, kDeviceFramePoolFrames);
   }
 
   // Reset buffer before starting
@@ -245,7 +247,7 @@ void RtlSdrDevice::process_callback_with_pool(unsigned char *buf,
   // because the render loop's drain-to-newest throttle still governs it.)
   size_t offset = 0;
   while (offset < count) {
-    openspectrum::FrameHandle frame_handle = m_frame_pool->acquire();
+    FrameHandle frame_handle = m_frame_pool->acquire();
     if (!frame_handle) {
       // The pool grows on demand, so this is an allocation failure. Count the
       // rest of the transfer as lost; the capture sidecar reports the total.
@@ -269,3 +271,5 @@ void RtlSdrDevice::process_callback_with_pool(unsigned char *buf,
     offset += chunk;
   }
 }
+
+} // namespace openspectrum

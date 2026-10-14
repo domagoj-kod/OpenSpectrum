@@ -11,17 +11,17 @@
 #include <thread>
 #include <uhd/usrp/multi_usrp.hpp>
 
+namespace openspectrum {
+
 // A B200-series USRP (B200, B210, B200mini, B205mini) through UHD. Built only
 // with `make UHD=1`.
 // Receives on channel 0 and the device's default RX antenna (RX2 on a B210).
-class UhdDevice : public openspectrum::SampleSource {
+class UhdDevice : public SampleSource {
 public:
   ~UhdDevice() override;
 
   const char *name() const noexcept override { return m_name.c_str(); }
-  openspectrum::TuningLimits limits() const noexcept override {
-    return m_limits;
-  }
+  TuningLimits limits() const noexcept override { return m_limits; }
 
   bool open() override;
   void start(size_t chunk_size) override;
@@ -42,11 +42,13 @@ private:
 
   uhd::usrp::multi_usrp::sptr m_usrp;
   std::string m_name = "USRP";
-  openspectrum::TuningLimits m_limits;
+  TuningLimits m_limits;
   double m_rate = 0.0;
 
-  std::shared_ptr<openspectrum::FramePool> m_frame_pool;
+  std::shared_ptr<FramePool> m_frame_pool;
   std::atomic<uint64_t> m_dropped{0};
   std::thread m_thread;
   std::atomic<bool> m_running{false};
 };
+
+} // namespace openspectrum

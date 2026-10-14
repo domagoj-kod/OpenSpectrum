@@ -10,13 +10,15 @@
 #include <rtl-sdr.h>
 #include <thread>
 
-class RtlSdrDevice : public openspectrum::SampleSource {
+namespace openspectrum {
+
+class RtlSdrDevice : public SampleSource {
 public:
   explicit RtlSdrDevice(uint32_t index = 0, size_t pool_capacity = 8192);
   ~RtlSdrDevice() override;
 
   const char *name() const noexcept override { return "RTL2832U"; }
-  openspectrum::TuningLimits limits() const noexcept override;
+  TuningLimits limits() const noexcept override;
 
   bool open() override;
   void close();
@@ -53,7 +55,7 @@ private:
   size_t m_fft_size = 8192;
   // shared_ptr is required: FramePool relies on enable_shared_from_this so
   // FrameHandles can hold a weak_ptr to the pool and survive its destruction.
-  std::shared_ptr<openspectrum::FramePool> m_frame_pool;
+  std::shared_ptr<FramePool> m_frame_pool;
 
   bool m_streaming = false;
   std::atomic<uint64_t> m_dropped{0};
@@ -62,3 +64,5 @@ private:
   std::thread m_async_thread;
   std::atomic<bool> m_thread_running{false};
 };
+
+} // namespace openspectrum

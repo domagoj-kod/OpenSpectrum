@@ -14,6 +14,8 @@
 #include <uhd/types/tune_request.hpp>
 #include <vector>
 
+namespace openspectrum {
+
 // Same reasoning as RtlSdrDevice: one frame is in flight at a time.
 static constexpr size_t kDeviceFramePoolFrames = 4;
 
@@ -95,8 +97,8 @@ void UhdDevice::start(size_t chunk_size) {
   if (!m_usrp || m_running) {
     return;
   }
-  m_frame_pool = std::make_shared<openspectrum::FramePool>(
-      chunk_size, kDeviceFramePoolFrames);
+  m_frame_pool =
+      std::make_shared<FramePool>(chunk_size, kDeviceFramePoolFrames);
   m_running = true;
   m_thread = std::thread([this, chunk_size]() { receive_loop(chunk_size); });
 }
@@ -157,7 +159,7 @@ void UhdDevice::receive_loop(size_t chunk_size) {
         have_expected = true;
       }
 
-      openspectrum::FrameHandle frame = m_frame_pool->acquire();
+      FrameHandle frame = m_frame_pool->acquire();
       if (!frame) {
         m_dropped.fetch_add(n, std::memory_order_relaxed);
         LOG_ERROR("UHD: no frame available, dropped " + std::to_string(n) +
@@ -180,3 +182,5 @@ void UhdDevice::receive_loop(size_t chunk_size) {
   LOG_INFO("UHD: received " + std::to_string(received) + " samples, lost " +
            std::to_string(m_dropped.load()) + " since open");
 }
+
+} // namespace openspectrum
