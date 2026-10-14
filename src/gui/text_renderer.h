@@ -32,7 +32,6 @@ public:
 
 private:
   SDL_Renderer *renderer = nullptr;
-  int font_size = 16;
 
   // Native glyph dimensions of the 8x16 IBM VGA font (8 wide, 16 scanlines).
   static constexpr int GLYPH_SRC_W = 8;

@@ -739,7 +739,6 @@ auto main(int argc, char *argv[]) -> int {
       // === 1.2. Check for FFT size change and reinitialize if needed ===
       if (control_state.fft_size_changed()) {
         size_t const new_fft_size = control_state.get_fft_size();
-        control_state.set_reconfiguring(true);
         control_state.clear_fft_change_flag();
 
         LOG_INFO("Reinitializing with FFT size: " +
@@ -788,8 +787,6 @@ auto main(int argc, char *argv[]) -> int {
 
         // Clear waterfall to avoid size mismatch
         waterfall_display.reset();
-
-        control_state.set_reconfiguring(false);
       }
 
       // === 1.2.5. Check for IQ logging toggle request ===

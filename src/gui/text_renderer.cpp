@@ -118,9 +118,9 @@ const uint8_t TextRenderer::BITMAP_FONT[96][16] = {
 // clang-format on
 
 TextRenderer::TextRenderer(SDL_Renderer *sdl_renderer, int size)
-    : renderer(sdl_renderer), font_size(size) {
+    : renderer(sdl_renderer) {
   // The font is natively 8x16; render at an integer multiple of that so glyphs
-  // stay crisp (nearest-neighbour, no blur). font_size is the target height.
+  // stay crisp (nearest-neighbour, no blur). size is the target height.
   int scale = size / GLYPH_SRC_H;
   if (scale < 1) {
     scale = 1;

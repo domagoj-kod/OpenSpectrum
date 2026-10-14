@@ -85,9 +85,6 @@ public:
   void clear_palette_change_flag() noexcept { palette_changed_flag = false; }
   static const char *palette_name(size_t index) noexcept;
 
-  // Get formatted status string for display
-  std::string get_status_string() const;
-
   // Individual formatted status fields for the instrument panel (green-label /
   // white-value grid). trace is "AVG" / "MAX" / "AVG MAX" or empty.
   struct StatusFields {
@@ -107,9 +104,6 @@ public:
   bool status_changed() const noexcept { return m_status_dirty; }
   void clear_status_dirty() const noexcept { m_status_dirty = false; }
   void mark_status_dirty() const noexcept { m_status_dirty = true; }
-
-  // Reconfiguration flag (shown in the status string while FFT reinit runs)
-  void set_reconfiguring(bool state) noexcept { reconfiguring = state; }
 
   // IQ logging control
   bool iq_logging_toggle_requested() const noexcept {
@@ -168,7 +162,6 @@ private:
 
   // Flags
   bool fft_changed = false;
-  bool reconfiguring = false;
   bool window_changed_flag = false;
   // 0 = first ColorMap (display default); see main.cpp
   size_t palette_index = 0;
@@ -183,8 +176,7 @@ private:
   bool m_averaging = true;
   bool m_trace_reset = false;
 
-  // Status string caching for performance
-  mutable std::string m_cached_status;
+  // Set when a panel field changes; main re-reads get_status_fields().
   mutable bool m_status_dirty = true;
 
   // Last values actually programmed into the tuner. apply_to_device() is called

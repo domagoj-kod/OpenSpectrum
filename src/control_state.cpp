@@ -117,35 +117,7 @@ auto ControlState::palette_name(size_t index) noexcept -> const char * {
   return index < PALETTE_COUNT ? kNames[index] : "?";
 }
 
-// Get formatted status string for display (cached)
-auto ControlState::get_status_string() const -> std::string {
-  if (!m_status_dirty) {
-    return m_cached_status;
-  }
-  if (reconfiguring) {
-    m_cached_status = "Reconfiguring FFT... ";
-  } else {
-    m_cached_status = "FREQ: " + format_frequency(frequency_hz) +
-                      " | GAIN: " + format_gain(gain_db) +
-                      " | FFT: " + std::to_string(fft_size) +
-                      " | WINDOW: " + format_window(window_function) +
-                      " | PAL: " + palette_name(palette_index);
-    if (m_averaging || m_max_hold) {
-      m_cached_status += " | TRC:";
-      if (m_averaging) {
-        m_cached_status += " AVG";
-      }
-      if (m_max_hold) {
-        m_cached_status += " MAX";
-      }
-    }
-  }
-  m_status_dirty = false;
-  return m_cached_status;
-}
-
-// Individual formatted status fields for the instrument panel. Reuses the same
-// formatters as get_status_string() so the two never drift.
+// Individual formatted status fields for the instrument panel.
 auto ControlState::get_status_fields() const -> StatusFields {
   StatusFields f;
   f.freq = format_frequency(frequency_hz);

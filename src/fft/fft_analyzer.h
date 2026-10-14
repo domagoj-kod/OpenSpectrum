@@ -15,15 +15,6 @@ namespace openspectrum {
 class FftAnalyzer {
 public:
   OS_COLD explicit FftAnalyzer(size_t fft_size);
-  ~FftAnalyzer();
-
-  // Non-copyable: buffers are large and the move ctor is the intended path.
-  FftAnalyzer(const FftAnalyzer &) = delete;
-  FftAnalyzer &operator=(const FftAnalyzer &) = delete;
-
-  // Enable moving
-  FftAnalyzer(FftAnalyzer &&other) noexcept;
-  FftAnalyzer &operator=(FftAnalyzer &&other) noexcept;
 
   // Execute the FFT and refresh get_db_spectrum().
   // Input: time-domain complex samples (size = fft_size). A span so a pooled

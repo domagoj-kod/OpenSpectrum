@@ -6,7 +6,6 @@
 #include <complex>
 #include <cstddef>
 #include <stdexcept>
-#include <utility>
 #include <vector>
 
 #ifdef __AVX2__
@@ -62,30 +61,6 @@ FftAnalyzer::FftAnalyzer(size_t fft_size)
   if (fft_size == 0 || (fft_size & (fft_size - 1)) != 0) {
     throw std::invalid_argument("FFT size must be a power of 2");
   }
-}
-
-FftAnalyzer::~FftAnalyzer() = default;
-
-FftAnalyzer::FftAnalyzer(FftAnalyzer &&other) noexcept
-    : m_fft_size(other.m_fft_size),
-      m_input_buffer(std::move(other.m_input_buffer)),
-      m_output_buffer(std::move(other.m_output_buffer)),
-      m_db_spectrum(std::move(other.m_db_spectrum)),
-      m_window_coherent_gain(other.m_window_coherent_gain) {
-  other.m_fft_size = 0;
-}
-
-auto FftAnalyzer::operator=(FftAnalyzer &&other) noexcept -> FftAnalyzer & {
-  if (this != &other) {
-    m_fft_size = other.m_fft_size;
-    m_input_buffer = std::move(other.m_input_buffer);
-    m_output_buffer = std::move(other.m_output_buffer);
-    m_db_spectrum = std::move(other.m_db_spectrum);
-    m_window_coherent_gain = other.m_window_coherent_gain;
-
-    other.m_fft_size = 0;
-  }
-  return *this;
 }
 
 void FftAnalyzer::execute(std::span<const std::complex<float>> input) {
