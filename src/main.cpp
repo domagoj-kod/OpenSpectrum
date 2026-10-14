@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cassert>
+#include <cctype>
 #include <chrono>
 #include <complex>
 #include <condition_variable>
@@ -839,8 +840,7 @@ auto main(int argc, char *argv[]) -> int {
       // frame (base + dB/time axis strip + frequency scale + HUD) just before
       // its swap; the drain at the loop top writes the PNG once it lands. Stash
       // the metadata now so it matches the armed frame even if controls change
-      // before the readback. Color map isn't exposed by SpectrumDisplay yet, so
-      // it stays "jet" (matching the prior export behavior).
+      // before the readback.
       if (control_state.spectrogram_export_requested()) {
         control_state.clear_spectrogram_export();
         pending_export.armed = true;
@@ -850,7 +850,14 @@ auto main(int argc, char *argv[]) -> int {
         pending_export.fft_size = current_fft_size;
         pending_export.window = SignalProcessor::window_function_to_string(
             control_state.get_window());
-        pending_export.color_map = "jet";
+        // Lower case, so the default stays "jet" as in earlier sidecars.
+        pending_export.color_map =
+            ControlState::palette_name(control_state.get_palette_index());
+        std::ranges::transform(pending_export.color_map,
+                               pending_export.color_map.begin(), [](char c) {
+                                 return static_cast<char>(std::tolower(
+                                     static_cast<unsigned char>(c)));
+                               });
         renderer.request_capture();
       }
 
