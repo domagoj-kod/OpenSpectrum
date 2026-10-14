@@ -521,7 +521,7 @@ auto main(int argc, char *argv[]) -> int {
               control_state.get_window()),
           notes, source->name());
       if (iq_capture_failed) {
-        LOG_ERROR("IQ logging could not start (output directory or file)");
+        LOG_ERROR("IQ logging could not start");
         return;
       }
       g_iq_capturing.store(true, std::memory_order_relaxed);

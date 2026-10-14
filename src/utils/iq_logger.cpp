@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cerrno>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -34,7 +35,12 @@ bool IqLogger::create_output_directory() {
   }
   std::error_code ec;
   std::filesystem::create_directories(m_config.output_directory, ec);
-  return std::filesystem::is_directory(m_config.output_directory);
+  if (!std::filesystem::is_directory(m_config.output_directory)) {
+    LOG_ERROR("Cannot create capture directory " + m_config.output_directory +
+              ": " + ec.message());
+    return false;
+  }
+  return true;
 }
 
 std::string IqLogger::generate_filename(const std::string &extension) const {
@@ -132,6 +138,9 @@ void IqLogger::open_files() {
   // Open data file in binary mode
   m_data_file = std::fopen(m_data_filename.c_str(), "wb");
   if (m_data_file == nullptr) {
+    // --iq-output is a file-name prefix inside the capture directory; a
+    // subdirectory in it must already exist.
+    LOG_ERROR("Cannot open " + m_data_filename + ": " + std::strerror(errno));
     return;
   }
 

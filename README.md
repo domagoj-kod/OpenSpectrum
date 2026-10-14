@@ -114,7 +114,8 @@ Options:
   --direct-sampling   Q-branch direct sampling for HF (tunes 0-14.4 MHz)
   --iq-log            Enable IQ data logging to file
   --iq-duration SEC   Capture duration in seconds (default: 0 = manual)
-  --iq-output FILE    Output filename prefix (default: auto-generated)
+  --iq-output PREFIX  Capture file-name prefix, inside data/
+                      (default: capture)
   --iq-format FMT     Capture sample format: cf32 (float32 pairs, default)
                       or cs16 (int16 pairs, half the size)
   --play FILE.iq      Replay a recorded IQ capture instead of opening hardware
