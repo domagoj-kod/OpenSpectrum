@@ -34,8 +34,8 @@ public:
   // Written to the capture sidecar as device.type.
   virtual const char *name() const noexcept = 0;
   virtual TuningLimits limits() const noexcept = 0;
-  // False for sources with no tuner (file playback): the frequency and gain
-  // keys then only move the on-screen labels.
+  // False for sources with no tuner (file playback): main() then pins the
+  // frequency and gain to the capture's, since they label new captures.
   virtual bool tunable() const noexcept { return true; }
 
   virtual bool open() = 0;

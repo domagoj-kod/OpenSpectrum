@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <memory>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -22,6 +23,7 @@ struct IqCaptureMeta {
   uint64_t center_freq_hz = 0;
   uint32_t sample_rate_hz = 0;
   IqSampleFormat format = IqSampleFormat::CF32;
+  std::optional<float> gain_db; // absent in hand-made sidecars
 };
 
 // Replays a raw .iq capture (either IqLogger format) through the same
@@ -39,11 +41,8 @@ public:
   IqPlaybackSource &operator=(const IqPlaybackSource &) = delete;
 
   const char *name() const noexcept override { return "IQ playback"; }
-  // No tuner: any centre frequency a capture carries displays unclamped. The
-  // gain range only bounds the on-screen label.
-  TuningLimits limits() const noexcept override {
-    return {0, TuningLimits{}.max_frequency_hz, 0.0F, 49.6F};
-  }
+  // No tuner: main() pins the range to the capture's own tuning.
+  TuningLimits limits() const noexcept override { return {}; }
   bool tunable() const noexcept override { return false; }
 
   // Opens the file; false if missing or empty.

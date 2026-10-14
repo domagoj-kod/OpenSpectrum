@@ -386,11 +386,13 @@ auto main(int argc, char *argv[]) -> int {
     const bool playback_mode = !config.play_file.empty();
     uint32_t effective_rate = static_cast<uint32_t>(config.sample_rate_hz);
     auto start_freq = static_cast<uint64_t>(config.center_freq_hz);
+    float start_gain = config.gain_db;
     IqCaptureMeta play_meta;
     if (playback_mode) {
       if (IqPlaybackSource::read_meta_sidecar(config.play_file, play_meta)) {
         start_freq = play_meta.center_freq_hz;
         effective_rate = play_meta.sample_rate_hz;
+        start_gain = play_meta.gain_db.value_or(start_gain);
         LOG_INFO("Playback metadata: freq=" + format_frequency(start_freq) +
                  ", rate=" + std::to_string(effective_rate) + " Hz");
       } else {
@@ -491,9 +493,16 @@ auto main(int argc, char *argv[]) -> int {
       constraints.max_frequency_hz = tuning.max_frequency_hz;
       constraints.min_gain_db = tuning.min_gain_db;
       constraints.max_gain_db = tuning.max_gain_db;
+      if (!source->tunable()) {
+        // Playback: the samples keep the capture's tuning whatever the keys
+        // say, and these values label any capture or export made from it.
+        constraints.min_frequency_hz = constraints.max_frequency_hz =
+            start_freq;
+        constraints.min_gain_db = constraints.max_gain_db = start_gain;
+      }
       control_state.set_constraints(constraints);
       control_state.set_frequency(start_freq);
-      control_state.set_gain(config.gain_db);
+      control_state.set_gain(start_gain);
       control_state.mark_status_dirty();
     }
 

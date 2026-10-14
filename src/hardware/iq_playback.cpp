@@ -214,6 +214,11 @@ auto IqPlaybackSource::read_meta_sidecar(const std::string &iq_path,
   bool const have_rate = scrape("\"sample_rate_hz\"", rate) &&
                          rate <= std::numeric_limits<uint32_t>::max();
   meta.sample_rate_hz = static_cast<uint32_t>(rate);
+  if (size_t pos = text.find("\"gain_db\"");
+      pos != std::string::npos &&
+      (pos = text.find(':', pos)) != std::string::npos) {
+    meta.gain_db = std::strtof(text.c_str() + pos + 1, nullptr);
+  }
   meta.format = text.find("\"cs16_le\"") != std::string::npos
                     ? IqSampleFormat::CS16
                     : IqSampleFormat::CF32;
