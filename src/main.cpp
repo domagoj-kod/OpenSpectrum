@@ -874,27 +874,24 @@ auto main(int argc, char *argv[]) -> int {
         control_state.clear_status_dirty();
       }
 
-      // Update IQ logging status indicator periodically
-      static size_t frame_count = 0;
-      if (++frame_count % 60 == 0) { // Update every ~60 frames (~1 second)
-        if (g_iq_capturing.load(std::memory_order_relaxed) &&
-            !iq_logger.is_capturing()) {
-          // The logger ended the capture itself: a short write (disk full).
-          stop_capture();
-          iq_capture_failed = true;
-          LOG_ERROR("IQ capture ended early on a write error");
-        }
-        if (g_iq_capturing.load(std::memory_order_relaxed)) {
-          auto const seconds = std::chrono::duration_cast<std::chrono::seconds>(
-              std::chrono::steady_clock::now() - iq_capture_start);
-          // Kept short to fit the panel column.
-          std::string const iq_status =
-              "REC " + std::to_string(seconds.count()) + "s";
-          renderer.render_iq_status(iq_status);
-        } else {
-          // Idle, or the last capture failed (stays until the next one starts)
-          renderer.render_iq_status(iq_capture_failed ? "REC ERR" : "");
-        }
+      // IQ logging status, every frame: the panel caches text by string, so an
+      // unchanged "REC 12s" costs a lookup.
+      if (g_iq_capturing.load(std::memory_order_relaxed) &&
+          !iq_logger.is_capturing()) {
+        // The logger ended the capture itself: a short write (disk full).
+        stop_capture();
+        iq_capture_failed = true;
+        LOG_ERROR("IQ capture ended early on a write error");
+      }
+      if (g_iq_capturing.load(std::memory_order_relaxed)) {
+        auto const seconds = std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::steady_clock::now() - iq_capture_start);
+        // Kept short to fit the panel column.
+        renderer.render_iq_status("REC " + std::to_string(seconds.count()) +
+                                  "s");
+      } else {
+        // Idle, or the last capture failed (stays until the next one starts)
+        renderer.render_iq_status(iq_capture_failed ? "REC ERR" : "");
       }
 
       // Latest peak for the panel readout, every frame. Pass it unconditionally
