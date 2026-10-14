@@ -7,6 +7,7 @@
 
 #include <cstdio>
 #include <filesystem>
+#include <iomanip>
 #include <sstream>
 
 // stb_image_write keeps its implementation block outside the include guard,
@@ -107,6 +108,9 @@ void SpectrogramExporter::write_metadata(
     const std::string &notes, const std::string &iso8601_timestamp) {
 
   std::stringstream ss;
+  // Default precision is 6 significant digits: a Unix time came out as
+  // 1.79198e+09, i.e. to the nearest 10000 s. Same format as the IQ sidecar.
+  ss << std::fixed << std::setprecision(3);
   double timestamp = get_unix_timestamp();
 
   ss << "{\n";
