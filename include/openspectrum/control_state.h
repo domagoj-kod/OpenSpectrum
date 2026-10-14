@@ -75,8 +75,10 @@ public:
 
   // Color palette cycling (runtime, 'c' / Shift+C). Stored as an index into the
   // display's ColorMap enum; main.cpp maps it to SpectrumPalette::ColorMap so
-  // this SDL/display-agnostic class stays decoupled from the visualization layer.
-  static constexpr size_t PALETTE_COUNT = 5; // == SpectrumPalette::ColorMap size
+  // this SDL/display-agnostic class stays decoupled from the visualization
+  // layer.
+  // == SpectrumPalette::ColorMap size
+  static constexpr size_t PALETTE_COUNT = 5;
   size_t get_palette_index() const noexcept { return palette_index; }
   void cycle_palette(int direction); // +1 forward, -1 backward; wraps
   bool palette_changed() const noexcept { return palette_changed_flag; }
@@ -168,7 +170,8 @@ private:
   bool fft_changed = false;
   bool reconfiguring = false;
   bool window_changed_flag = false;
-  size_t palette_index = 0; // 0 = first ColorMap (display default); see main.cpp
+  // 0 = first ColorMap (display default); see main.cpp
+  size_t palette_index = 0;
   bool palette_changed_flag = false;
   bool m_iq_logging_toggle = false;
   bool m_spectrogram_export_requested = false;

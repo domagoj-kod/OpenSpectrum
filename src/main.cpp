@@ -81,9 +81,9 @@ static size_t g_callback_log_count = 0;
 
 // IQ capture tap. The logger lives in main(); the callback writes raw samples
 // to it BEFORE the drain-to-newest throttle, so captures are full-rate rather
-// than the ~1-frame-per-render-tick decimation the old render-loop tap produced.
-// g_iq_capturing gates the hot path so an idle callback never touches the
-// logger's mutex; the logger's own mutex remains the correctness boundary
+// than the ~1-frame-per-render-tick decimation the old render-loop tap
+// produced. g_iq_capturing gates the hot path so an idle callback never touches
+// the logger's mutex; the logger's own mutex remains the correctness boundary
 // (write_samples no-ops if a concurrent stop_capture already closed the file).
 static IqLogger *g_iq_logger = nullptr;
 static std::atomic<bool> g_iq_capturing{false};
@@ -142,7 +142,8 @@ static void async_sample_callback(FrameHandle samples_frame) {
   // Faithful IQ capture: tap the full producer stream here, before the render
   // loop's drain-to-newest throttle discards any backlog. This only copies into
   // the logger's ring; the disk is written on the logger's own thread.
-  if (g_iq_capturing.load(std::memory_order_relaxed) && g_iq_logger != nullptr) {
+  if (g_iq_capturing.load(std::memory_order_relaxed) &&
+      g_iq_logger != nullptr) {
     g_iq_logger->write_samples(samples_frame.data(), samples_frame.size());
   }
 
@@ -1017,7 +1018,8 @@ auto main(int argc, char *argv[]) -> int {
       {
         // Smoothed amplitude: the raw spectrum is noisy, so the displayed dB is
         // EMA'd to stop the digits churning. Snap (reset) when the cursor moves
-        // to a new bin or re-enters, so it stays responsive rather than lagging.
+        // to a new bin or re-enters, so it stays responsive rather than
+        // lagging.
         static double s_db_ema = 0.0;
         static size_t s_db_bin = 0;
         static bool s_db_valid = false;

@@ -141,19 +141,22 @@ void SignalProcessor::apply_window(std::span<std::complex<float>> samples) {
   }
   for (size_t i = simd_n; i < n; ++i) {
     const float w = m_window_coeffs[i];
-    samples[i] = std::complex<float>(samples[i].real() * w, samples[i].imag() * w);
+    samples[i] =
+        std::complex<float>(samples[i].real() * w, samples[i].imag() * w);
   }
 #else
   for (size_t i = 0; i < n; ++i) {
     const float w = m_window_coeffs[i];
-    samples[i] = std::complex<float>(samples[i].real() * w, samples[i].imag() * w);
+    samples[i] =
+        std::complex<float>(samples[i].real() * w, samples[i].imag() * w);
   }
 #endif
 }
 
 void SignalProcessor::remove_dc(std::span<std::complex<float>> samples) {
   const size_t n = samples.size();
-  if (n == 0) return;
+  if (n == 0)
+    return;
 
   float mean_real = 0.0F;
   float mean_imag = 0.0F;
@@ -177,8 +180,8 @@ void SignalProcessor::remove_dc(std::span<std::complex<float>> samples) {
     acc2 = _mm256_add_ps(acc2, _mm256_loadu_ps(data + 2 * i + 16));
     acc3 = _mm256_add_ps(acc3, _mm256_loadu_ps(data + 2 * i + 24));
   }
-  __m256 const acc = _mm256_add_ps(_mm256_add_ps(acc0, acc1),
-                                   _mm256_add_ps(acc2, acc3));
+  __m256 const acc =
+      _mm256_add_ps(_mm256_add_ps(acc0, acc1), _mm256_add_ps(acc2, acc3));
 
   // Lanes are interleaved [r,i,r,i,r,i,r,i]. Reduce to one (r,i) pair.
   alignas(32) float lanes[8];
@@ -202,18 +205,22 @@ void SignalProcessor::remove_dc(std::span<std::complex<float>> samples) {
 
 #ifdef __AVX2__
   // data declared in the mean-computation block above (same function scope).
-  __m256 const mean_vec = _mm256_setr_ps(mean_real, mean_imag, mean_real, mean_imag,
-                                         mean_real, mean_imag, mean_real, mean_imag);
+  __m256 const mean_vec =
+      _mm256_setr_ps(mean_real, mean_imag, mean_real, mean_imag, mean_real,
+                     mean_imag, mean_real, mean_imag);
   const size_t simd_n2 = n & ~size_t{15};
   for (size_t i = 0; i < simd_n2; i += 16) {
     _mm256_storeu_ps(data + 2 * i,
                      _mm256_sub_ps(_mm256_loadu_ps(data + 2 * i), mean_vec));
-    _mm256_storeu_ps(data + 2 * i + 8,
-                     _mm256_sub_ps(_mm256_loadu_ps(data + 2 * i + 8), mean_vec));
-    _mm256_storeu_ps(data + 2 * i + 16,
-                     _mm256_sub_ps(_mm256_loadu_ps(data + 2 * i + 16), mean_vec));
-    _mm256_storeu_ps(data + 2 * i + 24,
-                     _mm256_sub_ps(_mm256_loadu_ps(data + 2 * i + 24), mean_vec));
+    _mm256_storeu_ps(
+        data + 2 * i + 8,
+        _mm256_sub_ps(_mm256_loadu_ps(data + 2 * i + 8), mean_vec));
+    _mm256_storeu_ps(
+        data + 2 * i + 16,
+        _mm256_sub_ps(_mm256_loadu_ps(data + 2 * i + 16), mean_vec));
+    _mm256_storeu_ps(
+        data + 2 * i + 24,
+        _mm256_sub_ps(_mm256_loadu_ps(data + 2 * i + 24), mean_vec));
   }
   const std::complex<float> mean_c(mean_real, mean_imag);
   for (size_t i = simd_n2; i < n; ++i) {

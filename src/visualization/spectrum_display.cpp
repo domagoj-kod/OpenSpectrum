@@ -2,8 +2,8 @@
 
 #include "spectrum_display.h"
 
-#include <cmath>
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -80,12 +80,15 @@ void SpectrumPalette::generate_viridis_palette() {
   // Simplified viridis approximation
   for (size_t i = 0; i < PALETTE_SIZE; ++i) {
     float const t = static_cast<float>(i) / (PALETTE_SIZE - 1);
-    float const r = std::clamp(
-        0.267F + (0.329F * t) + (1.453F * t * t) - (1.099F * t * t * t), 0.0F, 1.0F);
-    float const g = std::clamp(
-        0.005F + (1.404F * t) - (0.598F * t * t) + (0.189F * t * t * t), 0.0F, 1.0F);
-    float const b = std::clamp(
-        0.329F + (1.509F * t) - (2.814F * t * t) + (1.976F * t * t * t), 0.0F, 1.0F);
+    float const r = std::clamp(0.267F + (0.329F * t) + (1.453F * t * t) -
+                                   (1.099F * t * t * t),
+                               0.0F, 1.0F);
+    float const g = std::clamp(0.005F + (1.404F * t) - (0.598F * t * t) +
+                                   (0.189F * t * t * t),
+                               0.0F, 1.0F);
+    float const b = std::clamp(0.329F + (1.509F * t) - (2.814F * t * t) +
+                                   (1.976F * t * t * t),
+                               0.0F, 1.0F);
 
     m_palette[i] =
         RgbColor(static_cast<uint8_t>(r * 255), static_cast<uint8_t>(g * 255),
@@ -286,7 +289,8 @@ void SpectrumDisplay::build_vertices(float region_w, float region_h,
 
   const size_t num_bins = bars.size();
   const float db_range = m_max_db - m_min_db;
-  if (num_bins == 0 || db_range <= 0.0F || region_w <= 0.0F || region_h <= 0.0F) {
+  if (num_bins == 0 || db_range <= 0.0F || region_w <= 0.0F ||
+      region_h <= 0.0F) {
     return;
   }
 

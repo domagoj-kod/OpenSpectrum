@@ -33,8 +33,7 @@ bool SpectrogramExporter::create_output_directory() {
 
 // Generate filename with timestamp and optional frequency
 std::string SpectrogramExporter::generate_filename(
-    const std::string &extension,
-    const std::string &iso8601_timestamp) const {
+    const std::string &extension, const std::string &iso8601_timestamp) const {
   std::string filename = m_config.filename_prefix + "_" + iso8601_timestamp;
 
   // Prepend output directory
@@ -52,8 +51,8 @@ std::string SpectrogramExporter::generate_filename(
   return filename;
 }
 
-std::string SpectrogramExporter::metadata_filename_for(
-    const std::string &png_filename) {
+std::string
+SpectrogramExporter::metadata_filename_for(const std::string &png_filename) {
   size_t const last_dot = png_filename.find_last_of('.');
   if (last_dot != std::string::npos) {
     return png_filename.substr(0, last_dot) + ".meta.json";

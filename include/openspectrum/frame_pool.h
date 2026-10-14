@@ -112,7 +112,9 @@ public:
     return m_frame ? m_frame->data : nullptr;
   }
   [[nodiscard]] size_t size() const { return m_frame ? m_frame->size : 0; }
-  [[nodiscard]] size_t capacity() const { return m_frame ? m_frame->capacity : 0; }
+  [[nodiscard]] size_t capacity() const {
+    return m_frame ? m_frame->capacity : 0;
+  }
 
   void reset() {
     if (m_frame)

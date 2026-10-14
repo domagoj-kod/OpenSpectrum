@@ -442,13 +442,14 @@ void IqLogger::update_stats(const std::complex<float> *samples, size_t count) {
     float const mag_db =
         magnitude > 0.00001f ? 20.0f * std::log10(magnitude) : -140.0f;
 
-    if (mag_db > m_stats.max_db)  m_stats.max_db  = mag_db;
-    if (mag_db < m_stats.min_db)  m_stats.min_db  = mag_db;
+    if (mag_db > m_stats.max_db)
+      m_stats.max_db = mag_db;
+    if (mag_db < m_stats.min_db)
+      m_stats.min_db = mag_db;
 
     ++m_stats.sample_count;
-    m_stats.average_db +=
-        (static_cast<double>(mag_db) - m_stats.average_db) /
-        static_cast<double>(m_stats.sample_count);
+    m_stats.average_db += (static_cast<double>(mag_db) - m_stats.average_db) /
+                          static_cast<double>(m_stats.sample_count);
   }
 }
 

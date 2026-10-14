@@ -26,7 +26,8 @@ public:
 
   // Apply selected window function to samples (in-place).
   // Takes a span so callers can process a pooled FrameHandle buffer directly
-  // without first copying it into a std::vector (a std::vector& binds here too).
+  // without first copying it into a std::vector (a std::vector& binds here
+  // too).
   OS_HOT void apply_window(std::span<std::complex<float>> samples);
 
   // Remove DC offset (mean subtraction), in-place.
@@ -36,12 +37,14 @@ public:
   // uses the new shape; keyboard-driven window changes would otherwise silently
   // keep applying the previous window.
   void set_window(WindowFunction window) {
-    if (window == m_window) return;
+    if (window == m_window)
+      return;
     m_window = window;
     precompute_window(m_fft_size);
   }
 
-  // Pre-compute window coefficients for given size (runs only on size / window changes)
+  // Pre-compute window coefficients for given size (runs only on size / window
+  // changes)
   OS_COLD void precompute_window(size_t size);
 
   [[nodiscard]] size_t fft_size() const noexcept { return m_fft_size; }

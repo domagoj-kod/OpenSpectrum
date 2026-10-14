@@ -533,7 +533,8 @@ void SdlRenderer::draw_cursor_readout() {
   } else {
     // Waterfall: crosshair pinpointing the frequency (vertical) and the
     // hovered time-row (horizontal) across the waterfall pane.
-    SDL_RenderLine(m_renderer, x, spec_h, x, static_cast<float>(m_height) - 1.0F);
+    SDL_RenderLine(m_renderer, x, spec_h, x,
+                   static_cast<float>(m_height) - 1.0F);
     SDL_RenderLine(m_renderer, 0.0F, m_cursor_readout.dot_y,
                    static_cast<float>(m_plot_width) - 1.0F,
                    m_cursor_readout.dot_y);
