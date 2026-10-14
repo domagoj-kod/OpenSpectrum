@@ -139,8 +139,8 @@ static void async_sample_callback(FrameHandle samples_frame) {
   }
 
   // Faithful IQ capture: tap the full producer stream here, before the render
-  // loop's drain-to-newest throttle discards any backlog. Allocation-free
-  // pointer overload — this is the hot device-callback thread.
+  // loop's drain-to-newest throttle discards any backlog. This only copies into
+  // the logger's ring; the disk is written on the logger's own thread.
   if (g_iq_capturing.load(std::memory_order_relaxed) && g_iq_logger != nullptr) {
     g_iq_logger->write_samples(samples_frame.data(), samples_frame.size());
   }
@@ -291,6 +291,7 @@ auto main(int argc, char *argv[]) -> int {
 #ifndef NDEBUG
   format_frequency_selftest();
   accumulate_selftest();
+  iq_logger_selftest();
 #endif
 
   // Parse command-line arguments
@@ -879,16 +880,16 @@ auto main(int argc, char *argv[]) -> int {
         if (g_iq_capturing.load(std::memory_order_relaxed) &&
             !iq_logger.is_capturing()) {
           // The logger ended the capture itself: a short write (disk full).
-          g_iq_capturing.store(false, std::memory_order_relaxed);
+          stop_capture();
           iq_capture_failed = true;
           LOG_ERROR("IQ capture ended early on a write error");
         }
         if (g_iq_capturing.load(std::memory_order_relaxed)) {
-          auto stats = iq_logger.get_stats();
+          auto const seconds = std::chrono::duration_cast<std::chrono::seconds>(
+              std::chrono::steady_clock::now() - iq_capture_start);
           // Kept short to fit the panel column.
           std::string const iq_status =
-              "REC " +
-              std::to_string(static_cast<size_t>(stats.duration_seconds)) + "s";
+              "REC " + std::to_string(seconds.count()) + "s";
           renderer.render_iq_status(iq_status);
         } else {
           // Idle, or the last capture failed (stays until the next one starts)

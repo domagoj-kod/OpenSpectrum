@@ -695,8 +695,21 @@ Over the 28 runs of 20 s below the ceiling on 2026-10-14 (five passes of 8
 and 16 MS/s at both sizes, then one full sweep), six lost samples, each time
 in one burst (one UHD `O`): 16 MS/s 3 of 12, 102 to 132 thousand samples (6
 to 8 ms); 8 MS/s 2 of 12, 13 thousand; 4 MS/s 1 of 2, 8 thousand; 2 MS/s
-none of 2. Four were at FFT 1024 and two at 65536. The benchmark had none at 16 MS/s, but in a single run; whether
-the capture writer on the receive thread causes them is not measured.
+none of 2. Four were at FFT 1024 and two at 65536. The benchmark had none at
+16 MS/s, but in a single run. They are not the capture writer: without
+`--iq-log`, five runs at 16 MS/s / 65536 still showed 0 to 2 `O` each.
+
+Bursts are, or were. Later on 2026-10-14 (build `b389cba`), 16 MS/s at FFT
+65536 lost 7 to 71 million samples (46 to 447 `O`) in 4 of 6 runs, at FFT
+1024 never more than 2 `O`; without `--iq-log` none of five runs burst. The
+capture write (sample statistics, format conversion and `fwrite`) then ran
+on the receive thread, about 19 % of a core at 16 MS/s before any disk wait
+(Linux, release). It now runs on the logger's own thread behind a half-second
+ring, and the receive thread only copies. With that (build `6fce657`, same
+host): 16 MS/s at FFT 65536 clean in 4 of 4 runs, a full sweep clean at every
+rate up to 16 MS/s at both sizes, and at 32 and 56 MS/s more arrives than
+before (64 to 66 % and 84 to 85 % lost, against 69 to 73 % and 88 to 89 %).
+The ceiling itself is unchanged.
 
 ## Capture files
 
@@ -719,7 +732,9 @@ Sidecar fields a consumer should check before trusting a file:
 - `capture.timestamp_unix` / `timestamp_iso8601` — capture **start**, UTC.
 - `capture.sample_format` — `cf32_le` or `cs16_le`. Sidecars older than
   version 1.1 lack it and are `cf32_le`.
-- `capture.dropped_samples` — losses the source reported during the capture.
+- `capture.dropped_samples` — losses the source reported during the capture,
+  plus batches the capture writer dropped because it was half a second behind
+  (logged as `IQ writer fell behind`).
 - `capture.write_error` — `true` if a short write (disk full) ended the
   capture. The file is then valid up to its own length; `sample_count`
   includes samples that never reached the disk.

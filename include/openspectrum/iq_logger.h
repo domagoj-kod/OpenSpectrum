@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
+#include <atomic>
 #include <complex>
 #include <cstddef>
 #include <cstdint>
@@ -8,6 +9,7 @@
 #include <limits>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace openspectrum {
@@ -42,6 +44,10 @@ struct IqLoggerConfig {
 using IqLoggerCompleteCallback = std::function<void(
     const std::string &filename, const std::string &metadata_filename)>;
 
+// write_samples() is called from the producer thread; everything else from one
+// other thread (main). The producer only copies into a ring: statistics,
+// sample conversion and disk I/O run on the logger's own writer thread, so a
+// slow disk never stalls the receiver.
 class IqLogger {
 public:
   explicit IqLogger(const IqLoggerConfig &config = IqLoggerConfig());
@@ -55,8 +61,9 @@ public:
                      const std::string &notes = "",
                      const std::string &device = "");
 
-  // Write IQ samples (thread-safe). Pointer + count keeps the producer-thread
-  // hot path allocation-free.
+  // Queue IQ samples for the writer thread. Never blocks on I/O and never
+  // allocates. A batch that does not fit in the ring (the writer is half a
+  // second behind) is dropped whole and counted in capture.dropped_samples.
   void write_samples(const std::complex<float> *samples, size_t count);
 
   // Samples the source reported lost during this capture. Call before
@@ -66,11 +73,9 @@ public:
   // Stop current capture and finalize files
   void stop_capture();
 
-  // Check if currently capturing
+  // False once a short write has ended the capture; stop_capture() then
+  // finalizes the sidecar.
   bool is_capturing() const noexcept;
-
-  // Get current capture statistics
-  IqCaptureStats get_stats() const;
 
   // Set completion callback
   void set_complete_callback(IqLoggerCompleteCallback cb);
@@ -90,12 +95,14 @@ private:
   void close_files();
   void write_metadata();
   void update_stats(const std::complex<float> *samples, size_t count);
+  void writer_loop();
+  void write_block(const std::complex<float> *samples, size_t count);
   void flush_buffer();
   void append_bytes(const uint8_t *data, size_t size);
   std::string generate_metadata_json() const;
 
   IqLoggerConfig m_config;
-  mutable IqCaptureStats m_stats;
+  IqCaptureStats m_stats; // writer-owned while capturing
 
   // Capture parameters
   uint64_t m_center_freq_hz = 0;
@@ -109,16 +116,19 @@ private:
   // Integrity. A short write ends the capture (m_write_error); losses the
   // source saw arrive through set_dropped_samples().
   uint64_t m_dropped_samples = 0;
-  bool m_write_error = false;
+  std::atomic<bool> m_write_error{false};
 
   // Timing. The first and last write times, with the samples that arrived
   // after the first batch, give the rate the stream actually delivered — the
   // only loss check that works for a source that cannot report its own drops.
+  // Stamped on arrival by the producer, under m_push_mutex.
   double m_start_time = 0.0;
   std::string m_start_iso8601;
   double m_first_write_time = 0.0;
   double m_last_write_time = 0.0;
   size_t m_first_write_count = 0;
+  size_t m_received_samples = 0;
+  uint64_t m_ring_dropped = 0;
 
   // Files
   FILE *m_data_file = nullptr;
@@ -132,9 +142,24 @@ private:
   // Completion callback
   IqLoggerCompleteCallback m_complete_cb;
 
-  // State
+  // Producer -> writer ring, single producer and single consumer. m_head and
+  // m_tail only grow; a sample's slot is its index modulo the ring size.
+  std::vector<std::complex<float>> m_ring;
+  std::atomic<size_t> m_head{0};
+  std::atomic<size_t> m_tail{0};
+  std::atomic<bool> m_stop{false};
+  std::thread m_writer;
+
+  // State. m_push_mutex keeps stop_capture() from releasing the ring under a
+  // producer mid-copy; it is never held across I/O.
   bool m_capturing = false;
-  mutable std::mutex m_mutex;
+  std::mutex m_push_mutex;
 };
+
+#ifndef NDEBUG
+// Debug builds run this at startup: a capture through a ring small enough to
+// wrap and to overflow, read back and checked.
+void iq_logger_selftest();
+#endif
 
 } // namespace openspectrum
