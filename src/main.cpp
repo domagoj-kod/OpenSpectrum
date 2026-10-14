@@ -98,7 +98,7 @@ static std::atomic<bool> g_iq_capturing{false};
 static const size_t MAX_SAMPLE_QUEUE_SIZE = 8;
 
 // Pre-allocated FFT frames in the main pool. Peak in-flight = up to
-// MAX_SAMPLE_QUEUE_SIZE queued + accumulator(1) + render-held(1) + in-build(1).
+// MAX_SAMPLE_QUEUE_SIZE queued + accumulator(1) + render-held(1).
 // 12 covers that without hot-path growth; the pool still grows on demand (a
 // graceful malloc, logged) if a transient burst exceeds it.
 static const size_t MAIN_FRAME_POOL_FRAMES = 12;
@@ -185,55 +185,22 @@ static void async_sample_callback(FrameHandle samples_frame) {
              std::to_string(g_sample_accumulator_frame.size()));
   }
 
-  // Process complete FFT chunks
-  while (g_sample_accumulator_frame.size() >= g_async_fft_size) {
-    // Get a frame for the FFT samples
-    FrameHandle fft_samples_frame =
-        g_frame_pool ? g_frame_pool->acquire() : FrameHandle(nullptr);
-    if (!fft_samples_frame) {
-      break; // Pool exhausted
-    }
-
-    fft_samples_frame.resize(g_async_fft_size);
-
-    // Copy FFT-sized chunk from accumulator
-    std::copy_n(g_sample_accumulator_frame.data(), g_async_fft_size,
-                fft_samples_frame.data());
-
-    // Remove processed samples from accumulator
-    size_t const remaining =
-        g_sample_accumulator_frame.size() - g_async_fft_size;
-    if (remaining > 0) {
-      // Shift remaining samples to front
-      std::copy_n(g_sample_accumulator_frame.data() + g_async_fft_size,
-                  remaining, g_sample_accumulator_frame.data());
-    }
-    g_sample_accumulator_frame.resize(remaining);
-
-    // Unlock accumulator, queue the sample, then re-lock
-    acc_lock.unlock();
-    {
-      std::lock_guard<std::mutex> queue_lock(g_sample_mutex);
-      // Memory leak fix: Drop oldest sample if queue is full
-      if (g_sample_queue.size() >= MAX_SAMPLE_QUEUE_SIZE) {
-        g_sample_queue.pop(); // Drop oldest to prevent unbounded growth
-        LOG_DEBUG("Sample queue full, dropping oldest sample");
-      }
-      g_sample_queue.push(std::move(fft_samples_frame));
-    }
-    g_sample_cv.notify_one();
-    acc_lock.lock();
+  if (g_sample_accumulator_frame.size() < g_async_fft_size) {
+    return;
   }
-
-  // If we have too many accumulated samples, trim to avoid memory issues
-  if (g_sample_accumulator_frame.size() > g_async_fft_size * 2) {
-    size_t const trim_to = g_sample_accumulator_frame.size() - g_async_fft_size;
-    if (trim_to > 0) {
-      std::copy_n(g_sample_accumulator_frame.data() + g_async_fft_size, trim_to,
-                  g_sample_accumulator_frame.data());
+  // A full accumulator is the frame: hand it over as it is, and the next
+  // delivery starts a fresh one from the pool.
+  FrameHandle frame = std::move(g_sample_accumulator_frame);
+  acc_lock.unlock();
+  {
+    std::lock_guard<std::mutex> queue_lock(g_sample_mutex);
+    if (g_sample_queue.size() >= MAX_SAMPLE_QUEUE_SIZE) {
+      g_sample_queue.pop(); // drop the oldest: the render loop wants the newest
+      LOG_DEBUG("Sample queue full, dropping oldest sample");
     }
-    g_sample_accumulator_frame.resize(trim_to);
+    g_sample_queue.push(std::move(frame));
   }
+  g_sample_cv.notify_one();
 }
 
 #ifndef NDEBUG
