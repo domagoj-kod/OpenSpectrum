@@ -183,7 +183,7 @@ public:
     if (!frame) {
       frame = FFTFrame::create(m_frame_capacity);
       if (!frame)
-        return FrameHandle();
+        return {};
     }
     frame->reset();
     return FrameHandle(frame, weak_from_this());

@@ -143,7 +143,7 @@ void SpectrogramExporter::write_metadata(
   // Application info
   ss << "  \"application\": {\n";
   ss << "    \"name\": \"OpenSpectrum\",\n";
-  ss << "    \"version\": \"" << OS_STRINGIFY(OPENSPECTRUM_VERSION) << "\",\n";
+  ss << R"(    "version": ")" << OS_STRINGIFY(OPENSPECTRUM_VERSION) << "\",\n";
 #ifdef _WIN32
   ss << "    \"platform\": \"Windows\"\n";
 #elif __APPLE__

@@ -27,11 +27,7 @@ private:
   Logger() = default;
 
   LogLevel m_min_level = LogLevel::INFO;
-  std::mutex m_mutex;
-
-  // Prevent copying
-  Logger(const Logger &) = delete;
-  Logger &operator=(const Logger &) = delete;
+  std::mutex m_mutex; // also makes Logger non-copyable
 };
 
 // Helper macros for easy logging

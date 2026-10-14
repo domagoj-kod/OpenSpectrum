@@ -27,7 +27,7 @@ public:
     /// @param capacity Maximum number of elements the buffer can hold
     /// @throws std::invalid_argument if capacity is 0
     explicit RingBuffer(size_t capacity)
-        : m_data(capacity), m_capacity(capacity), m_size(0), m_head(0) {
+        : m_data(capacity), m_capacity(capacity) {
         if (capacity == 0) {
             throw std::invalid_argument("RingBuffer capacity must be > 0");
         }
@@ -118,8 +118,8 @@ public:
 private:
     std::vector<T> m_data;
     size_t m_capacity;
-    size_t m_size;
-    size_t m_head;  // Next write position (newest element + 1)
+    size_t m_size{0};
+    size_t m_head{0};  // Next write position (newest element + 1)
 };
 
 } // namespace openspectrum

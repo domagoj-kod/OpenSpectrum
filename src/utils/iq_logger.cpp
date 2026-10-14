@@ -351,7 +351,7 @@ std::string IqLogger::generate_metadata_json() const {
   ss << R"(    "timestamp_iso8601": ")" << m_start_iso8601 << "\",\n";
   ss << "    \"timestamp_unix\": " << m_start_time << ",\n";
   ss << "    \"duration_seconds\": " << duration << ",\n";
-  ss << "    \"sample_format\": \""
+  ss << R"(    "sample_format": ")"
      << (m_config.format == IqSampleFormat::CS16 ? "cs16_le" : "cf32_le")
      << "\",\n";
   ss << "    \"sample_count\": " << m_stats.sample_count << ",\n";
@@ -392,7 +392,7 @@ std::string IqLogger::generate_metadata_json() const {
   // Environment
   ss << "  \"environment\": {\n";
   ss << "    \"application\": \"OpenSpectrum\",\n";
-  ss << "    \"version\": \"" << OS_STRINGIFY(OPENSPECTRUM_VERSION) << "\",\n";
+  ss << R"(    "version": ")" << OS_STRINGIFY(OPENSPECTRUM_VERSION) << "\",\n";
 #ifdef _WIN32
   ss << "    \"platform\": \"Windows\"\n";
 #elif __APPLE__

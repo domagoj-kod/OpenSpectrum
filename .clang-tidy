@@ -4,7 +4,10 @@
 # DSP/colour/bitmask constants, no auto-fix) and cppcoreguidelines-owning-memory
 # (objects to the deliberate cache-line-aligned raw-buffer design). Kept
 # cppcoreguidelines-special-member-functions (Rule-of-5 catches real lifetime
-# bugs). Not in here: modernize-use-emplace, which breaks most things it touches.
+# bugs), with the options below so it only flags a class that really can be
+# copied (it found FFTFrame, which freed its buffer twice on copy). Not in
+# here: modernize-use-emplace, which breaks most things it touches, and
+# modernize-use-nodiscard (19 getters, no bug it would catch).
 Checks: '-*,
   bugprone-macro-parentheses,
   bugprone-redundant-branch-condition,
@@ -27,7 +30,6 @@ Checks: '-*,
   modernize-use-bool-literals,
   modernize-use-default-member-init,
   modernize-use-equals-default,
-  modernize-use-nodiscard,
   modernize-use-nullptr,
   modernize-use-override,
   modernize-use-std-numbers,
@@ -48,6 +50,11 @@ Checks: '-*,
   readability-redundant-smartptr-get,
   readability-redundant-string-cstr,
   readability-static-accessed-through-instance'
+CheckOptions:
+  cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor: true
+  cppcoreguidelines-special-member-functions.AllowMissingMoveFunctions: true
+  cppcoreguidelines-special-member-functions.AllowMissingMoveFunctionsWhenCopyIsDeleted: true
+  cppcoreguidelines-special-member-functions.AllowImplicitlyDeletedCopyOrMove: true
 WarningsAsErrors: ''
 # Search semantics (no leading '^'): matches the absolute paths that
 # compile_commands.json carries, so header diagnostics are actually emitted.

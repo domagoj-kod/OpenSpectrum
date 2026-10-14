@@ -25,14 +25,14 @@ auto ControlState::window_supported(WindowFunction w) const -> bool {
 
 // Format window function name for display
 static auto format_window(WindowFunction w) -> std::string {
-  return std::string(SignalProcessor::window_function_to_string(w));
+  return SignalProcessor::window_function_to_string(w);
 }
 
 // Format gain value
 auto ControlState::format_gain(float db) -> std::string {
   char buffer[32];
   snprintf(buffer, sizeof(buffer), "%.1f dB", db);
-  return std::string(buffer);
+  return buffer;
 }
 
 // Setters for initial configuration
