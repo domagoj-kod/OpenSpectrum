@@ -55,12 +55,8 @@ static std::atomic<bool> g_running{true};
 
 // IQ capture tap. The logger lives in main(); the callback writes raw samples
 // to it BEFORE the drain-to-newest throttle, so captures are full-rate, not
-// one frame per render tick. g_iq_capturing gates the hot path so an idle
-// callback never touches the logger's mutex; the logger's own mutex remains the
-// correctness boundary (write_samples no-ops if a concurrent stop_capture
-// already closed the file).
+// one frame per render tick.
 static IqLogger *g_iq_logger = nullptr;
-static std::atomic<bool> g_iq_capturing{false};
 
 // FTZ + DAZ on the calling thread. Eliminates the ~100-cycle microcode trap
 // every time a denormal float is produced or consumed — common in dB spectra
@@ -95,9 +91,9 @@ static void async_sample_callback(SampleQueue &queue,
 
   // Faithful IQ capture: tap the full producer stream here, before the render
   // loop's drain-to-newest throttle discards any backlog. This only copies into
-  // the logger's ring; the disk is written on the logger's own thread.
-  if (samples_frame && g_iq_capturing.load(std::memory_order_relaxed) &&
-      g_iq_logger != nullptr) {
+  // the logger's ring; the disk is written on the logger's own thread. Idle,
+  // write_samples returns without taking a lock.
+  if (samples_frame && g_iq_logger != nullptr) {
     g_iq_logger->write_samples(samples_frame.data(), samples_frame.size());
   }
 
@@ -326,12 +322,10 @@ auto main(int argc, char *argv[]) -> int {
         LOG_ERROR("IQ logging could not start");
         return;
       }
-      g_iq_capturing.store(true, std::memory_order_relaxed);
       iq_capture_start = std::chrono::steady_clock::now();
       LOG_INFO("IQ logging started: " + iq_logger.get_data_filename());
     };
     auto stop_capture = [&] {
-      g_iq_capturing.store(false, std::memory_order_relaxed);
       iq_logger.set_dropped_samples(source->dropped_samples() -
                                     drops_at_capture_start);
       iq_logger.stop_capture();
@@ -602,7 +596,7 @@ auto main(int argc, char *argv[]) -> int {
       // === 1.2.5. Check for IQ logging toggle request ===
       if (control_state.iq_logging_toggle_requested()) {
         control_state.clear_iq_logging_toggle();
-        if (g_iq_capturing.load(std::memory_order_relaxed)) {
+        if (iq_logger.is_capturing()) {
           stop_capture();
           LOG_INFO("IQ logging stopped");
         } else {
@@ -663,14 +657,13 @@ auto main(int argc, char *argv[]) -> int {
 
       // IQ logging status, every frame: the panel caches text by string, so an
       // unchanged "REC 12s" costs a lookup.
-      if (g_iq_capturing.load(std::memory_order_relaxed) &&
-          !iq_logger.is_capturing()) {
-        // The logger ended the capture itself: a short write (disk full).
+      if (iq_logger.is_capturing() && iq_logger.write_failed()) {
+        // A short write (disk full) ended the writing.
         stop_capture();
         iq_capture_failed = true;
         LOG_ERROR("IQ capture ended early on a write error");
       }
-      if (g_iq_capturing.load(std::memory_order_relaxed)) {
+      if (iq_logger.is_capturing()) {
         auto const seconds = std::chrono::duration_cast<std::chrono::seconds>(
             std::chrono::steady_clock::now() - iq_capture_start);
         // Kept short to fit the panel column.
@@ -1024,8 +1017,7 @@ auto main(int argc, char *argv[]) -> int {
       }
 
       // === 9. Check for IQ capture duration expiry ===
-      if (g_iq_capturing.load(std::memory_order_relaxed) &&
-          config.iq_capture_duration > 0.0) {
+      if (iq_logger.is_capturing() && config.iq_capture_duration > 0.0) {
         double const elapsed =
             std::chrono::duration<double>(std::chrono::steady_clock::now() -
                                           iq_capture_start)
@@ -1043,7 +1035,7 @@ auto main(int argc, char *argv[]) -> int {
 
     // Stop IQ capture if still running. The producer is already stopped
     // above, so no callback can race the gate here.
-    if (g_iq_capturing.load(std::memory_order_relaxed)) {
+    if (iq_logger.is_capturing()) {
       stop_capture();
     }
 

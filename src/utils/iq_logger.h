@@ -73,9 +73,17 @@ public:
   // Stop current capture and finalize files
   void stop_capture();
 
-  // False once a short write has ended the capture; stop_capture() then
+  // True from a successful start_capture() until stop_capture(), also after a
+  // short write ended the writing (see write_failed()).
+  bool is_capturing() const noexcept {
+    return m_capturing.load(std::memory_order_relaxed);
+  }
+
+  // A short write (disk full) has ended the writing; stop_capture() still
   // finalizes the sidecar.
-  bool is_capturing() const noexcept;
+  bool write_failed() const noexcept {
+    return m_write_error.load(std::memory_order_relaxed);
+  }
 
   // Set completion callback
   void set_complete_callback(IqLoggerCompleteCallback cb);
@@ -151,8 +159,10 @@ private:
   std::thread m_writer;
 
   // State. m_push_mutex keeps stop_capture() from releasing the ring under a
-  // producer mid-copy; it is never held across I/O.
-  bool m_capturing = false;
+  // producer mid-copy; it is never held across I/O. m_capturing is changed
+  // only under it, and is atomic so an idle write_samples() can return
+  // without taking the mutex: the producer calls it for every delivery.
+  std::atomic<bool> m_capturing{false};
   std::mutex m_push_mutex;
 };
 

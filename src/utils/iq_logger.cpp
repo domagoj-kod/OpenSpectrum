@@ -176,8 +176,8 @@ void IqLogger::flush_buffer() {
       m_stats.duration_seconds = get_unix_timestamp() - m_start_time;
       std::fclose(m_data_file);
       m_data_file = nullptr;
-      // main sees is_capturing() go false and calls stop_capture(), which
-      // writes the sidecar.
+      // main sees write_failed() and calls stop_capture(), which writes the
+      // sidecar.
       m_write_error.store(true, std::memory_order_relaxed);
     }
     m_buffer_pos = 0;
@@ -201,8 +201,11 @@ void IqLogger::append_bytes(const uint8_t *data, size_t size) {
 }
 
 void IqLogger::write_samples(const std::complex<float> *samples, size_t count) {
+  if (!m_capturing.load(std::memory_order_relaxed)) {
+    return; // idle: the common case, and no lock taken
+  }
   std::lock_guard<std::mutex> lock(m_push_mutex);
-  if (!m_capturing || count == 0) {
+  if (!m_capturing.load(std::memory_order_relaxed) || count == 0) {
     return;
   }
 
@@ -316,10 +319,6 @@ void IqLogger::stop_capture() {
   if (m_complete_cb) {
     m_complete_cb(m_data_filename, m_metadata_filename);
   }
-}
-
-bool IqLogger::is_capturing() const noexcept {
-  return m_capturing && !m_write_error.load(std::memory_order_relaxed);
 }
 
 void IqLogger::set_complete_callback(IqLoggerCompleteCallback cb) {

@@ -32,11 +32,14 @@ auto main() -> int {
   // what must hold of the file. The drops are the point, so their warning is
   // muted.
   Logger::get_instance().set_level(LogLevel::ERROR);
-  bool const started = logger.start_capture(0, 2000, 0.0F);
-  assert(started);
   constexpr size_t kBatch = 333;
   constexpr size_t kBatches = 12;
   std::vector<std::complex<float>> batch(kBatch);
+  // Idle, a write is a no-op (the producer calls it for every delivery).
+  logger.write_samples(batch.data(), kBatch);
+  assert(!logger.is_capturing());
+  bool const started = logger.start_capture(0, 2000, 0.0F);
+  assert(started && logger.is_capturing() && !logger.write_failed());
   for (size_t b = 0; b < kBatches; ++b) {
     for (size_t k = 0; k < kBatch; ++k) {
       batch[k] = {static_cast<float>(b * kBatch + k), 0.0F};
@@ -47,6 +50,8 @@ auto main() -> int {
     }
   }
   logger.stop_capture();
+  assert(!logger.is_capturing() && !logger.write_failed());
+  logger.write_samples(batch.data(), kBatch); // stopped: a no-op again
 
   // The file holds whole batches, in order, each one intact.
   std::vector<std::complex<float>> got(kBatch * kBatches);
