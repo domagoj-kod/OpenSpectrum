@@ -153,13 +153,12 @@ auto main(int argc, char *argv[]) -> int {
 
   try {
     // 1. Initialize SDL3 renderer FIRST (before hardware)
-    // VSYNC on: the render loop does ~3.5 ms of work per frame at the 4096
-    // default and ~9 ms at 65536 (T470, cpu+render_build+present), far inside a
-    // 33 ms frame at --max-fps 30, and is sample-delivery bound (~62 lines/s) —
-    // so there is ample headroom to cap at the display refresh. Without vsync,
-    // presenting ~62 fps into a 60 Hz panel
-    // tears and beats at ~2 Hz — visible as a periodic waterfall "blink" and a
-    // doubled spectrum peak while tuning.
+    // VSYNC on: the render loop's work per frame is far inside a 33 ms frame
+    // at every FFT size (docs/MEASUREMENTS.md) and it is sample-delivery bound
+    // (~62 lines/s), so there is ample headroom to cap at the display refresh.
+    // Without vsync, presenting ~62 fps into a 60 Hz panel tears and beats at
+    // ~2 Hz — visible as a periodic waterfall "blink" and a doubled spectrum
+    // peak while tuning.
     SdlRenderer renderer(DISPLAY_WIDTH, DISPLAY_HEIGHT, "OpenSpectrum SDR");
     if (!renderer.is_valid()) {
       LOG_ERROR("Failed to initialize SDL3 renderer");

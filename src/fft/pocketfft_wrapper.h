@@ -10,9 +10,8 @@
 // 0.
 //
 // The rebuild is O(N) against an O(N log N) transform, so it costs most where
-// the transform is cheapest: on a 15 W i5-7300U it is worth 0.55 -> 0.47 ms at
-// the 4096 default, and nothing resolvable at 32768/65536. Method and full
-// numbers: docs/TECHNICAL.md, "Finding: PocketFFT plan cache".
+// the transform is cheapest: it is measurable at the 4096 default and not at
+// 32768/65536 (docs/MEASUREMENTS.md, "FFT sweep, v3.9.0 vs v3.9.1").
 //
 // One entry, not ten: exactly one FFT size is live at a time, so a size change
 // is the only miss and it already reallocates everything. 10 measured no faster
