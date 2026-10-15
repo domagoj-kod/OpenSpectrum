@@ -102,7 +102,7 @@ Vulkan on old Intel iGPUs is several times slower.
 - Conventional Commits: `type(scope): summary`, types `feat fix perf refactor
   docs test build ci chore style`. Subject at most 72 characters, imperative,
   lowercase, no full stop. Body wrapped at 76: what changed, why, how it was
-  checked. No AI attribution trailers.
+  checked.
 - Nothing is pushed, tagged or force-pushed without the maintainer's word, and
   nothing reaches the remote before it has run on the target.
 
