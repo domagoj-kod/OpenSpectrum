@@ -22,9 +22,10 @@ live in `docs/MEASUREMENTS.md`.
 - [ ] **Rare small losses on the B210 below the host ceiling.** Six of 28
   captures of 20 s lost one burst each (one UHD `O`, 8 to 132 thousand
   samples), at 4, 8 and 16 MS/s and at both FFT sizes, so neither explains it
-  (Windows sweep, 2026-10-14, in `docs/MEASUREMENTS.md`). Next: the same sweep
-  without `--iq-log`, counting `O` in the logs, to tell the capture writer
-  (`IqLogger::write_samples` runs on the receive thread) from the host.
+  (Windows sweep, 2026-10-14, in `docs/MEASUREMENTS.md`). Not the capture
+  writer: without `--iq-log` five runs at 16 MS/s / 65536 still showed 0 to 2
+  `O` each, and the write has run on the logger's own thread since `6fce657`.
+  Next: log when each gap happens, and the same sweep on another host.
 - [ ] **Run the RTL-SDR on the source interface.** `SampleSource` and 64-bit
   tuning were merged without a live RTL run (the dongle was away): a 30 s
   `--iq-log` capture, then `dropped_samples`, size and measured rate in the
