@@ -317,6 +317,38 @@ WSL2 the device needs `usbipd attach --wsl --auto-attach` (it re-enumerates
 after the firmware load), and the rates measured there are those of USB/IP,
 not of the receiver.
 
+On native Windows a `UHD=1` build links MSYS2's `libuhd`
+(`mingw-w64-ucrt-x86_64-libuhd`, `-boost`) and the bundle carries
+`libuhd.dll`; the driver, the device images and the tools come from Ettus:
+
+1. **Driver.** From Ettus's `erllc_uhd_winusb_driver.zip`, in an elevated
+   prompt: `pnputil /add-driver <folder>\erllc_uhd_b200.inf /install`. The
+   `.cat` file must be in the same folder as the `.inf`. A device attached to
+   WSL needs `usbipd unbind --busid <id>` first.
+2. **Images and tools.** Ettus's Windows installer of the same UHD version as
+   the bundle's `libuhd.dll`: UHD loads the firmware and FPGA image on every
+   power-up, and they must match the library. Only 4.8.0 has been tested, on
+   both sides. The program's log prints the loaded library's version when the
+   device opens (`UHD_4.8.0.0-...`); `uhd_config_info --version` prints the
+   installer's. The installer leaves `UHD_IMAGES_DIR` unset; with its
+   default folder:
+
+   ```powershell
+   $uhd = "C:\Program Files\UHD"   # the folder chosen in the installer
+   $env:UHD_IMAGES_DIR = "$uhd\share\uhd\images"
+   $env:Path += ";$uhd\bin"
+   uhd_config_info --version
+   uhd_find_devices --args type=b200
+   & "$uhd\lib\uhd\examples\benchmark_rate.exe" --args type=b200 --rx_rate 10e6 --duration 20
+   ```
+
+3. **Run** from the bundle folder: `.\openspectrum.exe --device uhd -f 2440000000
+   -r 8e6`. `uhd-sweep.ps1` and `play-bench.ps1` in `UHD=1` bundles repeat the
+   loss sweep and the frame timing in [MEASUREMENTS.md](MEASUREMENTS.md).
+
+Nothing goes into the RX input by cable without at least 30 dB of
+attenuation, and TX stays off.
+
 ## Security hardening
 
 Builds compile with these flags by default:
