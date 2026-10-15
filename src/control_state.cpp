@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "control_state.h"
-#include "format.h"
-#include "sample_source.h"
-#include "signal_processor.h"
+#include "hardware/sample_source.h"
+#include "signal/signal_processor.h"
+#include "utils/format.h"
 
 #include <algorithm>
 #include <cstddef>

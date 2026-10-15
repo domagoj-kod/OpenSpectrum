@@ -2,7 +2,7 @@
 // Pins the zero-pad that 1.09 GHz collapsing to "1.9 GHz" slipped past.
 
 #undef NDEBUG // these are asserts; they must not compile out
-#include "format.h"
+#include "utils/format.h"
 
 #include <cassert>
 

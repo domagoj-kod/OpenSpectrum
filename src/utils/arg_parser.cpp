@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "arg_parser.h"
-#include "signal_processor.h"
+#include "utils/arg_parser.h"
+#include "signal/signal_processor.h"
 
 #include <algorithm>
 #include <cctype>

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "sdl_control_input.h"
+#include "gui/sdl_control_input.h"
 #include "control_state.h"
-#include "format.h"
-#include "logger.h"
-#include "signal_processor.h"
+#include "signal/signal_processor.h"
+#include "utils/format.h"
+#include "utils/logger.h"
 
 #include <algorithm>
 #include <cstddef>

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "spectrum_display.h"
+#include "visualization/spectrum_display.h"
 
 #include <algorithm>
 #include <cmath>

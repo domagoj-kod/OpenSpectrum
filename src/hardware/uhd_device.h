@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
-#include "frame_pool.h"
-#include "sample_source.h"
+#include "hardware/sample_source.h"
+#include "utils/frame_pool.h"
 
 #include <atomic>
 #include <cstdint>

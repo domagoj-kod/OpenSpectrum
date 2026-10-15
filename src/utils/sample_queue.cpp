@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "sample_queue.h"
+#include "utils/sample_queue.h"
 
-#include "logger.h"
+#include "utils/logger.h"
 
 #include <algorithm>
 #include <string>

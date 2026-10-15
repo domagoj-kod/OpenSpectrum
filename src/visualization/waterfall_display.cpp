@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "waterfall_display.h"
+#include "visualization/waterfall_display.h"
 
 #include <algorithm>
 #include <cassert>

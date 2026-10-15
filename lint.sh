@@ -30,13 +30,11 @@ for tool in "$CLANG_FORMAT" "$CLANG_TIDY"; do
   command -v "$tool" >/dev/null || { echo "lint.sh: $tool not found" >&2; exit 2; }
 done
 
-# Mirrors the Makefile's INCLUDES (per-module dirs are required — e.g.
-# control_state.h does #include "signal_processor.h", which lives in src/signal).
+# Mirrors the Makefile's INCLUDES.
 FLAGS=(
   -std=c++20
   -isystem third_party -isystem third_party/pocketfft -isystem third_party/stb
-  -Isrc -Isrc/hardware -Isrc/signal -Isrc/fft -Isrc/visualization
-  -Isrc/utils -Isrc/gui
+  -Isrc
 )
 read -ra SDL_FLAGS <<<"$(pkg-config --cflags sdl3 2>/dev/null || true)"
 FLAGS+=("${SDL_FLAGS[@]}")

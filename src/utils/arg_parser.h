@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
-#include "attributes.h"
-#include "iq_logger.h"
-#include "signal_processor.h"
+#include "signal/signal_processor.h"
+#include "utils/attributes.h"
+#include "utils/iq_logger.h"
 
 #include <string>
 

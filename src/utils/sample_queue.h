@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
-#include "frame_pool.h"
+#include "utils/frame_pool.h"
 
 #include <chrono>
 #include <condition_variable>

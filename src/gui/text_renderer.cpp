@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "text_renderer.h"
+#include "gui/text_renderer.h"
 
 #include <cstddef>
 #include <cstdint>

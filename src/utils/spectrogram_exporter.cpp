@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "spectrogram_exporter.h"
+#include "utils/spectrogram_exporter.h"
 
-#include "format.h"
-#include "time_utils.h"
+#include "utils/format.h"
+#include "utils/time_utils.h"
 
 #include <cstdio>
 #include <filesystem>

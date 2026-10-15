@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "iq_playback.h"
-#include "logger.h"
+#include "hardware/iq_playback.h"
+#include "utils/logger.h"
 
 #include <chrono>
 #include <cmath>

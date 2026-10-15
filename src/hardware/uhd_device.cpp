@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "uhd_device.h"
-#include "logger.h"
+#include "hardware/uhd_device.h"
+#include "utils/logger.h"
 
 #include <cassert>
 #include <cmath>

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "logger.h"
+#include "utils/logger.h"
 
-#include "time_utils.h"
+#include "utils/time_utils.h"
 
 #include <chrono>
 #include <ctime>

@@ -5,7 +5,7 @@
 #include <span>
 #include <vector>
 
-#include "attributes.h"
+#include "utils/attributes.h"
 
 namespace openspectrum {
 

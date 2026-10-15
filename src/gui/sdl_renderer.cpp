@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "sdl_renderer.h"
-#include "sdl_control_input.h"
-#include "text_renderer.h"
+#include "gui/sdl_renderer.h"
+#include "gui/sdl_control_input.h"
+#include "gui/text_renderer.h"
+#include "utils/logger.h"
 
 #include <algorithm>
 #include <cassert>
@@ -29,7 +30,6 @@
 #include <SDL3/SDL_scancode.h>
 #include <SDL3/SDL_stdinc.h>
 #include <SDL3/SDL_video.h>
-#include <logger.h>
 
 namespace openspectrum {
 

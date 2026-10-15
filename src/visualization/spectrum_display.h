@@ -6,7 +6,7 @@
 #include <limits>
 #include <vector>
 
-#include "attributes.h"
+#include "utils/attributes.h"
 
 // Forward declaration for SDL types
 #include <SDL3/SDL.h>

@@ -146,10 +146,10 @@ GUI_DIR := $(SRC_DIR)/gui
 
 # Include paths
 # -isystem: vendored headers are not ours to fix, and their warnings (47 from
-# PocketFFT alone) would bury the ones that are.
-INCLUDES := -isystem $(THIRD_PARTY) -isystem $(THIRD_PARTY)/pocketfft -isystem $(THIRD_PARTY_STB) -I$(SRC_DIR) -I$(HARDWARE_DIR) \
-            -I$(SIGNAL_DIR) -I$(FFT_DIR) -I$(VIS_DIR) -I$(UTILS_DIR) \
-            -I$(GUI_DIR) $(SDL3_CFLAGS)
+# PocketFFT alone) would bury the ones that are. Only src/ itself: every
+# project include is its path from there ("utils/logger.h").
+INCLUDES := -isystem $(THIRD_PARTY) -isystem $(THIRD_PARTY)/pocketfft \
+            -isystem $(THIRD_PARTY_STB) -I$(SRC_DIR) $(SDL3_CFLAGS)
 
 # Source files
 HARDWARE_SRCS := $(wildcard $(HARDWARE_DIR)/*.cpp)

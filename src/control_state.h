@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
-#include "signal_processor.h"
+#include "signal/signal_processor.h"
 
 #include <cstddef>
 #include <cstdint>

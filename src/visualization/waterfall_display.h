@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
-#include "attributes.h"
-#include "ring_buffer.h"
-#include "spectrum_display.h"
+#include "utils/attributes.h"
+#include "utils/ring_buffer.h"
+#include "visualization/spectrum_display.h"
 
 #include <cstdint>
 #include <vector>

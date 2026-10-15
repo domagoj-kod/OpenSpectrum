@@ -3,8 +3,8 @@
 // checked.
 
 #undef NDEBUG // these are asserts; they must not compile out
-#include "iq_logger.h"
-#include "logger.h"
+#include "utils/iq_logger.h"
+#include "utils/logger.h"
 
 #include <cassert>
 #include <chrono>

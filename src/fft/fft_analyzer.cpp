@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include "fft_analyzer.h"
+#include "fft/fft_analyzer.h"
 
 #include <cmath>
 #include <complex>

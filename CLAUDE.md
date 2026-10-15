@@ -33,7 +33,7 @@ Release flags: `-march=haswell` (AVX2+FMA3), `-flto`, `-ffunction-sections -fdat
 ./lint.sh --check    # change nothing; non-zero exit if anything is flagged
 UHD=1 ./lint.sh      # also tidy uhd_device.cpp (needs the UHD headers)
 ```
-It fails if `clang-format` or `clang-tidy` is missing (Ubuntu: `apt install clang-tidy`). Its include flags mirror the Makefile's `INCLUDES`; the **per-module dirs are required** (e.g. `control_state.h` includes `signal_processor.h` from `src/signal/`) — a bare `-Isrc -Iinclude` yields `file not found`.
+It fails if `clang-format` or `clang-tidy` is missing (Ubuntu: `apt install clang-tidy`). Its include flags mirror the Makefile's `INCLUDES`: only `-Isrc` (plus `-isystem` for `third_party/`), because **every project include is its path from `src/`** — `#include "utils/logger.h"`, `"signal/signal_processor.h"`, `"control_state.h"`, even from a file in the same directory. A bare `"logger.h"` fails to compile, which is the point.
 
 **Header-dep tracking**: compile rules pass `DEPFLAGS := -MMD -MP` → a `.d` beside each `.o`, `-included` at the Makefile bottom, so editing a header rebuilds dependents. `DEPFLAGS` is kept **separate from `CXXFLAGS`** because `release`/`profile*` override `CXXFLAGS` via recursive make and would strip it. A new compile rule must append `$(DEPFLAGS)`.
 

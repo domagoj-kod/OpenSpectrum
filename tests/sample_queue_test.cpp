@@ -3,9 +3,9 @@
 // consecutive samples, and the render loop gets only the newest.
 
 #undef NDEBUG // these are asserts; they must not compile out
-#include "frame_pool.h"
-#include "logger.h"
-#include "sample_queue.h"
+#include "utils/frame_pool.h"
+#include "utils/logger.h"
+#include "utils/sample_queue.h"
 
 #include <cassert>
 #include <chrono>
