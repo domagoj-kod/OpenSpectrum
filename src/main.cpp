@@ -13,6 +13,7 @@
 #include "utils/arg_parser.h"
 #include "utils/format.h"
 #include "utils/frame_pool.h"
+#include "utils/frame_timing.h"
 #include "utils/iq_logger.h"
 #include "utils/logger.h"
 #include "utils/sample_queue.h"
@@ -28,7 +29,6 @@
 #include <csignal>
 #include <cstddef>
 #include <cstdint>
-#include <cstdio>
 #include <exception>
 #include <memory>
 #include <span>
@@ -420,44 +420,8 @@ auto main(int argc, char *argv[]) -> int {
     // though no new lines are added. Captured each live frame; reused frozen.
     double frozen_wf_top_seconds = 0.0;
 
-    // === Frame-timing instrumentation (debug branch) ===
-    // Splits each rendered frame into three wall-clock phases and logs rolling
-    // per-second averages + maxima, to localize the Linux-vs-Windows throughput
-    // gap. Only full frames (got_samples) are measured, since those are what
-    // advance the waterfall. Promote to a keyboard-toggled on-screen overlay
-    // later if the numbers prove useful.
-    //   cpu          : remove_dc + apply_window + FFT + display updates
-    //   render_build : SDL draw calls + texture upload + render-target switches
-    //   present      : SDL_RenderPresent (swap/flush)
-    using timing_clock = std::chrono::steady_clock;
-    struct PhaseStat {
-      double sum_ms = 0.0;
-      double max_ms = 0.0;
-      void add(double ms) {
-        sum_ms += ms;
-        if (ms > max_ms) {
-          max_ms = ms;
-        }
-      }
-      void reset() {
-        sum_ms = 0.0;
-        max_ms = 0.0;
-      }
-    };
-    PhaseStat ts_cpu;
-    PhaseStat ts_render;
-    PhaseStat ts_present;
-    uint64_t timing_frames = 0;
-    auto timing_window_start = timing_clock::now();
-    auto timing_ms = [](timing_clock::time_point a,
-                        timing_clock::time_point b) {
-      return std::chrono::duration<double, std::milli>(b - a).count();
-    };
-    // Latest per-second snapshot, surfaced to the on-screen overlay ('T' key).
-    double ov_fps = 0.0;
-    double ov_cpu = 0.0;
-    double ov_build = 0.0;
-    double ov_present = 0.0;
+    FrameTiming frame_timing;
+    using timing_clock = FrameTiming::clock;
 
     // Pending spectrogram export. The 'e' key arms a renderer-side capture of
     // the next fully composited frame (base + axis/freq/HUD overlays); the
@@ -682,7 +646,9 @@ auto main(int argc, char *argv[]) -> int {
                                       spectrum_display.height());
 
       // Push the latest timing snapshot for the panel's always-on PERF block.
-      renderer.set_timing_overlay(ov_fps, ov_cpu, ov_build, ov_present);
+      FrameTiming::Averages const &perf = frame_timing.averages();
+      renderer.set_timing_overlay(perf.fps, perf.cpu_ms, perf.render_build_ms,
+                                  perf.present_ms);
 
       // Left-margin axes: live dB range from the spectrum, and the age of the
       // oldest visible waterfall row (0 while history is still too short → the
@@ -973,44 +939,10 @@ auto main(int argc, char *argv[]) -> int {
       }
       auto t_render_end = timing_clock::now();
 
-      // === 8. Frame-timing accumulation + per-second report (debug branch) ===
-      {
-        double const present_ms = renderer.last_present_ms();
-        double render_build_ms =
-            timing_ms(t_render_start, t_render_end) - present_ms;
-        if (render_build_ms < 0.0) {
-          render_build_ms = 0.0; // clock skew guard
-        }
-        ts_cpu.add(timing_ms(t_cpu_start, t_cpu_end));
-        ts_render.add(render_build_ms);
-        ts_present.add(present_ms);
-        ++timing_frames;
-
-        double const window_s = std::chrono::duration<double>(
-                                    timing_clock::now() - timing_window_start)
-                                    .count();
-        if (window_s >= 1.0 && timing_frames > 0) {
-          double const inv = 1.0 / static_cast<double>(timing_frames);
-          ov_fps = static_cast<double>(timing_frames) / window_s;
-          ov_cpu = ts_cpu.sum_ms * inv;
-          ov_build = ts_render.sum_ms * inv;
-          ov_present = ts_present.sum_ms * inv;
-          char line[256];
-          std::snprintf(
-              line, sizeof(line),
-              "FRAME-TIMING fps=%.1f frames=%llu | cpu avg=%.2f max=%.2f | "
-              "render_build avg=%.2f max=%.2f | present avg=%.2f max=%.2f (ms)",
-              ov_fps, static_cast<unsigned long long>(timing_frames), ov_cpu,
-              ts_cpu.max_ms, ov_build, ts_render.max_ms, ov_present,
-              ts_present.max_ms);
-          LOG_INFO(std::string(line));
-          ts_cpu.reset();
-          ts_render.reset();
-          ts_present.reset();
-          timing_frames = 0;
-          timing_window_start = timing_clock::now();
-        }
-      }
+      // === 8. Frame timing (logged once a second) ===
+      frame_timing.add(FrameTiming::ms(t_cpu_start, t_cpu_end),
+                       FrameTiming::ms(t_render_start, t_render_end),
+                       renderer.last_present_ms());
 
       // === 9. Check for IQ capture duration expiry ===
       if (iq_logger.is_capturing() && config.iq_capture_duration > 0.0) {
