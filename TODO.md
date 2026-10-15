@@ -6,12 +6,10 @@ live in `docs/MEASUREMENTS.md`.
 
 ## Open
 
-- [ ] **The trigger fires above the drawn peak.** It compares the raw
-  `get_max_db()` (the panel's PEAK); the trace is averaged and a mean per
-  pixel column, a few dB lower, so a threshold set on the trace fires "early"
-  (2026-10-15: TRIG -68 dB, PEAK -63.1 dB, drawn peak about -72 dB). Raw is
-  right for catching bursts. Next: say in the README to set the threshold with
-  max-hold (`m`) on, and maybe label the raw peak by the trigger line.
+- [ ] **Maybe: label the raw peak by the trigger line.** The trigger compares
+  the raw `get_max_db()` (PEAK), a few dB above the drawn trace (2026-10-15:
+  TRIG -68 dB, PEAK -63.1 dB, drawn peak about -72 dB); the README now says
+  to set it with max-hold on.
 - [ ] **Rare small losses on the B210 below the host ceiling.** Six of 28
   captures of 20 s lost one burst each (one UHD `O`, 8 to 132 thousand
   samples), at 4, 8 and 16 MS/s and at both FFT sizes, so neither explains it

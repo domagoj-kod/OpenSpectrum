@@ -164,7 +164,10 @@ scales it to fill the window — resize or maximize freely, on any display from
 - **Shift + left-drag** in the spectrum pane sets the **amplitude trigger** — a
   dB threshold line. When a bin peak crosses it, the display **freezes** on the
   triggering frame; press **`Space`** to resume. Drag the line to the pane's
-  bottom edge to disarm.
+  bottom edge to disarm. The trigger compares the raw bin peak (the panel's
+  `PEAK`), which sits a few dB above the averaged trace: set the threshold
+  with max-hold (**`m`**) on, which draws that peak, and press **`x`** before
+  arming so the held peak starts below the line.
 
 ## License
 
