@@ -255,9 +255,7 @@ static void accumulate_selftest() {
 auto main(int argc, char *argv[]) -> int {
   enable_ftz_daz();
 #ifndef NDEBUG
-  format_frequency_selftest();
   accumulate_selftest();
-  iq_logger_selftest();
 #endif
 
   // Parse command-line arguments
@@ -281,9 +279,6 @@ auto main(int argc, char *argv[]) -> int {
               " - must be one of: " + list);
     return 1;
   }
-
-  // Initialize logging
-  Logger::get_instance().set_level(LogLevel::INFO);
 
   LOG_INFO("Starting SDR Spectrum Analyzer");
 

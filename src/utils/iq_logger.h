@@ -156,10 +156,4 @@ private:
   std::mutex m_push_mutex;
 };
 
-#ifndef NDEBUG
-// Debug builds run this at startup: a capture through a ring small enough to
-// wrap and to overflow, read back and checked.
-void iq_logger_selftest();
-#endif
-
 } // namespace openspectrum

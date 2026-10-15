@@ -17,16 +17,17 @@ make              # debug (O0, symbols, OPENSPECTRUM_DEBUG defined)
 make release      # O3 + LTO + -march=haswell + footprint trim + strip
 make profile      # O2 + gprof instrumentation
 make dist         # package a release bundle for the current platform → dist/
+make check        # build + run tests/ (assert programs)
 make clean
 ```
 
-Binary: `openspectrum` (Linux) / `openspectrum.exe` (Windows/MSYS2). No test suite; correctness is asserts under run-it validation, and performance is `./bench.sh <binary> <tag>` (FFT sweep + `perf` counters + the conditions the numbers only mean anything under — run it once per binary, same box, same session).
+Binary: `openspectrum` (Linux) / `openspectrum.exe` (Windows/MSYS2). `make check` builds and runs `tests/*_test.cpp`: plain programs of asserts, linked against every object but `main.o` (debug config; a new test is one new file). Invariants that must hold while the app runs stay as debug-only asserts in the code (run-it validation), and performance is `./bench.sh <binary> <tag>` (FFT sweep + `perf` counters + the conditions the numbers only mean anything under — run it once per binary, same box, same session).
 
 **Objects live in `build/$(CONFIG)/`** (`debug`/`release`/`profile`), and `all` *copies* that config's binary out to `./openspectrum`. Both details are load-bearing, because **make tracks source timestamps, not flags**. With a shared `build/`, `make release` after `make` saw the objects as up to date and relinked stale `-O0` objects into a release-named binary — a real bogus benchmark (4.68 ms vs 0.57 ms cpu) — and the reverse baked `-DNDEBUG` into a "debug" build, compiling out the asserts this project leans on for run-it validation. With a shared *binary path*, switching back skipped the link entirely (`./openspectrum` is newer than the other config's objects) and silently left the wrong build in place. Configs now coexist, switch correctly, and stay incremental. Quick tell: **~380 KB release, ~1.1 MB debug**. A new config must pass `CONFIG=` in its recursive-make line. `UHD=1` (USRP support, any config: `make release UHD=1`) adds a define, so for the same reason it builds in `build/$(CONFIG)-uhd/`; without it `uhd_device.cpp` is not compiled and nothing links UHD.
 
 Release flags: `-march=haswell` (AVX2+FMA3), `-flto`, `-ffunction-sections -fdata-sections -fvisibility=hidden -fvisibility-inlines-hidden` + `-Wl,--gc-sections`, `-falign-functions=32 -falign-loops=32` (hot loops in one DSB fetch line). See `TRIM_CFLAGS`/`TRIM_LDFLAGS` in the Makefile. `-s` (strip at link, release-only) drops the ~40K symbol table — there's no DWARF in the binary, so it costs nothing at runtime; debug/profile keep symbols for gdb/gprof.
 
-**Linting covers the whole tree** (`src/`; `third_party/` is vendored and built with `-isystem`, so its warnings stay out). The tree is clang-format and clang-tidy clean; keep it that way. The 8x16 font table is fenced with `// clang-format off`. Config in `.clang-tidy` / `.clang-format`. Wrapper:
+**Linting covers the whole tree** (`src/` and `tests/`; `third_party/` is vendored and built with `-isystem`, so its warnings stay out). The tree is clang-format and clang-tidy clean; keep it that way. The 8x16 font table is fenced with `// clang-format off`. Config in `.clang-tidy` / `.clang-format`. Wrapper:
 ```bash
 ./lint.sh            # format in place + clang-tidy
 ./lint.sh --check    # change nothing; non-zero exit if anything is flagged

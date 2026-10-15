@@ -181,10 +181,19 @@ MAIN_OBJ := $(BUILD_DIR)/main.o
 ALL_OBJS := $(HARDWARE_OBJS) $(SIGNAL_OBJS) $(FFT_OBJS) $(VIS_OBJS) \
             $(UTILS_OBJS) $(GUI_OBJS) $(CORE_OBJS) $(MAIN_OBJ)
 
+# Tests: each tests/*_test.cpp is a program of asserts, linked against every
+# object but main.o. `make check` builds and runs them all; one that fails
+# stops the rest.
+TEST_SRCS := $(wildcard tests/*_test.cpp)
+TEST_OBJS := $(patsubst tests/%.cpp,$(BUILD_DIR)/tests/%.o,$(TEST_SRCS))
+TEST_BINS := $(TEST_OBJS:.o=)
+# Kept: as intermediates of a chained rule make would delete them each run.
+.SECONDARY: $(TEST_OBJS)
+
 # Per-object dependency files (one .d beside each .o). The leading '-' silences
 # the missing-file noise on a clean build before any .d exists; `make clean`
 # wipes BUILD_DIR, so they're removed alongside the objects.
-DEPS := $(ALL_OBJS:.o=.d)
+DEPS := $(ALL_OBJS:.o=.d) $(TEST_OBJS:.o=.d)
 -include $(DEPS)
 
 # Copy the config's binary out to ./$(TARGET) rather than linking there
@@ -232,6 +241,16 @@ $(MAIN_OBJ): $(MAIN_SRC) | $(BUILD_DIR)
 $(BUILD_DIR)/$(TARGET): $(ALL_OBJS) $(RES_OBJ)
 	$(CXX) $^ -o $@ $(LDFLAGS)
 
+check: $(TEST_BINS)
+	@for t in $^; do echo ">> $$t"; ./$$t || exit 1; done
+
+$(BUILD_DIR)/tests/%.o: tests/%.cpp | $(BUILD_DIR)
+	@mkdir -p $(@D)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $(DEPFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/tests/%_test: $(BUILD_DIR)/tests/%_test.o $(filter-out $(MAIN_OBJ),$(ALL_OBJS))
+	$(CXX) $^ -o $@ $(LDFLAGS)
+
 # Windows: compile the icon resource (.rc -> COFF object). Gated on OS because
 # windres ships only with MinGW; off-Windows RES_OBJ is empty and this rule is
 # never read. Depends on the .ico so re-icon'ing rebuilds the resource.
@@ -257,4 +276,4 @@ clean:
 	rm -rf build $(TARGET)
 
 # Phony targets
-.PHONY: all clean dist release profile debug
+.PHONY: all check clean dist release profile debug

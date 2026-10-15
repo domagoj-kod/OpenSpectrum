@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Format and clang-tidy the whole tree: src/ (third_party/ is vendored and
+# Format and clang-tidy the whole tree: src/ and tests/ (third_party/ is vendored and
 # left alone). The font table in text_renderer.cpp is fenced with
 # clang-format off; everything else follows .clang-format.
 #
@@ -41,8 +41,8 @@ FLAGS=(
 read -ra SDL_FLAGS <<<"$(pkg-config --cflags sdl3 2>/dev/null || true)"
 FLAGS+=("${SDL_FLAGS[@]}")
 
-mapfile -t FILES < <(git ls-files 'src/*.cpp' 'src/*.h')
-mapfile -t UNITS < <(git ls-files 'src/*.cpp')
+mapfile -t FILES < <(git ls-files 'src/*.cpp' 'src/*.h' 'tests/*.cpp')
+mapfile -t UNITS < <(git ls-files 'src/*.cpp' 'tests/*.cpp')
 if [ "${UHD:-}" = 1 ]; then
   FLAGS+=(-DOPENSPECTRUM_UHD)
 else
