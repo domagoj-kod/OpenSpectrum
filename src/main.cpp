@@ -53,11 +53,6 @@ using namespace openspectrum;
 
 static std::atomic<bool> g_running{true};
 
-// IQ capture tap. The logger lives in main(); the callback writes raw samples
-// to it BEFORE the drain-to-newest throttle, so captures are full-rate, not
-// one frame per render tick.
-static IqLogger *g_iq_logger = nullptr;
-
 // FTZ + DAZ on the calling thread. Eliminates the ~100-cycle microcode trap
 // every time a denormal float is produced or consumed — common in dB spectra
 // near the noise floor. Per-thread MXCSR, so call from each thread.
@@ -80,7 +75,7 @@ static void signal_handler(int signum) {
 }
 
 // The producer thread's frame callback: every SampleSource calls it.
-static void async_sample_callback(SampleQueue &queue,
+static void async_sample_callback(SampleQueue &queue, IqLogger &iq_logger,
                                   FrameHandle samples_frame) {
   // The source owns this thread; set FTZ/DAZ once per worker on first entry.
   thread_local bool ftz_initialized = false;
@@ -90,11 +85,12 @@ static void async_sample_callback(SampleQueue &queue,
   }
 
   // Faithful IQ capture: tap the full producer stream here, before the render
-  // loop's drain-to-newest throttle discards any backlog. This only copies into
-  // the logger's ring; the disk is written on the logger's own thread. Idle,
+  // loop's drain-to-newest throttle discards any backlog, so captures are
+  // full-rate, not one frame per render tick. This only copies into the
+  // logger's ring; the disk is written on the logger's own thread. Idle,
   // write_samples returns without taking a lock.
-  if (samples_frame && g_iq_logger != nullptr) {
-    g_iq_logger->write_samples(samples_frame.data(), samples_frame.size());
+  if (samples_frame) {
+    iq_logger.write_samples(samples_frame.data(), samples_frame.size());
   }
 
   queue.push(std::move(samples_frame));
@@ -213,7 +209,6 @@ auto main(int argc, char *argv[]) -> int {
     }
     iq_logger_config.format = config.iq_format;
     IqLogger iq_logger(iq_logger_config);
-    g_iq_logger = &iq_logger; // producer-thread capture tap (see callback)
     std::chrono::steady_clock::time_point iq_capture_start;
 
     // Set up callback for when capture completes
@@ -233,8 +228,9 @@ auto main(int argc, char *argv[]) -> int {
     // 2. Initialize the sample source: RTL-SDR hardware, or file playback.
     // Both feed the same FrameHandle callback path; everything downstream is
     // source-agnostic.
-    auto frame_callback = [&sample_queue](FrameHandle samples_frame) {
-      async_sample_callback(sample_queue, std::move(samples_frame));
+    auto frame_callback = [&sample_queue,
+                           &iq_logger](FrameHandle samples_frame) {
+      async_sample_callback(sample_queue, iq_logger, std::move(samples_frame));
     };
 
     // The one place a receiver is chosen. Everything after this block talks
