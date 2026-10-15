@@ -119,7 +119,6 @@ void SignalProcessor::compute_flat_top() {
 }
 
 void SignalProcessor::apply_window(std::span<std::complex<float>> samples) {
-  // Security: ensure samples size matches window size
   if (samples.size() != m_fft_size) {
     precompute_window(samples.size());
   }
@@ -127,10 +126,8 @@ void SignalProcessor::apply_window(std::span<std::complex<float>> samples) {
   const size_t n = samples.size();
 
 #ifdef __AVX2__
-  // 4 complex samples = 8 floats per AVX register.
-  // Window is pre-doubled as [w0,w0,w1,w1,...], so it's a plain element-wise
-  // mul. data/win declared inside the guard so scalar builds don't warn them
-  // unused.
+  // 4 complex samples per AVX register; the doubled window makes it a plain
+  // element-wise multiply.
   auto *data = reinterpret_cast<float *>(samples.data());
   const float *win = m_window_coeffs_doubled.data();
   const size_t simd_n = n & ~size_t{3};
@@ -162,17 +159,13 @@ void SignalProcessor::remove_dc(std::span<std::complex<float>> samples) {
   float mean_imag = 0.0F;
 
 #ifdef __AVX2__
-  // data is the interleaved [r,i,...] float view; declared per-AVX2-block so
-  // scalar builds (which index samples[] directly) don't warn it unused.
   auto *data = reinterpret_cast<float *>(samples.data());
-  // Four independent accumulators break the latency chain (FMA/ADD lat=4-5,
-  // throughput=1 on Haswell — 4 chains saturate the port).
+  // Four independent accumulators break the add latency chain (Haswell).
   __m256 acc0 = _mm256_setzero_ps();
   __m256 acc1 = _mm256_setzero_ps();
   __m256 acc2 = _mm256_setzero_ps();
   __m256 acc3 = _mm256_setzero_ps();
 
-  // Process 16 complex floats (32 scalars) per iteration.
   const size_t simd_n = n & ~size_t{15};
   for (size_t i = 0; i < simd_n; i += 16) {
     acc0 = _mm256_add_ps(acc0, _mm256_loadu_ps(data + 2 * i));
@@ -183,7 +176,7 @@ void SignalProcessor::remove_dc(std::span<std::complex<float>> samples) {
   __m256 const acc =
       _mm256_add_ps(_mm256_add_ps(acc0, acc1), _mm256_add_ps(acc2, acc3));
 
-  // Lanes are interleaved [r,i,r,i,r,i,r,i]. Reduce to one (r,i) pair.
+  // Lanes are [r,i,r,i,...]: reduce to one (r,i) pair.
   alignas(32) float lanes[8];
   _mm256_store_ps(lanes, acc);
   mean_real = lanes[0] + lanes[2] + lanes[4] + lanes[6];
@@ -204,7 +197,6 @@ void SignalProcessor::remove_dc(std::span<std::complex<float>> samples) {
   mean_imag /= static_cast<float>(n);
 
 #ifdef __AVX2__
-  // data declared in the mean-computation block above (same function scope).
   __m256 const mean_vec =
       _mm256_setr_ps(mean_real, mean_imag, mean_real, mean_imag, mean_real,
                      mean_imag, mean_real, mean_imag);

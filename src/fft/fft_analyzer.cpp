@@ -15,9 +15,8 @@
 namespace openspectrum {
 
 #ifdef __AVX2__
-// Vectorized log10 for 8 positive floats. Range reduces x = m * 2^e and
-// computes log via 2 * atanh((m-1)/(m+1)). Polynomial through y^7 gives
-// max relative error ~1.7e-5 (~0.00015 dB) — well below display resolution.
+// Vectorized log10 for 8 positive floats: x = m * 2^e, log via
+// 2 * atanh((m-1)/(m+1)). Max relative error ~1.7e-5 (~0.00015 dB).
 static inline __m256 fast_log10_avx2(__m256 x) {
   __m256i const bits = _mm256_castps_si256(x);
   __m256i const exp_int = _mm256_sub_epi32(
@@ -52,32 +51,22 @@ static inline __m256 fast_log10_avx2(__m256 x) {
 
 FftAnalyzer::FftAnalyzer(size_t fft_size)
     : m_fft_size(fft_size), m_input_buffer(fft_size), m_output_buffer(fft_size),
-      // Complex IQ input → the FFT is two-sided: all N bins are meaningful and
-      // span the full [center-rate/2, center+rate/2]. (A real-input rfft would
-      // only need N/2+1, but truncating a complex transform to N/2+1 drops half
-      // the band and makes the spectrum 2x-zoomed vs the frequency axis.)
+      // Complex input: a two-sided FFT, all N bins span the full band.
+      // Truncating to N/2+1 would zoom the spectrum 2x against the axis.
       m_db_spectrum(fft_size) {
-  // Security: validate FFT size is a power of 2
   if (fft_size == 0 || (fft_size & (fft_size - 1)) != 0) {
     throw std::invalid_argument("FFT size must be a power of 2");
   }
 }
 
 void FftAnalyzer::execute(std::span<const std::complex<float>> input) {
-  // Security: validate input size
   if (input.size() != m_fft_size) {
     throw std::invalid_argument("Input size must match FFT size");
   }
 
-  // --- 1. Fill input buffer with the DC-centering sign trick --------------
-  // Multiplying the input by (-1)^n shifts the spectrum by N/2 so DC lands at
-  // screen center (see the note before step 3).
+  // Multiplying by (-1)^n shifts the spectrum by N/2: DC lands at the centre.
 #ifdef __AVX2__
-  // Sign pattern repeats every 2 complex samples ([+,+,-,-]) and is
-  // therefore constant across the 4-complex-wide AVX register. dst/src are
-  // declared inside the guard so scalar (non-AVX2, e.g. debug) builds don't
-  // warn on them being unused — the fallback below indexes the buffers
-  // directly.
+  // The sign pattern [+,+,-,-] is constant across a 4-complex AVX register.
   auto *dst = reinterpret_cast<float *>(m_input_buffer.data());
   const auto *src = reinterpret_cast<const float *>(input.data());
   __m256 const sign_vec =
@@ -100,23 +89,14 @@ void FftAnalyzer::execute(std::span<const std::complex<float>> input) {
   }
 #endif
 
-  // --- 2. Execute FFT ----------------------------------------------------
   pocketfft_forward(m_input_buffer, m_output_buffer);
 
-  // --- 3. DC centering is done by the pre-FFT sign trick -----------------
-  // Multiplying the input by (-1)^n shifts the spectrum by N/2, so DC already
-  // lands at bin N/2 (screen center) and bin 0 = center-rate/2. Do NOT also
-  // swap the output halves: that is a second fftshift, which cancels the first
-  // and leaves DC at bin 0 — misaligning the spectrum with the frequency axis
-  // by half the span. The full N two-sided bins below then map 1:1 onto the
-  // axis [center-rate/2, center+rate/2].
+  // DC is already at bin N/2 from the sign trick. Do NOT also swap the output
+  // halves: a second fftshift cancels the first and misaligns the spectrum by
+  // half the span.
 
-  // --- 4. Power / dB (no sqrt) -------------------------------------------
-  // dB is computed directly from power: 20·log10(sqrt(p)·c) = 10·log10(p·c²).
-  // Epsilon also squared so the power=0 case matches the prior formula.
-  // Two-sided complex spectrum: every one of the N bins is single-sided
-  // (scale=1). There is no negative-frequency mirror to fold in, so the
-  // real-rfft +6 dB doubling on bins 1..N/2-1 does NOT apply here.
+  // dB straight from power: 20 log10(sqrt(p) c) = 10 log10(p c^2), no sqrt.
+  // Two-sided, so no +6 dB doubling of bins 1..N/2-1 as for a real FFT.
   size_t const out_bins = m_fft_size;
   float const inv_ng =
       1.0F / (static_cast<float>(m_fft_size) * m_window_coherent_gain);
@@ -132,9 +112,7 @@ void FftAnalyzer::execute(std::span<const std::complex<float>> input) {
   __m256 const eps_sq_v = _mm256_set1_ps(eps_sq);
   __m256 const ten_v = _mm256_set1_ps(10.0F);
 
-  // Process 8 bins (16 floats / 2 AVX regs) per iteration over all N bins; the
-  // scalar tail below covers the remainder. No DC/Nyquist patch is needed since
-  // every bin uses the same scale.
+  // 8 bins per iteration; the scalar tail covers the rest.
   simd_bins = (out_bins / 8) * 8;
 
   for (size_t i = 0; i < simd_bins; i += 8) {
@@ -151,7 +129,6 @@ void FftAnalyzer::execute(std::span<const std::complex<float>> input) {
   }
 #endif
 
-  // Scalar tail (also covers the entire range on non-AVX2 builds).
   for (size_t i = simd_bins; i < out_bins; ++i) {
     float const r = m_output_buffer[i].real();
     float const im = m_output_buffer[i].imag();

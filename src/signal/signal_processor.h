@@ -9,7 +9,6 @@
 
 namespace openspectrum {
 
-// Supported window functions for spectral leakage reduction
 enum class WindowFunction {
   RECTANGLE,
   HANN,
@@ -24,18 +23,13 @@ public:
   OS_COLD explicit SignalProcessor(size_t fft_size);
   ~SignalProcessor() = default;
 
-  // Apply selected window function to samples (in-place).
-  // Takes a span so callers can process a pooled FrameHandle buffer directly
-  // without first copying it into a std::vector (a std::vector& binds here
-  // too).
+  // In place. A span, so a pooled FrameHandle buffer needs no copy.
   OS_HOT void apply_window(std::span<std::complex<float>> samples);
 
-  // Remove DC offset (mean subtraction), in-place.
+  // Mean subtraction, in place.
   OS_HOT static void remove_dc(std::span<std::complex<float>> samples);
 
-  // Set window function. Recomputes coefficients so the next apply_window()
-  // uses the new shape; keyboard-driven window changes would otherwise silently
-  // keep applying the previous window.
+  // Recomputes the coefficients for the next apply_window().
   void set_window(WindowFunction window) {
     if (window == m_window)
       return;
@@ -43,13 +37,11 @@ public:
     precompute_window(m_fft_size);
   }
 
-  // Pre-compute window coefficients for given size (runs only on size / window
-  // changes)
+  // Runs only on size or window changes.
   OS_COLD void precompute_window(size_t size);
 
   [[nodiscard]] size_t fft_size() const noexcept { return m_fft_size; }
 
-  // Coherent gain lookup
   static float get_coherent_gain(WindowFunction window) noexcept {
     switch (window) {
     case WindowFunction::RECTANGLE:
@@ -69,7 +61,6 @@ public:
     }
   }
 
-  // Convert window function enum to human-readable string
   static const char *window_function_to_string(WindowFunction window) noexcept {
     switch (window) {
     case WindowFunction::RECTANGLE:
@@ -93,8 +84,7 @@ private:
   size_t m_fft_size;
   WindowFunction m_window = WindowFunction::HANN;
   std::vector<float> m_window_coeffs;
-  // Window coefficients duplicated for complex multiply: [w0,w0,w1,w1,...]
-  // Lets the AVX2 hot path load window weights aligned to interleaved IQ data.
+  // [w0,w0,w1,w1,...]: the AVX2 path multiplies interleaved IQ element-wise.
   std::vector<float> m_window_coeffs_doubled;
 
   OS_COLD void compute_hann();
