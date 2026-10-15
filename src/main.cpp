@@ -37,9 +37,7 @@
 #include <thread>
 #include <vector>
 
-// SDL3 requires the file defining main() to include SDL_main.h (no longer
-// pulled in by SDL.h). A no-op on Linux; provides the entry-point shim on
-// platforms that need one (e.g. Windows GUI subsystem).
+// SDL3 wants SDL_main.h in the file that defines main().
 #include <SDL3/SDL_main.h>
 
 #if defined(__SSE__) || defined(_M_X64) || defined(_M_IX86_FP)
@@ -47,16 +45,12 @@
 #include <xmmintrin.h> // _MM_SET_FLUSH_ZERO_MODE
 #endif
 
-// Security: Use hardened compiler flags (defined in Makefile)
-// -fstack-protector-strong, -D_FORTIFY_SOURCE=2, -O2, -Wall, -Wextra
-
 using namespace openspectrum;
 
 static std::atomic<bool> g_running{true};
 
-// FTZ + DAZ on the calling thread. Eliminates the ~100-cycle microcode trap
-// every time a denormal float is produced or consumed — common in dB spectra
-// near the noise floor. Per-thread MXCSR, so call from each thread.
+// FTZ + DAZ avoid the microcode trap on denormals. MXCSR is per thread, so
+// call it from each.
 static inline void enable_ftz_daz() noexcept {
 #if defined(__SSE__) || defined(_M_X64) || defined(_M_IX86_FP)
   _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);
@@ -65,31 +59,24 @@ static inline void enable_ftz_daz() noexcept {
 }
 
 static void signal_handler(int signum) {
-  // Only async-signal-safe operations are permitted here.
-  // Setting a lock-free atomic is safe; LOG, condition_variable::notify_all,
-  // and SampleSource::stop (which joins a thread) are not.
-  // The main loop checks g_running every 8 ms (CV wait_for timeout) and
-  // performs orderly shutdown — including source->stop() — on exit.
+  // Async-signal-safe only: a lock-free atomic is, LOG and joining a thread are
+  // not. The main loop polls g_running and shuts down in order.
   if (signum == SIGINT || signum == SIGTERM) {
     g_running = false;
   }
 }
 
-// The producer thread's frame callback: every SampleSource calls it.
 static void async_sample_callback(SampleQueue &queue, IqLogger &iq_logger,
                                   FrameHandle samples_frame) {
-  // The source owns this thread; set FTZ/DAZ once per worker on first entry.
+  // The source owns this thread: FTZ/DAZ once, on first entry.
   thread_local bool ftz_initialized = false;
   if (!ftz_initialized) {
     enable_ftz_daz();
     ftz_initialized = true;
   }
 
-  // Faithful IQ capture: tap the full producer stream here, before the render
-  // loop's drain-to-newest throttle discards any backlog, so captures are
-  // full-rate, not one frame per render tick. This only copies into the
-  // logger's ring; the disk is written on the logger's own thread. Idle,
-  // write_samples returns without taking a lock.
+  // The capture taps the full stream here, before the render loop drops the
+  // backlog. It only copies into the logger's ring.
   if (samples_frame) {
     iq_logger.write_samples(samples_frame.data(), samples_frame.size());
   }
@@ -100,15 +87,10 @@ static void async_sample_callback(SampleQueue &queue, IqLogger &iq_logger,
 auto main(int argc, char *argv[]) -> int {
   enable_ftz_daz();
 
-  // Parse command-line arguments
   AppConfig const config = parse_arguments(argc, argv);
 
-  // Validate --fft-size against the one list of supported sizes — the same list
-  // the 1-7 keys and the README use. Membership, not "power of two in a range":
-  // the range check let the CLI reach sizes the UI cannot select and the manual
-  // does not document (and it still had to hardcode a bound so a pathological
-  // 2^30 could not ask FramePool for gigabytes before the UI came up). One list
-  // means adding a size is one edit, and the three surfaces cannot drift.
+  // --fft-size must be in the list the 1-7 keys and the README use, so the
+  // three cannot drift.
   DeviceConstraints const limits;
   const auto &allowed = limits.supported_fft_sizes;
   if (std::find(allowed.begin(), allowed.end(), config.fft_size) ==
@@ -124,11 +106,9 @@ auto main(int argc, char *argv[]) -> int {
 
   LOG_INFO("Starting SDR Spectrum Analyzer");
 
-  // Register signal handlers
   std::signal(SIGINT, signal_handler);
   std::signal(SIGTERM, signal_handler);
 
-  // Log configuration
   LOG_INFO("Configuration: freq=" +
            std::to_string(static_cast<uint64_t>(config.center_freq_hz)) +
            "Hz, rate=" +
@@ -137,28 +117,18 @@ auto main(int argc, char *argv[]) -> int {
            "dB, fft_size=" + std::to_string(config.fft_size) + ", window=" +
            SignalProcessor::window_function_to_string(config.window_function));
 
-  // Configuration
   const size_t FFT_SIZE = config.fft_size;
-  // Fixed 720p logical canvas. SDL renders the whole scene at this resolution
-  // and the GPU point-samples it up to any window/display (see the logical
-  // presentation in SdlRenderer). Fixed, not a CLI knob, so the waterfall
-  // history depth (~12 s at 30 fps), the instrument panel layout and the
-  // per-frame render cost are identical on a 1366x768 laptop and a 4K panel —
-  // only the final upscale blit grows. Bumping this raises render/GPU cost on
-  // every machine forever; 1080p was rejected (3.4x the pixels, downscaled on
-  // sub-1080p displays, buys resolution the mean-trace decimation discards).
+  // A fixed 720p logical canvas, scaled by SDL to any window. Not a CLI knob:
+  // the waterfall depth, the panel layout and the render cost stay the same on
+  // every machine. 1080p was rejected: 3.4x the pixels for resolution the
+  // per-column mean discards.
   constexpr size_t DISPLAY_WIDTH = 1280;
   constexpr size_t DISPLAY_HEIGHT = 720;
   const size_t WATERFALL_LINES = DISPLAY_HEIGHT / 2;
 
   try {
-    // 1. Initialize SDL3 renderer FIRST (before hardware)
-    // VSYNC on: the render loop's work per frame is far inside a 33 ms frame
-    // at every FFT size (docs/MEASUREMENTS.md) and it is sample-delivery bound
-    // (~62 lines/s), so there is ample headroom to cap at the display refresh.
-    // Without vsync, presenting ~62 fps into a 60 Hz panel tears and beats at
-    // ~2 Hz — visible as a periodic waterfall "blink" and a doubled spectrum
-    // peak while tuning.
+    // 1. The renderer first, before the hardware. Vsync on: without it ~62 fps
+    // into a 60 Hz panel tears and beats at ~2 Hz (a waterfall "blink").
     SdlRenderer renderer(DISPLAY_WIDTH, DISPLAY_HEIGHT, "OpenSpectrum SDR");
     if (!renderer.is_valid()) {
       LOG_ERROR("Failed to initialize SDL3 renderer");
@@ -166,24 +136,17 @@ auto main(int argc, char *argv[]) -> int {
     }
     LOG_INFO("SDL3 renderer initialized");
 
-    // 1.5 Initialize runtime controls
-    // Frequency and gain are set further down, once the source's tuning
-    // limits are known (they clamp against the constraints in force).
+    // 1.5 Runtime controls. Frequency and gain wait for the source's limits.
     ControlState control_state;
     control_state.set_fft_size(config.fft_size);
-    // A non-default --fft-size (!= the 4096 ControlState default) flips the
-    // fft-changed flag, which would make the first loop iteration redundantly
-    // reinitialize FFT-dependent state that the setup below already builds for
-    // config.fft_size (and needlessly stop/restart the sample source). Clear it
-    // so the reinit path only fires on real runtime '1'-'5' changes.
+    // A non-default --fft-size sets the changed flag, but the setup below
+    // already builds for it: clear it so only real key changes reinitialize.
     control_state.clear_fft_change_flag();
     control_state.set_window(config.window_function);
     LOG_INFO("Runtime controls initialized");
 
-    // 1.55 Playback mode (--play): replay a .iq capture instead of opening
-    // hardware. The .meta.json sidecar (written by the IQ logger) overrides
-    // center frequency and sample rate so the freq scale matches the capture;
-    // effective_rate is what every downstream consumer uses from here on.
+    // 1.55 --play: the sidecar overrides centre frequency and sample rate;
+    // effective_rate is what everything downstream uses.
     const bool playback_mode = !config.play_file.empty();
     uint32_t effective_rate = static_cast<uint32_t>(config.sample_rate_hz);
     auto start_freq = static_cast<uint64_t>(config.center_freq_hz);
@@ -202,7 +165,7 @@ auto main(int argc, char *argv[]) -> int {
       }
     }
 
-    // 1.6 Initialize IQ logger (if enabled)
+    // 1.6 IQ logger
     IqLoggerConfig iq_logger_config;
     if (!config.iq_output_file.empty()) {
       iq_logger_config.filename_prefix = config.iq_output_file;
@@ -211,30 +174,25 @@ auto main(int argc, char *argv[]) -> int {
     IqLogger iq_logger(iq_logger_config);
     std::chrono::steady_clock::time_point iq_capture_start;
 
-    // Set up callback for when capture completes
     iq_logger.set_complete_callback([](const std::string &filename,
                                        const std::string &meta_filename) {
       LOG_INFO("IQ capture complete: " + filename + " (" + meta_filename + ")");
     });
 
-    // 1.7 Initialize spectrogram exporter (config defaults: spectrograms/
-    // output dir, metadata sidecar on)
+    // 1.7 Spectrogram exporter
     SpectrogramExporter spectrogram_exporter;
     LOG_INFO("Spectrogram exporter initialized");
 
     // 2. The queue from the producer thread, with its frame pool
     SampleQueue sample_queue(FFT_SIZE);
 
-    // 2. Initialize the sample source: RTL-SDR hardware, or file playback.
-    // Both feed the same FrameHandle callback path; everything downstream is
-    // source-agnostic.
+    // 2. The sample source.
     auto frame_callback = [&sample_queue,
                            &iq_logger](FrameHandle samples_frame) {
       async_sample_callback(sample_queue, iq_logger, std::move(samples_frame));
     };
 
-    // The one place a receiver is chosen. Everything after this block talks
-    // to the SampleSource interface only.
+    // The one place a receiver is chosen.
     std::unique_ptr<SampleSource> source;
 
     if (playback_mode) {
@@ -265,10 +223,8 @@ auto main(int argc, char *argv[]) -> int {
         return 1;
       }
 
-      // One-shot device options (CLI-only by design: bias-T accidentally
-      // toggled into a shorted antenna is a hardware risk, and direct sampling
-      // needs the tuner reconfigured before streaming starts). Direct sampling
-      // also narrows the limits() read below to the HF range.
+      // CLI-only by design: a bias tee toggled into a shorted antenna is a
+      // hardware risk. Direct sampling narrows limits() below to HF.
       rtl->set_freq_correction(config.ppm_correction);
       if (config.bias_tee) {
         rtl->set_bias_tee(true);
@@ -280,7 +236,6 @@ auto main(int argc, char *argv[]) -> int {
       source = std::move(rtl);
     }
 
-    // Tuning range comes from the source; set_frequency/set_gain clamp to it.
     {
       DeviceConstraints constraints = control_state.get_constraints();
       const TuningLimits tuning = source->limits();
@@ -289,8 +244,7 @@ auto main(int argc, char *argv[]) -> int {
       constraints.min_gain_db = tuning.min_gain_db;
       constraints.max_gain_db = tuning.max_gain_db;
       if (!source->tunable()) {
-        // Playback: the samples keep the capture's tuning whatever the keys
-        // say, and these values label any capture or export made from it.
+        // Playback keeps the capture's tuning; these label any export.
         constraints.min_frequency_hz = constraints.max_frequency_hz =
             start_freq;
         constraints.min_gain_db = constraints.max_gain_db = start_gain;
@@ -301,9 +255,8 @@ auto main(int argc, char *argv[]) -> int {
       control_state.mark_status_dirty();
     }
 
-    // IQ capture start/stop, shared by the command line, Ctrl+S and the
-    // duration timer. The source's drop counter is sampled at both ends so the
-    // sidecar reports the losses of this capture only.
+    // Shared by the command line, Ctrl+S and the duration timer. The drop
+    // counter is sampled at both ends: the sidecar reports this capture only.
     uint64_t drops_at_capture_start = 0;
     bool iq_capture_failed = false;
     auto start_capture = [&](size_t fft_size, const char *notes) {
@@ -342,20 +295,16 @@ auto main(int argc, char *argv[]) -> int {
              ControlState::format_gain(control_state.get_gain()) +
              ", FFT size: " + std::to_string(FFT_SIZE));
 
-    // 3. Initialize signal processor
+    // 3. Signal processor
     SignalProcessor signal_processor(FFT_SIZE);
     signal_processor.set_window(config.window_function);
 
-    // 4. Initialize FFT analyzer
+    // 4. FFT analyzer
     FftAnalyzer fft_analyzer(FFT_SIZE);
     fft_analyzer.set_window_coherent_gain(
         SignalProcessor::get_coherent_gain(config.window_function));
 
-    // 5. Initialize displays (split vertically: spectrum on top, waterfall
-    // below)
-    // Displays span the plot region only; the right gutter is the instrument
-    // panel. plot_width() == full width when the window is too narrow for a
-    // panel, so the narrow-window case is unchanged.
+    // 5. Displays: spectrum on top, waterfall below, over the plot region only.
     SpectrumDisplay spectrum_display(renderer.plot_width(), DISPLAY_HEIGHT / 2);
     WaterfallDisplay waterfall_display(renderer.plot_width(),
                                        DISPLAY_HEIGHT / 2, WATERFALL_LINES);
@@ -363,8 +312,7 @@ auto main(int argc, char *argv[]) -> int {
     spectrum_display.set_db_range(-120.0F, 0.0F);
     waterfall_display.set_db_range(-120.0F, 0.0F);
 
-    // Runtime color palettes ('c' / Shift+C). Index order MUST match
-    // ControlState::palette_name and ControlState::PALETTE_COUNT.
+    // Index order MUST match ControlState::palette_name and PALETTE_COUNT.
     static constexpr SpectrumPalette::ColorMap kPaletteMap[] = {
         SpectrumPalette::ColorMap::JET, SpectrumPalette::ColorMap::VIRIDIS,
         SpectrumPalette::ColorMap::HOT, SpectrumPalette::ColorMap::GRAYSCALE,
@@ -372,7 +320,6 @@ auto main(int argc, char *argv[]) -> int {
     static_assert(std::size(kPaletteMap) == ControlState::PALETTE_COUNT,
                   "palette map must match ControlState::PALETTE_COUNT");
 
-    // Apply the startup palette; ControlState is the single source of truth.
     {
       const auto map = kPaletteMap[control_state.get_palette_index()];
       spectrum_display.set_color_map(map);
@@ -381,7 +328,6 @@ auto main(int argc, char *argv[]) -> int {
 
     LOG_INFO("Display initialized: spectrum and waterfall");
 
-    // Main processing loop
     LOG_INFO("Starting main loop. Press ESC or Ctrl+C to stop.");
     LOG_INFO("Controls: +/- Frequency, r/f Gain, 1-7 FFT size, UP/DOWN Window, "
              "c/Shift+C Palette, m Max-hold, a Average, x Reset traces, "
@@ -390,34 +336,26 @@ auto main(int argc, char *argv[]) -> int {
 
     size_t current_fft_size = config.fft_size;
 
-    // Reusable spectrum draw geometry — refilled each frame by
-    // SpectrumDisplay::build_vertices(), kept across iterations so the capacity
-    // is retained (no per-frame allocation) and so present_frame() on the
-    // no-samples path still has the last geometry available.
+    // Kept across frames: no allocation, and present_frame() on the no-samples
+    // path still has the last geometry.
     std::vector<SDL_Vertex> spec_verts;
     std::vector<int> spec_idx;
 
-    // Overlays over the two panes (see plot_overlays.h).
     Markers markers;
     CursorTracker cursor;
     Trigger trigger;
 
-    // Track peak amplitude for display
     float peak_db = -140.0F;
 
-    // Waterfall "seconds-ago" axis value held at the moment of freezing. The
-    // axis is computed live (now - oldest-line stamp); without holding it, a
-    // frozen snapshot's labels keep inflating as wall-clock advances even
-    // though no new lines are added. Captured each live frame; reused frozen.
+    // The waterfall age axis held at the freeze: live, its labels would keep
+    // growing on a frozen snapshot.
     double frozen_wf_top_seconds = 0.0;
 
     FrameTiming frame_timing;
     using timing_clock = FrameTiming::clock;
 
-    // Pending spectrogram export. The 'e' key arms a renderer-side capture of
-    // the next fully composited frame (base + axis/freq/HUD overlays); the
-    // metadata snapshot is stashed here because the readback only lands after
-    // that frame presents, one iteration later. Drained at the top of the loop.
+    // The metadata of an armed export, stashed because the readback lands one
+    // iteration later. Drained at the top of the loop.
     struct PendingExport {
       bool armed = false;
       uint64_t center_hz = 0;
@@ -431,13 +369,8 @@ auto main(int argc, char *argv[]) -> int {
     int capture_w = 0;
     int capture_h = 0;
 
-    // Frame-rate cap (--max-fps, default 30). A positive cap throttles the
-    // render loop below the display refresh to cut GPU/battery draw for long
-    // unattended runs; 0 gives a zero interval = uncapped (vsync alone). The
-    // sleep_until at the loop top paces every path (frozen/no-sample/render)
-    // uniformly; vsync stays on so frames remain tear-free. Windows' ~15 ms
-    // default timer granularity can make the effective rate undershoot the cap
-    // slightly — harmless (it undershoots power too).
+    // --max-fps; 0 is uncapped (vsync alone). The sleep_until at the loop top
+    // paces every path. Windows' timer granularity can undershoot the cap.
     const auto frame_interval =
         config.max_fps > 0
             ? std::chrono::duration_cast<timing_clock::duration>(
@@ -446,9 +379,7 @@ auto main(int argc, char *argv[]) -> int {
     auto next_frame_time = timing_clock::now();
 
     while (g_running.load(std::memory_order_relaxed)) {
-      // Frame-rate cap: park until the next scheduled frame. No-op when
-      // uncapped. Reset the schedule if a heavy frame put us behind, so we
-      // don't burst to catch up (which would defeat the power cap).
+      // Reset the schedule after a heavy frame: no burst to catch up.
       if (frame_interval != timing_clock::duration::zero()) {
         std::this_thread::sleep_until(next_frame_time);
         next_frame_time += frame_interval;
@@ -500,14 +431,13 @@ auto main(int argc, char *argv[]) -> int {
       // === 1.1b. Check for color palette change ('c' / Shift+C) ===
       if (control_state.palette_changed()) {
         const auto map = kPaletteMap[control_state.get_palette_index()];
-        spectrum_display.set_color_map(map);  // recolors next frame
-        waterfall_display.set_color_map(map); // repaints full history via LUT
+        spectrum_display.set_color_map(map);
+        waterfall_display.set_color_map(map);
         control_state.clear_palette_change_flag();
       }
 
       // === 1.1c. Trace modes ('m' max-hold, 'a' averaging, 'x' reset) ===
-      // Plain bool pushes; the display resets its trace state only on an
-      // actual transition, so doing this every frame costs nothing.
+      // The display resets only on a transition, so this is free every frame.
       spectrum_display.set_max_hold(control_state.max_hold_enabled());
       spectrum_display.set_averaging(control_state.averaging_enabled());
       if (control_state.trace_reset_requested()) {
@@ -523,24 +453,20 @@ auto main(int argc, char *argv[]) -> int {
         LOG_INFO("Reinitializing with FFT size: " +
                  std::to_string(new_fft_size));
 
-        // Reinitialize FFT-dependent components
         current_fft_size = new_fft_size;
 
-        // The queue is reconfigured with the source stopped
+        // The queue is reconfigured with the source stopped.
         source->stop();
         sample_queue.reconfigure(current_fft_size);
         source->start(current_fft_size);
 
-        // Recreate signal processor with new size
         signal_processor = SignalProcessor(current_fft_size);
         signal_processor.set_window(control_state.get_window());
 
-        // Recreate FFT analyzer with new size (using move semantics)
         fft_analyzer = FftAnalyzer(current_fft_size);
         fft_analyzer.set_window_coherent_gain(
             SignalProcessor::get_coherent_gain(control_state.get_window()));
 
-        // Clear waterfall to avoid size mismatch
         waterfall_display.reset();
       }
 
@@ -556,11 +482,9 @@ auto main(int argc, char *argv[]) -> int {
       }
 
       // === 1.2.7. Check for spectrogram export request ===
-      // Arm a WYSIWYG capture: the renderer reads back the next composited
-      // frame (base + dB/time axis strip + frequency scale + HUD) just before
-      // its swap; the drain at the loop top writes the PNG once it lands. Stash
-      // the metadata now so it matches the armed frame even if controls change
-      // before the readback.
+      // The renderer reads back the next composited frame; the drain at the
+      // loop top writes the PNG. The metadata is stashed now so it matches the
+      // frame even if a control changes before the readback.
       if (control_state.spectrogram_export_requested()) {
         control_state.clear_spectrogram_export();
         pending_export.armed = true;
@@ -570,7 +494,7 @@ auto main(int argc, char *argv[]) -> int {
         pending_export.fft_size = current_fft_size;
         pending_export.window = SignalProcessor::window_function_to_string(
             control_state.get_window());
-        // Lower case, so the default stays "jet" as in earlier sidecars.
+        // Lower case: the sidecar says "jet".
         pending_export.color_map =
             ControlState::palette_name(control_state.get_palette_index());
         std::ranges::transform(pending_export.color_map,
@@ -582,23 +506,18 @@ auto main(int argc, char *argv[]) -> int {
       }
 
       // === 1.3. Apply control state changes to device (batch update) ===
-      // Playback mode has no tuner: freq/gain keys only move the on-screen
-      // labels, and there is no stale-channel backlog to drop.
+      // Playback has no tuner: the keys only move the labels.
       if (source->tunable()) {
         static uint64_t s_last_freq = 0;
         uint64_t const now_freq = control_state.get_frequency();
         control_state.apply_to_device(*source);
         if (s_last_freq != 0 && s_last_freq != now_freq) {
-          // Frequency tuned — discard buffered samples from the old channel.
-          // Scale label updates immediately (render_frequency_scale sees new
-          // freq); dropping the queue makes the spectrum snap in sync rather
-          // than lagging behind by up to MAX_SAMPLE_QUEUE_SIZE × FFT frames.
+          // Drop the queued frames of the old channel so the spectrum snaps.
           sample_queue.clear();
         }
         s_last_freq = now_freq;
       }
 
-      // Feed the panel's status grid (freq/gain/fft/window/palette/trace).
       if (control_state.status_changed()) {
         auto sf = control_state.get_status_fields();
         renderer.set_status_fields(
@@ -606,8 +525,7 @@ auto main(int argc, char *argv[]) -> int {
         control_state.clear_status_dirty();
       }
 
-      // IQ logging status, every frame: the panel caches text by string, so an
-      // unchanged "REC 12s" costs a lookup.
+      // Every frame: the panel caches text by string.
       if (iq_logger.is_capturing() && iq_logger.write_failed()) {
         // A short write (disk full) ended the writing.
         stop_capture();
@@ -617,43 +535,34 @@ auto main(int argc, char *argv[]) -> int {
       if (iq_logger.is_capturing()) {
         auto const seconds = std::chrono::duration_cast<std::chrono::seconds>(
             std::chrono::steady_clock::now() - iq_capture_start);
-        // Kept short to fit the panel column.
         renderer.render_iq_status("REC " + std::to_string(seconds.count()) +
                                   "s");
       } else {
-        // Idle, or the last capture failed (stays until the next one starts)
+        // Idle, or the last capture failed (stays until the next starts).
         renderer.render_iq_status(iq_capture_failed ? "REC ERR" : "");
       }
 
-      // Latest peak for the panel readout, every frame. Pass it unconditionally
-      // so the renderer tracks the live value and hides it (< -140 dBFS) when
-      // the signal drops, instead of freezing at the last valid peak.
+      // Unconditionally: the renderer hides it (< -140 dBFS) when the signal
+      // drops, instead of freezing at the last peak.
       renderer.render_peak_indicator(peak_db);
 
-      // Update frequency scale (caches rebuild only when center_hz or rate
-      // changes)
       renderer.render_frequency_scale(control_state.get_frequency(),
                                       effective_rate,
                                       spectrum_display.height());
 
-      // Push the latest timing snapshot for the panel's always-on PERF block.
       FrameTiming::Averages const &perf = frame_timing.averages();
       renderer.set_timing_overlay(perf.fps, perf.cpu_ms, perf.render_build_ms,
                                   perf.present_ms);
 
-      // Left-margin axes: live dB range from the spectrum, and the age of the
-      // oldest visible waterfall row (0 while history is still too short → the
-      // time axis stays hidden until there is something to label).
+      // Left-margin axes: the dB range and the age of the oldest waterfall row.
       {
         double wf_top_seconds = frozen_wf_top_seconds;
         if (!trigger.frozen) {
-          // Live: age of the oldest visible row (0 while history is too short
-          // → the time axis stays hidden until there is something to label).
+          // 0 while history is too short: the time axis stays hidden.
           WaterfallDisplay::CursorTime oldest;
           wf_top_seconds = waterfall_display.sample_at_y(0.0F, oldest)
                                ? oldest.seconds_ago
                                : 0.0;
-          // Remember it so a freeze on this frame holds these labels static.
           frozen_wf_top_seconds = wf_top_seconds;
         }
         renderer.set_left_axes(true, spectrum_display.min_db(),
@@ -674,8 +583,7 @@ auto main(int argc, char *argv[]) -> int {
                       spec_h + static_cast<float>(waterfall_display.height()));
         renderer.set_markers(markers.draw_list(span, spectrum_display));
 
-        // Every frame, so it tracks the pointer on both the sample and
-        // no-sample paths.
+        // Every frame, on both the sample and no-sample paths.
         renderer.set_cursor_readout(cursor.update(
             renderer.cursor_active(), renderer.cursor_x(), renderer.cursor_y(),
             span, spectrum_display, waterfall_display));
@@ -683,11 +591,8 @@ auto main(int argc, char *argv[]) -> int {
         if (auto set_y = renderer.take_trigger_set()) {
           trigger.set_from_y(*set_y, spec_h, db_min, db_max);
         }
-        // Space resumes from a freeze and re-arms (threshold/armed persist),
-        // and always repaints the status bar — this is what dismisses a sticky
-        // transient message (TRIGGERED, "Exported: ...") back to FREQ|GAIN|...,
-        // since those bypass the dirty-flag path and otherwise linger until the
-        // next control change.
+        // Space resumes and re-arms. It always repaints the status bar: that
+        // dismisses a transient message, which bypasses the dirty flag.
         if (control_state.unfreeze_requested()) {
           control_state.clear_unfreeze();
           trigger.frozen = false;
@@ -698,43 +603,31 @@ auto main(int argc, char *argv[]) -> int {
                              trigger.threshold_db, trigger.frozen);
       }
 
-      // While frozen, hold the last composited frame: skip dequeue/processing
-      // so the spectrum + waterfall stay put, but keep presenting so the
-      // overlays (trigger line, FROZEN banner, cursor readout) stay live and
-      // input keeps flowing. The producer keeps filling the (bounded) queue;
-      // the drain-to-newest throttle catches up on resume.
+      // Frozen: skip dequeue and processing, keep presenting so the overlays
+      // and input stay live. The bounded queue catches up on resume.
       if (trigger.frozen) {
         renderer.present_frame();
         continue;
       }
 
       // === 2. Read samples from async queue (non-blocking) ===
-      // Wait for samples with timeout (8ms = ~125fps max). Only the newest
-      // frame comes back; the backlog is dropped.
+      // 8 ms timeout; only the newest frame comes back.
       FrameHandle async_samples_frame =
           sample_queue.pop_newest(std::chrono::milliseconds(8));
       bool const got_samples = static_cast<bool>(async_samples_frame);
 
       // === 2.1. Update displays and render even if no new samples ===
-      // This fixes keyboard input freeze: overlays (status bar, peak, IQ
-      // status) are rendered as part of the main render call, so we must render
-      // even when no samples arrive, otherwise keyboard changes aren't visible
+      // Overlays are part of the render call: without it keys would show
+      // nothing while no samples arrive.
       if (!got_samples) {
-        // No new pixel data — re-present the last texture with updated
-        // overlays.
         renderer.present_frame();
         continue;
       }
 
-      // async_samples_frame is now guaranteed to be exactly current_fft_size
-      // (accumulated in callback to match FFT size). Process the pooled frame
-      // buffer in place via a span — no copy into a separate samples vector.
-      // The frame is released back to the pool at the end of the iteration.
+      // The frame is exactly current_fft_size, processed in place and released
+      // to the pool at the end of the iteration.
       std::span<std::complex<float>> samples(async_samples_frame.data(),
                                              current_fft_size);
-
-      // IQ logging happens in async_sample_callback (full-rate producer tap),
-      // not here — the render loop only sees the post-throttle newest frame.
 
       // === 3. Signal processing ===
       auto t_cpu_start = timing_clock::now();
@@ -748,8 +641,7 @@ auto main(int argc, char *argv[]) -> int {
       peak_db = fft_analyzer.get_max_db();
 
       // === 4.2. Amplitude trigger: fire on a threshold crossing ===
-      // This frame still renders below, so the triggering frame is the one
-      // held; the panel shows the trigger row while frozen.
+      // This frame still renders below, so it is the one held.
       trigger.check(peak_db);
 
       // === 5. Get spectral data ===
@@ -762,8 +654,6 @@ auto main(int argc, char *argv[]) -> int {
       auto t_cpu_end = timing_clock::now();
 
       // === 7. Render: spectrum as GPU geometry, waterfall via texture ===
-      // Build the spectrum bars once per frame (reuses spec_verts/spec_idx
-      // capacity). The waterfall still picks full-upload vs GPU-scroll.
       spectrum_display.build_vertices(
           static_cast<float>(renderer.plot_width()),
           static_cast<float>(spectrum_display.height()), spec_verts, spec_idx);
@@ -772,14 +662,12 @@ auto main(int argc, char *argv[]) -> int {
       auto t_render_start = timing_clock::now();
       bool render_ok;
       if (waterfall_display.needs_full_render()) {
-        // First frame after reset or LUT rebuild: full waterfall upload. Also
-        // seeds the GPU scroll texture for subsequent scroll frames.
+        // After a reset or LUT rebuild; also seeds the scroll texture.
         render_ok = renderer.render_displays(
             spec_verts, spec_idx, waterfall_display.get_pixels().data(),
             spectrum_display.height(), wf_dirty_rects);
       } else {
-        // Steady state: GPU shifts the waterfall texture up by one line and
-        // uploads only the new bottom strip (~5 KB instead of ~1.5 MB).
+        // Steady state: one new line.
         render_ok = renderer.render_displays_scroll(
             spec_verts, spec_idx, waterfall_display.get_new_line_rgba(),
             spectrum_display.height(), waterfall_display.height(),
@@ -812,11 +700,9 @@ auto main(int argc, char *argv[]) -> int {
       }
     }
 
-    // Stop the sample source before cleanup
     source->stop();
 
-    // Stop IQ capture if still running. The producer is already stopped
-    // above, so no callback can race the gate here.
+    // The producer is stopped, so no callback races this.
     if (iq_logger.is_capturing()) {
       stop_capture();
     }
@@ -824,7 +710,6 @@ auto main(int argc, char *argv[]) -> int {
     LOG_INFO("Main loop exited cleanly");
   } catch (const std::exception &e) {
     LOG_ERROR("Fatal error: " + std::string(e.what()));
-    // Device will be cleaned up by destructor (calls stop())
     return 1;
   }
 

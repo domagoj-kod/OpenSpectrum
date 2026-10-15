@@ -23,19 +23,16 @@ auto ControlState::window_supported(WindowFunction w) const -> bool {
          constraints.supported_window_functions.end();
 }
 
-// Format window function name for display
 static auto format_window(WindowFunction w) -> std::string {
   return SignalProcessor::window_function_to_string(w);
 }
 
-// Format gain value
 auto ControlState::format_gain(float db) -> std::string {
   char buffer[32];
   snprintf(buffer, sizeof(buffer), "%.1f dB", db);
   return buffer;
 }
 
-// Setters for initial configuration
 void ControlState::set_frequency(uint64_t hz) {
   frequency_hz = std::clamp(hz, constraints.min_frequency_hz,
                             constraints.max_frequency_hz);
@@ -52,7 +49,6 @@ void ControlState::set_fft_size(size_t size) {
       fft_changed = true;
     }
   } else if (!constraints.supported_fft_sizes.empty()) {
-    // Fallback to first supported size
     size_t const fallback = constraints.supported_fft_sizes[0];
     if (fallback != fft_size) {
       fft_size = fallback;
@@ -61,27 +57,22 @@ void ControlState::set_fft_size(size_t size) {
   }
 }
 
-// Set constraints for different device types
 void ControlState::set_constraints(const DeviceConstraints &new_constraints) {
   constraints = new_constraints;
-  // Clamp current values to new constraints
   frequency_hz = std::clamp(frequency_hz, constraints.min_frequency_hz,
                             constraints.max_frequency_hz);
   gain_db =
       std::clamp(gain_db, constraints.min_gain_db, constraints.max_gain_db);
-  // Ensure FFT size is supported
   if (!fft_size_supported(fft_size) &&
       !constraints.supported_fft_sizes.empty()) {
     fft_size = constraints.supported_fft_sizes[0];
   }
-  // Ensure window function is supported
   if (!window_supported(window_function) &&
       !constraints.supported_window_functions.empty()) {
     window_function = constraints.supported_window_functions[0];
   }
 }
 
-// Setter for window function
 void ControlState::set_window(WindowFunction w) {
   if (window_supported(w)) {
     if (w != window_function) {
@@ -97,7 +88,6 @@ void ControlState::set_window(WindowFunction w) {
   }
 }
 
-// Cycle the active color palette. direction: +1 forward, -1 backward (wraps).
 void ControlState::cycle_palette(int direction) {
   const int n = static_cast<int>(PALETTE_COUNT);
   int idx = (static_cast<int>(palette_index) + direction) % n;
@@ -109,15 +99,14 @@ void ControlState::cycle_palette(int direction) {
   mark_status_dirty();
 }
 
-// Short display name for a palette index. Order MUST match the display's
-// SpectrumPalette::ColorMap enum { JET, VIRIDIS, HOT, GRAYSCALE, BLUE_RED }.
+// Order MUST match SpectrumPalette::ColorMap { JET, VIRIDIS, HOT, GRAYSCALE,
+// BLUE_RED }.
 auto ControlState::palette_name(size_t index) noexcept -> const char * {
   static constexpr const char *kNames[PALETTE_COUNT] = {"JET", "VIRIDIS", "HOT",
                                                         "GRAY", "BLU-RED"};
   return index < PALETTE_COUNT ? kNames[index] : "?";
 }
 
-// Individual formatted status fields for the instrument panel.
 auto ControlState::get_status_fields() const -> StatusFields {
   StatusFields f;
   f.freq = format_frequency(frequency_hz);
@@ -135,12 +124,9 @@ auto ControlState::get_status_fields() const -> StatusFields {
   return f;
 }
 
-// Apply all pending changes to device (batch update)
 void ControlState::apply_to_device(SampleSource &dev) const {
-  // Only reprogram the tuner when a value actually changed. set_frequency() and
-  // set_gain() each issue blocking USB control transfers (PLL retune, gain-mode
-  // switch); calling them unconditionally every frame was the render-loop
-  // bottleneck. The first call always applies both to program initial state.
+  // Only on a change: each is a blocking USB transfer. The first call applies
+  // both.
   if (!m_device_applied || frequency_hz != m_applied_frequency_hz) {
     dev.set_frequency(frequency_hz);
     m_applied_frequency_hz = frequency_hz;
