@@ -10,11 +10,10 @@
 
 namespace openspectrum {
 
-// What main() draws over the two panes besides the data: frequency markers,
-// the cursor readout and the amplitude trigger. Each keeps its own state and
-// hands the renderer what to draw; the renderer only captures the input.
+// Frequency markers, cursor readout and amplitude trigger: each keeps its own
+// state and hands the renderer what to draw; the renderer only captures input.
 
-// The tuned span across the plot: frequency <-> render-space x.
+// The tuned span: frequency <-> render-space x.
 struct PlotSpan {
   double center_hz = 0.0;
   double rate_hz = 0.0;
@@ -31,17 +30,16 @@ struct PlotSpan {
   }
 };
 
-// Persistent frequency markers (Hz). Anchored to absolute frequency, so they
-// slide with retuning and hide when tuned out of the current span. Left-click
-// drops, right-click removes the nearest, Delete clears all.
+// Markers anchored to absolute frequency: they slide with retuning and hide
+// when tuned out. Left-click drops, right-click removes the nearest, Delete
+// clears all.
 class Markers {
 public:
   // Fits the panel list in every state.
   static constexpr size_t kMaxMarkers = 14;
   static constexpr double kRemoveRadiusPx = 12.0;
 
-  // Applies this frame's clicks; ones outside the plot (span.width x plot_h)
-  // are ignored.
+  // Applies this frame's clicks; ones outside the plot are ignored.
   void apply(const std::vector<SdlRenderer::ClickEvent> &clicks, bool clear,
              const PlotSpan &span, float plot_h);
 
@@ -55,9 +53,8 @@ private:
   std::vector<double> m_hz;
 };
 
-// Mouse cursor readout. Over the spectrum the amplitude is the trace's dB at
-// the cursor's frequency, with the dot snapped onto the drawn curve (mouse y
-// ignored); over the waterfall it is the age of the hovered line.
+// Cursor readout: over the spectrum the trace's dB at the cursor's frequency
+// (mouse y ignored); over the waterfall the age of the hovered line.
 class CursorTracker {
 public:
   [[nodiscard]] SdlRenderer::CursorReadout
@@ -65,19 +62,17 @@ public:
          const SpectrumDisplay &spectrum, const WaterfallDisplay &waterfall);
 
 private:
-  // The raw spectrum is noisy, so the displayed dB is EMA'd to stop the
-  // digits churning. It snaps (resets) when the cursor moves to a new bin or
-  // re-enters, so it stays responsive rather than lagging.
+  // The displayed dB is EMA'd so the digits do not churn; it snaps on a new
+  // bin or re-entry.
   static constexpr double kEmaAlpha = 0.2;
   double m_db_ema = 0.0;
   size_t m_db_bin = 0;
   bool m_db_valid = false;
 };
 
-// Amplitude trigger. Shift+left-drag in the spectrum pane sets a dB threshold
-// and arms it; a peak at or above it freezes the display until Space resumes.
-// The threshold is a dB value; the line's y is recomputed each frame from the
-// spectrum's current (autoscaled) range so it tracks the view.
+// Shift+left-drag in the spectrum pane sets a dB threshold and arms it; a peak
+// at or above it freezes the display until Space resumes. The line's y follows
+// the autoscaled range.
 struct Trigger {
   static constexpr float kDisarmPx = 4.0F; // a drag this close to the bottom
 
@@ -89,8 +84,7 @@ struct Trigger {
   void set_from_y(float y, float pane_h, float db_min, float db_max);
   // The threshold's y in the pane for the current range.
   [[nodiscard]] float line_y(float pane_h, float db_min, float db_max) const;
-  // Freezes on a crossing. Freezing halts the stream, so a level test is
-  // enough: no rising-edge tracking.
+  // Freezing halts the stream, so a level test is enough.
   void check(float peak_db) {
     if (armed && peak_db >= threshold_db) {
       frozen = true;

@@ -18,7 +18,6 @@ void Markers::apply(const std::vector<SdlRenderer::ClickEvent> &clicks,
       continue;
     }
     if (click.right) {
-      // Remove the nearest on-screen marker within a small pixel radius.
       double best = kRemoveRadiusPx;
       auto best_it = m_hz.end();
       for (auto it = m_hz.begin(); it != m_hz.end(); ++it) {
@@ -73,7 +72,7 @@ CursorTracker::update(bool active, float cx, float cy, const PlotSpan &span,
   SdlRenderer::CursorReadout readout;
   const auto spec_h = static_cast<float>(spectrum.height());
   const auto wf_h = static_cast<float>(waterfall.height());
-  const double freq_hz = span.freq_at(cx); // shared by both panes
+  const double freq_hz = span.freq_at(cx);
 
   bool in_spectrum = false;
   if (active && cx >= 0.0F && cx < span.width) {
@@ -82,7 +81,7 @@ CursorTracker::update(bool active, float cx, float cy, const PlotSpan &span,
         spectrum.sample_at_x(cx, span.width, spec_h, sample)) {
       in_spectrum = true;
       if (!m_db_valid || sample.bin != m_db_bin) {
-        m_db_ema = sample.db; // snap on new bin / re-entry
+        m_db_ema = sample.db;
       } else {
         m_db_ema += kEmaAlpha * (static_cast<double>(sample.db) - m_db_ema);
       }
@@ -99,14 +98,14 @@ CursorTracker::update(bool active, float cx, float cy, const PlotSpan &span,
       if (waterfall.sample_at_y(cy - spec_h, when)) {
         readout.pane = SdlRenderer::CursorReadout::Pane::Waterfall;
         readout.x = cx;
-        readout.dot_y = cy; // render-space row for the horizontal marker
+        readout.dot_y = cy;
         readout.freq_hz = freq_hz;
         readout.seconds_ago = when.seconds_ago;
       }
     }
   }
   if (!in_spectrum) {
-    m_db_valid = false; // left the spectrum pane; next entry snaps
+    m_db_valid = false;
   }
   return readout;
 }
@@ -114,9 +113,9 @@ CursorTracker::update(bool active, float cx, float cy, const PlotSpan &span,
 void Trigger::set_from_y(float y, float pane_h, float db_min, float db_max) {
   y = std::clamp(y, 0.0F, pane_h);
   if (y >= pane_h - kDisarmPx) {
-    armed = false; // hides the line
+    armed = false;
   } else if (db_max > db_min) {
-    const float frac = y / pane_h; // 0 = top (max dB)
+    const float frac = y / pane_h;
     threshold_db = db_max - frac * (db_max - db_min);
     armed = true;
   }

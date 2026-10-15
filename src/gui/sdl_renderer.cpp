@@ -65,9 +65,7 @@ static std::string format_freq_label(int64_t hz) {
   return {buf};
 }
 
-// Width (px) of the right-hand instrument panel. The plot region is the window
-// width minus this. Fixed: the window uses logical-presentation scaling, so a
-// resize scales the whole composited scene rather than reflowing the panel.
+// Width of the right-hand panel. Fixed: a resize scales the whole scene.
 static constexpr size_t kPanelWidth = 240;
 
 SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title)
@@ -77,15 +75,13 @@ SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title)
     throw std::runtime_error("SDL_Init failed: " + std::string(SDL_GetError()));
   }
 
-  // D3D9 LockTexture stalls the CPU-GPU pipeline every frame (requires sync).
-  // D3D11 Map(WRITE_DISCARD) avoids this. Force it before renderer creation.
+  // D3D9 LockTexture stalls the pipeline every frame; D3D11 does not. Set
+  // before renderer creation.
 #ifdef _WIN32
   SDL_SetHint(SDL_HINT_RENDER_DRIVER, "direct3d11");
 #endif
 
-  // SDL3: Use SDL_CreateWindowWithProperties for window creation. Position is
-  // set explicitly: SDL3's plain SDL_CreateWindow does not center windows, so
-  // without these props placement is left to the window manager.
+  // Properties, not SDL_CreateWindow: that does not centre the window.
   SDL_PropertiesID window_props = SDL_CreateProperties();
   SDL_SetStringProperty(window_props, SDL_PROP_WINDOW_CREATE_TITLE_STRING,
                         title.c_str());
@@ -108,8 +104,7 @@ SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title)
                              std::string(SDL_GetError()));
   }
 
-  // SDL3: a null driver name makes SDL try every renderer in priority order,
-  // ending with software — no manual software fallback needed.
+  // A null driver name tries every renderer in priority order, software last.
   m_renderer = SDL_CreateRenderer(m_window, nullptr);
   if (m_renderer == nullptr) {
     SDL_DestroyWindow(m_window);
@@ -117,8 +112,7 @@ SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title)
     throw std::runtime_error("SDL_CreateRenderer failed: " +
                              std::string(SDL_GetError()));
   }
-  // VSYNC is always on: paces the loop to the display refresh (tear-free) at
-  // negligible cost since per-frame work is only a few ms. No flag exposes it.
+  // Vsync is always on.
   SDL_SetRenderVSync(m_renderer, 1);
 
   const char *renderer_name = SDL_GetRendererName(m_renderer);
@@ -138,23 +132,16 @@ SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title)
     }
   }
 
-  // Render at a fixed logical resolution. SDL then scales the whole scene to
-  // the actual window and letterboxes the remainder in black on resize /
-  // fullscreen, with no per-resize handling. Without this, a resized window
-  // left the composited content at native size in a corner and the uncleared
-  // remainder flashed arbitrary back-buffer colors every frame (a
-  // photosensitivity hazard), and non-integer waterfall scaling produced a
-  // crawling 1px seam. Logical size == window size in the default case, so the
-  // unresized path is unchanged.
+  // A fixed logical resolution: SDL scales the scene and letterboxes the rest
+  // in black. Without it the uncleared remainder flashed back-buffer colours on
+  // resize (a photosensitivity hazard) and the waterfall seam crawled.
   SDL_SetRenderLogicalPresentation(m_renderer, static_cast<int>(width),
                                    static_cast<int>(height),
                                    SDL_LOGICAL_PRESENTATION_LETTERBOX);
-  // Keep the clear color black so every SDL_RenderClear (and the letterbox
-  // bars) are black. The only code that changes the draw color (peak indicator,
-  // timing overlay) saves and restores it, so this stays black for all frames.
+  // The clear colour stays black: code that changes the draw colour saves and
+  // restores it.
   SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 255);
 
-  // Create texture for RGBA rendering
   m_texture = SDL_CreateTexture(
       m_renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STREAMING,
       static_cast<int>(width), static_cast<int>(height));
@@ -168,8 +155,7 @@ SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title)
   }
   SDL_SetTextureScaleMode(m_texture, SDL_SCALEMODE_NEAREST);
 
-  // Persistent base-frame compose target (see m_frame_tex docs). Full window
-  // size so its blit to screen goes through the logical-size scaling.
+  // Full window size, so its blit goes through the logical-size scaling.
   m_frame_tex = SDL_CreateTexture(
       m_renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_TARGET,
       static_cast<int>(width), static_cast<int>(height));
@@ -182,19 +168,15 @@ SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title)
                              std::string(SDL_GetError()));
   }
   SDL_SetTextureBlendMode(m_frame_tex, SDL_BLENDMODE_NONE);
-  // SDL3 defaults textures to SDL_SCALEMODE_LINEAR. m_frame_tex is what the
-  // logical-presentation scaling stretches on window resize; nearest keeps the
-  // waterfall pixel-crisp.
+  // Nearest, not SDL3's linear default: this is what a resize stretches.
   SDL_SetTextureScaleMode(m_frame_tex, SDL_SCALEMODE_NEAREST);
 
-  // Clear it once so present_frame() shows black (not uninitialized GPU memory)
-  // if it runs before the first render_displays() while awaiting samples.
+  // Clear once: present_frame() may run before the first render.
   SDL_SetRenderTarget(m_renderer, m_frame_tex);
   SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 255);
   SDL_RenderClear(m_renderer);
   SDL_SetRenderTarget(m_renderer, nullptr);
 
-  // Initialize text renderer for status bar
   m_text_renderer = std::make_unique<TextRenderer>(m_renderer, 16);
   if (!m_text_renderer->init()) {
     std::cerr << "Warning: Failed to initialize text renderer" << '\n';
@@ -235,8 +217,6 @@ void SdlRenderer::blit_text(const std::string &text, SDL_Color color, float x,
   if (text.empty()) {
     return;
   }
-  // Cache key = 4 colour bytes + the string, so the same text in two colours
-  // (e.g. a ghosted "---" marker vs a lit value) caches as two entries.
   std::string key;
   key.reserve(4 + text.size());
   key.push_back(static_cast<char>(color.r));
@@ -247,8 +227,7 @@ void SdlRenderer::blit_text(const std::string &text, SDL_Color color, float x,
 
   auto it = m_text_cache.find(key);
   if (it == m_text_cache.end()) {
-    // Miss: rasterize + upload once. We own the texture until
-    // sweep_text_cache() evicts it (the frame after it goes undrawn).
+    // Miss: the cache owns the texture until sweep_text_cache() evicts it.
     SDL_Texture *t = m_text_renderer->render_text(text, color);
     if (t == nullptr) {
       return;
@@ -266,10 +245,7 @@ void SdlRenderer::blit_text(const std::string &text, SDL_Color color, float x,
 }
 
 void SdlRenderer::sweep_text_cache() {
-  // Mark-and-sweep, once per frame at the top of render_overlays(): evict any
-  // string not drawn last frame and clear the flag on survivors for this
-  // frame's blits to re-set. Bounds the cache to the strings actually on
-  // screen.
+  // Evicts strings not drawn last frame; this frame's blits re-set the flag.
   for (auto it = m_text_cache.begin(); it != m_text_cache.end();) {
     if (it->second.used) {
       it->second.used = false;
@@ -280,21 +256,16 @@ void SdlRenderer::sweep_text_cache() {
     }
   }
 #ifndef NDEBUG
-  // If the bookkeeping ever drifts (used never cleared, or nothing evicted) the
-  // cache grows without bound; a live screen draws well under this ceiling.
+  // Ceiling in case the bookkeeping drifts; a live screen is well under it.
   assert(m_text_cache.size() <= 256 &&
          "text cache unbounded — mark-sweep drift");
 #endif
 }
 
 void SdlRenderer::render_overlays() {
-  // Evict last frame's unused string-textures before this frame's blits
-  // repopulate the cache (see blit_text / sweep_text_cache).
   sweep_text_cache();
 
-  // Transient one-shot message (export result) — bottom-left over the plot,
-  // auto-clearing at its deadline. Status / PEAK / timing all live in the panel
-  // now; this is the only text left floating on the plot besides the axes.
+  // The one-shot message (export result), until its deadline.
   if (!m_status_msg.empty() &&
       std::chrono::steady_clock::now() < m_status_until) {
     blit_text(m_status_msg, {200, 200, 200, 255},
@@ -302,9 +273,7 @@ void SdlRenderer::render_overlays() {
               static_cast<float>(m_height) - 24.0F);
   }
 
-  // Frequency scale — one copy of the pre-baked target texture per frame, over
-  // the plot region only (the panel owns [plot_width, width)). No state
-  // changes, no per-tick draw calls, no blend-mode save/restore.
+  // The pre-baked scale, over the plot region only.
   if (m_freq_scale_texture != nullptr && m_freq_scale_spectrum_height >= 22) {
     const int scale_h = 22;
     const int scale_y =
@@ -319,7 +288,7 @@ void SdlRenderer::render_overlays() {
   draw_markers();
   draw_trigger();
   draw_cursor_readout();
-  render_panel(); // opaque; drawn last so nothing bleeds into the gutter
+  render_panel();
 }
 
 int SdlRenderer::axis_strip_width() const {
@@ -344,40 +313,34 @@ void SdlRenderer::draw_left_axes() {
   }
   const float wf_h = static_cast<float>(m_height) - spec_h;
 
-  // Tick positions are FIXED (evenly divided per pane); only the printed values
-  // change as the dB range / waterfall age drift. This makes the labels behave
-  // like a rolling coarse meter instead of jumping around as the scale
-  // oscillates. Style mirrors the bottom frequency bar (dark strip, gray ticks
-  // + labels) so the two scales read as one set.
-  constexpr int kDiv = 4; // 5 labels per pane (0..kDiv)
+  // Tick positions are fixed; only the printed values drift with the range.
+  constexpr int kDiv = 4;
   struct Label {
     float y;
     std::string text;
   };
   std::vector<Label> labels;
 
-  // dB scale over the spectrum pane (bottom 22px reserved for the freq bar).
+  // The bottom 22 px belong to the frequency bar.
   const float db_usable = spec_h - 22.0F;
   if (db_usable > 20.0F && m_axis_db_max > m_axis_db_min) {
     const double range = m_axis_db_max - m_axis_db_min;
     for (int i = 0; i <= kDiv; ++i) {
-      const double frac = static_cast<double>(i) / kDiv; // 0 top .. 1 bottom
-      const double v = m_axis_db_max - frac * range;     // top = max dB
+      const double frac = static_cast<double>(i) / kDiv;
+      const double v = m_axis_db_max - frac * range;
       char s[16];
-      // Keep the sign: these are dBFS, and a level below full scale is
-      // negative. Printing "83dB" for -83 dBFS reads as an error to anyone who
-      // works in dB, which is everyone this axis is for.
+      // Keep the sign: these are dBFS, below full scale they are negative.
       std::snprintf(s, sizeof(s), "%.0fdB", v);
       labels.push_back({static_cast<float>(frac) * db_usable, s});
     }
   }
 
-  // Seconds-ago scale over the waterfall pane (top = oldest, bottom = now).
+  // Top = oldest, bottom = now.
   if (wf_h > 20.0F && m_axis_wf_top_seconds > 0.05) {
     const double top = m_axis_wf_top_seconds;
     for (int i = 0; i <= kDiv; ++i) {
-      const double frac = static_cast<double>(i) / kDiv; // 0 top .. 1 bottom
-      const double age = top * (1.0 - frac);             // top = oldest
+      const double frac = static_cast<double>(i) / kDiv;
+      const double age = top * (1.0 - frac);
       char s[16];
       if (age < 0.05) {
         std::snprintf(s, sizeof(s), "now");
@@ -404,13 +367,9 @@ void SdlRenderer::draw_left_axes() {
   SDL_BlendMode prev_blend = SDL_BLENDMODE_NONE;
   SDL_GetRenderDrawBlendMode(m_renderer, &prev_blend);
 
-  // Translucent strip matching the bottom frequency bar (alpha 180 over the
-  // plot). SDL_RenderFillRect honors the *draw* blend mode, which defaults to
-  // NONE (alpha ignored → solid black); switch to BLEND so the data shows
-  // through like the freq bar does. Drawn as two segments — spectrum pane
-  // (above the freq bar) + waterfall pane — leaving the 22px freq-bar band
-  // clear so the vertical strip doesn't double-darken / collide with the
-  // horizontal bar at the bottom-left corner.
+  // Translucent like the frequency bar. SDL_RenderFillRect uses the draw blend
+  // mode, NONE by default, so switch to BLEND. Two segments leave the 22 px
+  // frequency-bar band clear.
   constexpr float kFreqBar = 22.0F;
   SDL_SetRenderDrawBlendMode(m_renderer, SDL_BLENDMODE_BLEND);
   SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 180);
@@ -424,13 +383,12 @@ void SdlRenderer::draw_left_axes() {
 
   constexpr SDL_Color kLabel = {200, 200, 200, 255};
   for (const auto &l : labels) {
-    // Tick poking out of the strip's right edge (toward the plot).
     SDL_SetRenderDrawColor(m_renderer, 180, 180, 180, 255);
     SDL_RenderLine(m_renderer, strip_w - kTick, l.y, strip_w, l.y);
 
     int h = 0;
     m_text_renderer->get_text_size(l.text, nullptr, &h);
-    float ty = l.y - static_cast<float>(h) / 2.0F; // center on the tick
+    float ty = l.y - static_cast<float>(h) / 2.0F;
     ty = std::clamp(ty, 0.0F,
                     static_cast<float>(m_height) - static_cast<float>(h));
     blit_text(l.text, kLabel, static_cast<float>(kPad), ty);
@@ -443,8 +401,8 @@ void SdlRenderer::draw_markers() {
   if (m_markers.empty() || !m_text_renderer) {
     return;
   }
-  // Magenta reads against every palette (JET/VIRIDIS/HOT/GRAY/BLU-RED) and is
-  // distinct from the gray hover cursor and the white max-hold trace.
+  // Magenta reads against every palette and differs from the cursor and the
+  // max-hold trace.
   constexpr SDL_Color kClr = {255, 80, 255, 255};
 
   Uint8 r;
@@ -453,7 +411,6 @@ void SdlRenderer::draw_markers() {
   Uint8 a;
   SDL_GetRenderDrawColor(m_renderer, &r, &g, &b, &a);
 
-  // Vertical reference lines spanning both panes, with an "Mn" tag at the top.
   SDL_SetRenderDrawColor(m_renderer, kClr.r, kClr.g, kClr.b, 220);
   for (const auto &m : m_markers) {
     if (m.on_screen) {
@@ -470,17 +427,13 @@ void SdlRenderer::draw_markers() {
     blit_text(tag, kClr, m.x + 2.0F, 2.0F);
   }
 
-  // The per-marker frequency/level list is drawn by render_panel() in the
-  // right gutter; here we only draw the on-plot lines + "Mn" tags.
+  // The list is in render_panel(); here only the lines and tags.
   SDL_SetRenderDrawColor(m_renderer, r, g, b, a);
 }
 
 void SdlRenderer::draw_trigger() {
-  // Only the red threshold line is drawn on the plot. The "TRIG @ x dB" value
-  // and the frozen "SPACE to resume" hint live in the panel: on the plot they
-  // collide with the cursor readout and cover the marker "Mn" tags. armed
-  // stays true through a freeze, so this also draws the line on the held
-  // spectrum.
+  // Only the line; the value and the resume hint are in the panel, where they
+  // do not collide with the cursor readout. armed stays true through a freeze.
   if (!m_trigger_armed) {
     return;
   }
@@ -512,12 +465,10 @@ void SdlRenderer::draw_cursor_readout() {
   Uint8 a;
   SDL_GetRenderDrawColor(m_renderer, &r, &g, &b, &a);
 
-  // Markers + box text differ per pane; the box itself is shared (below).
   char l0[40];
   char l1[40];
   SDL_SetRenderDrawColor(m_renderer, 200, 200, 200, 180);
   if (m_cursor_readout.pane == Pane::Spectrum) {
-    // Vertical marker over the spectrum pane + a dot snapped onto the trace.
     SDL_RenderLine(m_renderer, x, 0.0F, x, spec_h - 1.0F);
     constexpr float kDot = 3.0F;
     SDL_FRect const dot_rect = {x - kDot, m_cursor_readout.dot_y - kDot,
@@ -528,8 +479,7 @@ void SdlRenderer::draw_cursor_readout() {
     std::snprintf(l1, sizeof(l1), "%.1f dB",
                   static_cast<double>(m_cursor_readout.db));
   } else {
-    // Waterfall: crosshair pinpointing the frequency (vertical) and the
-    // hovered time-row (horizontal) across the waterfall pane.
+    // Waterfall: a crosshair at the frequency and the hovered row.
     SDL_RenderLine(m_renderer, x, spec_h, x,
                    static_cast<float>(m_height) - 1.0F);
     SDL_RenderLine(m_renderer, 0.0F, m_cursor_readout.dot_y,
@@ -555,9 +505,7 @@ void SdlRenderer::draw_cursor_readout() {
   const auto box_w = static_cast<float>(text_w + 2 * pad);
   const auto box_h = static_cast<float>(2 * line_h + 2 * pad);
 
-  // Fixed top-left panel. Anchoring it to the cursor/trace made it ride the
-  // fast spectrum refresh — vibrating and ghosting. A static position keeps the
-  // text readable; the marker line + dot still convey the measured location.
+  // Fixed top-left: anchored to the trace it vibrated with the refresh.
   const float bx = 8.0F + static_cast<float>(axis_strip_width());
   const float by = 8.0F;
 
@@ -579,11 +527,11 @@ void SdlRenderer::render_panel() {
   const int panel_w =
       static_cast<int>(m_width) - static_cast<int>(m_plot_width);
   if (panel_w < 120 || m_text_renderer == nullptr) {
-    return; // window too narrow for a panel — the plots already span full width
+    return; // window too narrow for a panel
   }
 
-  // Flat palette (no glow): green labels, white values, amber trigger, magenta
-  // markers. Hard 90-degree corners — DOS panel meets 4KB-intro.
+  // Flat palette, hard corners: green labels, white values, amber trigger,
+  // magenta markers.
   constexpr SDL_Color kLabel = {110, 231, 135, 255};
   constexpr SDL_Color kValue = {235, 240, 236, 255};
   constexpr SDL_Color kDim = {127, 147, 138, 255};
@@ -597,7 +545,6 @@ void SdlRenderer::render_panel() {
   Uint8 a;
   SDL_GetRenderDrawColor(m_renderer, &r, &g, &b, &a);
 
-  // Bordered inset box floating on black over the gutter.
   constexpr float kGap = 7.0F;
   const float bx = static_cast<float>(m_plot_width) + kGap;
   const float by = kGap;
@@ -611,10 +558,10 @@ void SdlRenderer::render_panel() {
 
   int cw = 0;
   int lh = 0;
-  m_text_renderer->get_text_size("M", &cw, &lh); // fixed 8x16 cell
+  m_text_renderer->get_text_size("M", &cw, &lh);
   const float pad = 9.0F;
   const float cx = bx + pad;
-  const float val_x = cx + 7.0F * static_cast<float>(cw); // value column
+  const float val_x = cx + 7.0F * static_cast<float>(cw);
   const float step = static_cast<float>(lh) + 2.0F;
   float y = by + pad;
 
@@ -651,13 +598,13 @@ void SdlRenderer::render_panel() {
                   static_cast<double>(m_trigger_db));
     blit_text(tg, kAmber, cx, y);
     y += step;
-    if (m_frozen) { // resume hint (replaces the removed centered banner)
+    if (m_frozen) {
       blit_text("SPACE to resume", kAmber, cx, y);
       y += step;
     }
   }
 
-  // --- PERF (always shown — processing headroom at a glance) ---
+  // --- PERF ---
   {
     y += 6.0F;
     blit_text("PERF", kDim, cx, y);
@@ -674,21 +621,21 @@ void SdlRenderer::render_panel() {
   }
 
   // --- MARKERS (lower section) ---
-  // The divider hugs the STATUS content (not a fixed fraction) so the marker
-  // list gets all the remaining height — enough for the full 16 at 576px.
+  // The divider hugs the STATUS content so the list gets the rest of the
+  // height.
   const float split_y = y + 6.0F;
   SDL_SetRenderDrawColor(m_renderer, 36, 49, 43, 255);
   SDL_RenderLine(m_renderer, bx, split_y, bx + bw, split_y);
   float my = split_y + pad;
   {
     char mh[24];
-    // "/14" mirrors main.cpp's kMaxMarkers so hitting the cap is self-evident.
+    // Mirrors main.cpp's kMaxMarkers.
     std::snprintf(mh, sizeof(mh), "MARKERS  %zu/14", m_markers.size());
     blit_text(mh, kDim, cx, my);
     my += step + 2.0F;
   }
-  // At least 3 slots (arcade high-score look), growing to the live count, but
-  // clamped to what fits and to the 16-marker cap.
+  // At least 3 slots, growing to the live count, clamped to what fits and to
+  // the marker cap.
   const float avail = by + bh - my;
   const auto max_rows =
       avail > 0.0F ? static_cast<size_t>(avail / step) : size_t{0};
@@ -698,7 +645,7 @@ void SdlRenderer::render_panel() {
   for (size_t i = 0; i < shown; ++i) {
     if (i < m_markers.size()) {
       const Marker &m = m_markers[i];
-      char id[16]; // "M" + any int + NUL
+      char id[16];
       std::snprintf(id, sizeof(id), "M%d", m.index);
       char rest[40];
       if (m.on_screen) {
@@ -710,7 +657,7 @@ void SdlRenderer::render_panel() {
       blit_text(id, kMag, cx, my);
       blit_text(rest, kValue, rest_x, my);
     } else {
-      char id[16]; // "M" + any int + NUL
+      char id[16];
       std::snprintf(id, sizeof(id), "M%d", static_cast<int>(i) + 1);
       blit_text(id, kGhost, cx, my);
       blit_text("---", kGhost, rest_x, my);
@@ -730,8 +677,6 @@ void SdlRenderer::set_timing_overlay(double fps, double cpu_ms,
   m_timing_present_ms = present_ms;
 }
 
-// Draw the spectrum bars into the active render target — one SDL_RenderGeometry
-// call, solid-color geometry (no texture).
 void SdlRenderer::render_spectrum(const std::vector<SDL_Vertex> &verts,
                                   const std::vector<int> &indices) {
   if (verts.empty())
@@ -747,16 +692,14 @@ void SdlRenderer::compose_base(SDL_Texture *wf_tex, const SDL_FRect *wf_src,
                                const std::vector<SDL_Vertex> &verts,
                                const std::vector<int> &indices) {
   SDL_SetRenderTarget(m_renderer, m_frame_tex);
-  // Force black before clearing: the spectrum background (the area above the
-  // bars) is the cleared color, and rebuild_freq_scale_ticks() can leave the
-  // renderer's draw color non-black. Leaving it black also re-establishes the
-  // app-wide invariant that overlay code saves/restores around.
+  // Black before clearing: rebuild_freq_scale_ticks() can leave the draw
+  // colour otherwise, and the cleared colour is the spectrum background.
   SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 255);
   SDL_RenderClear(m_renderer);
   if (wf_tex != nullptr && wf_dst.w > 0 && wf_dst.h > 0) {
     SDL_RenderTexture(m_renderer, wf_tex, wf_src, &wf_dst);
   }
-  render_spectrum(verts, indices); // top region, coords in frame-texture space
+  render_spectrum(verts, indices);
   SDL_SetRenderTarget(m_renderer, nullptr);
 }
 
@@ -764,17 +707,14 @@ void SdlRenderer::present_composited() {
   SDL_RenderClear(m_renderer);
   SDL_RenderTexture(m_renderer, m_frame_tex, nullptr, nullptr);
   render_overlays();
-  // Read back the finished frame (base + overlays) before the swap — SDL3
-  // leaves the backbuffer undefined once present runs, so this is the only
-  // valid point for a WYSIWYG export readback.
+  // Before the swap: SDL3 leaves the backbuffer undefined after present.
   if (m_capture_pending)
     capture_backbuffer();
   present_timed();
 }
 
-// Reads the composited backbuffer into m_capture_buf as tightly packed RGBA at
-// the renderer's output resolution. The readback surface format follows the
-// swapchain, so convert to RGBA32 to give the exporter a stable layout.
+// Tightly packed RGBA at the output resolution. The readback format follows the
+// swapchain, so it is converted to RGBA32.
 void SdlRenderer::capture_backbuffer() {
   m_capture_pending = false;
   SDL_Surface *raw = SDL_RenderReadPixels(m_renderer, nullptr);
@@ -796,7 +736,7 @@ void SdlRenderer::capture_backbuffer() {
   m_capture_h = rgba->h;
   const size_t row_bytes = static_cast<size_t>(rgba->w) * 4;
   m_capture_buf.resize(row_bytes * static_cast<size_t>(rgba->h));
-  // SDL surface pitch may exceed row_bytes (padding); pack row by row.
+  // The surface pitch may exceed row_bytes: pack row by row.
   const auto *src = static_cast<const uint8_t *>(rgba->pixels);
   for (int y = 0; y < rgba->h; ++y) {
     memcpy(m_capture_buf.data() + static_cast<size_t>(y) * row_bytes,
@@ -838,8 +778,6 @@ auto SdlRenderer::render_displays(const std::vector<SDL_Vertex> &spec_verts,
   const size_t src_pitch = m_plot_width * 4;
   const int wf_height = static_cast<int>(m_height - spectrum_height);
 
-  // Upload only the waterfall into m_texture's bottom region. The spectrum is
-  // now GPU-drawn from spec_verts, so no spectrum pixel upload happens here.
   for (const auto &rect : wf_dirty_rects) {
     int x0 = std::max(0, rect.x);
     int y0 = std::max(0, rect.y);
@@ -857,8 +795,7 @@ auto SdlRenderer::render_displays(const std::vector<SDL_Vertex> &spec_verts,
 
   SDL_UnlockTexture(m_texture);
 
-  // Seed the GPU scroll texture from the main texture's waterfall region so
-  // the first render_displays_scroll() frame is visually continuous.
+  // Seeds the scroll texture so the first scroll frame is continuous.
   if (m_wf_scroll_tex != nullptr && wf_height > 0) {
     SDL_FRect const wf_src = {0.0f, static_cast<float>(spectrum_height),
                               static_cast<float>(m_plot_width),
@@ -869,8 +806,6 @@ auto SdlRenderer::render_displays(const std::vector<SDL_Vertex> &spec_verts,
     m_wf_scroll_valid = true;
   }
 
-  // Compose base = waterfall region of m_texture (bottom) + spectrum bars
-  // (top).
   SDL_FRect const wf_src = {0.0f, static_cast<float>(spectrum_height),
                             static_cast<float>(m_plot_width),
                             static_cast<float>(wf_height)};
@@ -881,13 +816,8 @@ auto SdlRenderer::render_displays(const std::vector<SDL_Vertex> &spec_verts,
   return true;
 }
 
-void SdlRenderer::present_frame() {
-  // No new data: re-blit the last composited base frame with fresh overlays.
-  present_composited();
-}
+void SdlRenderer::present_frame() { present_composited(); }
 
-// DEBUG (frame-timing branch): time the present so the main loop can subtract
-// the swap/flush cost from total render time.
 void SdlRenderer::present_timed() {
   auto t0 = std::chrono::steady_clock::now();
   SDL_RenderPresent(m_renderer);
@@ -908,35 +838,29 @@ auto SdlRenderer::poll_events(ControlState *state) -> bool {
         return false;
       }
       if (event.key.key == SDLK_DELETE) {
-        m_clear_markers = true; // clear all frequency markers
+        m_clear_markers = true;
       }
 
-      // Handle control state if provided
       if (state != nullptr) {
-        // Get modifier state - SDL3 returns const bool* instead of const Uint8*
         const bool *keystate = SDL_GetKeyboardState(nullptr);
         bool const shift_held =
             keystate[SDL_SCANCODE_LSHIFT] || keystate[SDL_SCANCODE_RSHIFT];
         bool const ctrl_held =
             keystate[SDL_SCANCODE_LCTRL] || keystate[SDL_SCANCODE_RCTRL];
 
-        // SDL3: event.key.key instead of event.key.keysym.sym. The key updates
-        // ControlState, which tracks its own status-dirty flag; main() feeds
-        // the panel via status_changed(), so no renderer-side flag is needed.
+        // ControlState tracks its own dirty flag; main() reads
+        // status_changed().
         handle_control_key(*state, event.key.key, shift_held, ctrl_held);
       }
       break;
 
     case SDL_EVENT_MOUSE_MOTION:
-      // Convert window coords -> render (logical) coords so the marker lines up
-      // with the spectrum under logical-presentation scaling (window resize).
+      // Window to logical coordinates, for the scaling after a resize.
       SDL_ConvertEventToRenderCoordinates(m_renderer, &event);
       m_cursor_x = event.motion.x;
       m_cursor_y = event.motion.y;
       m_cursor_active = true;
-      // Shift + left button held = dragging the amplitude-trigger threshold
-      // line. Captured as a set-request (render-space y) that main() maps to
-      // dB.
+      // Shift + left button drags the trigger threshold; main() maps y to dB.
       if ((SDL_GetModState() & SDL_KMOD_SHIFT) != 0 &&
           (event.motion.state & SDL_BUTTON_LMASK) != 0) {
         m_trigger_set_y = event.motion.y;
@@ -945,9 +869,8 @@ auto SdlRenderer::poll_events(ControlState *state) -> bool {
       break;
 
     case SDL_EVENT_MOUSE_BUTTON_DOWN:
-      // Left = drop a frequency marker, right = remove the nearest. main()
-      // owns the marker list and processes these via take_clicks(). Shift+left
-      // instead sets the amplitude-trigger threshold (no marker dropped).
+      // Left drops a marker, right removes the nearest (main() owns the list,
+      // via take_clicks()). Shift+left sets the trigger instead.
       SDL_ConvertEventToRenderCoordinates(m_renderer, &event);
       m_cursor_x = event.button.x;
       m_cursor_y = event.button.y;
@@ -974,27 +897,22 @@ auto SdlRenderer::poll_events(ControlState *state) -> bool {
 }
 
 void SdlRenderer::render_status_bar(const std::string &status_text) {
-  // Repurposed as a transient one-shot notice (e.g. the export result). Drawn
-  // bottom-left over the plot by render_overlays until the deadline; empty text
-  // clears it immediately. The steady per-frame status lives in the panel now.
+  // A one-shot notice until the deadline; empty text clears it.
   m_status_msg = status_text;
   m_status_until = status_text.empty() ? std::chrono::steady_clock::time_point{}
                                        : std::chrono::steady_clock::now() +
                                              std::chrono::seconds(4);
 }
 
-void SdlRenderer::render_peak_indicator(float peak_db) {
-  m_peak_db = peak_db; // the panel prints it when > -140 dBFS
-}
+void SdlRenderer::render_peak_indicator(float peak_db) { m_peak_db = peak_db; }
 
 void SdlRenderer::render_iq_status(const std::string &iq_text) {
-  m_current_iq_status = iq_text; // shown in the panel while capturing
+  m_current_iq_status = iq_text;
 }
 
 bool SdlRenderer::ensure_wf_scroll_textures(size_t wf_height,
                                             size_t line_height) {
   bool rebuild = (m_wf_scroll_tex == nullptr);
-  // Recreate if line_height changed (FFT size switch)
   if (!rebuild && m_wf_scroll_line_height != line_height) {
     SDL_DestroyTexture(m_wf_scroll_tex);
     m_wf_scroll_tex = nullptr;
@@ -1023,8 +941,7 @@ bool SdlRenderer::ensure_wf_scroll_textures(size_t wf_height,
       m_wf_line_tex == nullptr) {
     return false;
   }
-  // Nearest (SDL3 defaults to linear); these are blitted 1:1 but keep them
-  // consistent with m_frame_tex.
+  // Nearest, to match m_frame_tex.
   SDL_SetTextureScaleMode(m_wf_scroll_tex, SDL_SCALEMODE_NEAREST);
   SDL_SetTextureScaleMode(m_wf_scroll_aux, SDL_SCALEMODE_NEAREST);
   SDL_SetTextureScaleMode(m_wf_line_tex, SDL_SCALEMODE_NEAREST);
@@ -1042,8 +959,6 @@ bool SdlRenderer::render_displays_scroll(
   if (!ensure_wf_scroll_textures(wf_height, line_height))
     return false;
 
-  // --- GPU waterfall scroll ---
-  // Upload the new line (~5 KB) to the narrow streaming texture
   {
     void *lp = nullptr;
     int lpitch = 0;
@@ -1057,9 +972,7 @@ bool SdlRenderer::render_displays_scroll(
     }
   }
 
-  // Render into the aux texture:
-  //   1. Blit existing waterfall shifted up by line_height (GPU-to-GPU copy)
-  //   2. Place new line at the bottom
+  // Into the aux texture: the old waterfall shifted up, the new line below.
   SDL_SetRenderTarget(m_renderer, m_wf_scroll_aux);
   int const shift_h =
       static_cast<int>(wf_height) - static_cast<int>(line_height);
@@ -1073,10 +986,8 @@ bool SdlRenderer::render_displays_scroll(
       SDL_RenderTexture(m_renderer, m_wf_scroll_tex, &src_r, &dst_r);
     }
   } else if (shift_h > 0) {
-    // First scroll frame: the scroll textures were just created so they hold
-    // garbage. Seed from m_texture's waterfall region (filled by the last
-    // full-render pass) shifted up by line_height — produces a continuous
-    // transition instead of a black flash + bottom-up refill.
+    // First scroll frame: the textures were just created and hold garbage, so
+    // seed from m_texture's waterfall region instead of a black flash.
     SDL_FRect const src_r = {
         0.0f,
         static_cast<float>(spectrum_height) + static_cast<float>(line_height),
@@ -1085,24 +996,19 @@ bool SdlRenderer::render_displays_scroll(
                              static_cast<float>(shift_h)};
     SDL_RenderTexture(m_renderer, m_texture, &src_r, &dst_r);
   } else {
-    // Pathological: wf_height <= line_height. Just clear.
+    // wf_height <= line_height: just clear.
     SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 255);
     SDL_RenderClear(m_renderer);
   }
-  // Paste new line at the bottom
   SDL_FRect const line_dst = {0.0f, static_cast<float>(wf_height - line_height),
                               static_cast<float>(m_plot_width),
                               static_cast<float>(line_height)};
   SDL_RenderTexture(m_renderer, m_wf_line_tex, nullptr, &line_dst);
   SDL_SetRenderTarget(m_renderer, nullptr);
 
-  // Swap active/aux
   std::swap(m_wf_scroll_tex, m_wf_scroll_aux);
   m_wf_scroll_valid = true;
 
-  // --- Compose final frame ---
-  // Waterfall (bottom) = the whole scroll texture mapped to the bottom region;
-  // spectrum (top) = GPU geometry. Composited into m_frame_tex for present.
   SDL_FRect const wf_dst = {0.0f, static_cast<float>(spectrum_height),
                             static_cast<float>(m_plot_width),
                             static_cast<float>(wf_height)};
@@ -1124,8 +1030,6 @@ void SdlRenderer::rebuild_freq_scale_ticks() {
 
   constexpr int SCALE_H = 22;
 
-  // Bake the entire scale bar into a single render-target texture.
-  // render_overlays() does one SDL_RenderCopy per frame — no state churn.
   m_freq_scale_texture = SDL_CreateTexture(
       m_renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_TARGET,
       static_cast<int>(m_plot_width), SCALE_H);
@@ -1137,11 +1041,10 @@ void SdlRenderer::rebuild_freq_scale_ticks() {
 
   SDL_SetRenderTarget(m_renderer, m_freq_scale_texture);
 
-  // Semi-transparent dark background (SDL_RenderClear writes alpha directly)
+  // SDL_RenderClear writes alpha directly.
   SDL_SetRenderDrawColor(m_renderer, 0, 0, 0, 180);
   SDL_RenderClear(m_renderer);
 
-  // Compute tick positions
   uint32_t const interval = nice_tick_interval(m_freq_scale_sample_rate_hz);
   int64_t const start_hz =
       static_cast<int64_t>(m_freq_scale_center_hz) -
@@ -1163,11 +1066,10 @@ void SdlRenderer::rebuild_freq_scale_ticks() {
                          static_cast<float>(m_freq_scale_sample_rate_hz);
     int const x = static_cast<int>(x_frac * static_cast<float>(m_plot_width));
 
-    // Tick line
     SDL_FRect const tick_line = {static_cast<float>(x), 0.0f, 1.0f, 4.0f};
     SDL_RenderFillRect(m_renderer, &tick_line);
 
-    // Label — temporary texture, composited onto the scale texture then freed
+    // A temporary texture, freed after compositing.
     std::string const label = format_freq_label(freq);
     int lw = 0;
     m_text_renderer->get_text_size(label, &lw, nullptr);

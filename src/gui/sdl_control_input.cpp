@@ -17,16 +17,13 @@ namespace openspectrum {
 
 auto handle_control_key(ControlState &state, SDL_Keycode key, bool shift_held,
                         bool ctrl_held) -> bool {
-  // Step sizes, adjusted by modifiers
-  uint64_t current_freq_step = 1000000; // 1 MHz default
-  float current_gain_step = 1.0F;       // 1 dB default
+  uint64_t current_freq_step = 1000000;
+  float current_gain_step = 1.0F;
 
   if (shift_held) {
-    // Fine control
     current_freq_step = 100000; // 0.1 MHz
     current_gain_step = 0.1F;   // 0.1 dB
   } else if (ctrl_held) {
-    // Coarse control
     current_freq_step = 10000000; // 10 MHz
     current_gain_step = 10.0F;    // 10 dB
   }
@@ -35,7 +32,6 @@ auto handle_control_key(ControlState &state, SDL_Keycode key, bool shift_held,
   auto const &constraints = state.get_constraints();
 
   switch (key) {
-  // Frequency controls
   case SDLK_PLUS:
   case SDLK_EQUALS: {
     uint64_t const prev = state.get_frequency();
@@ -70,7 +66,6 @@ auto handle_control_key(ControlState &state, SDL_Keycode key, bool shift_held,
     break;
   }
 
-  // Gain controls
   case SDLK_R: {
     float const prev = state.get_gain();
     float const new_gain =
@@ -99,7 +94,6 @@ auto handle_control_key(ControlState &state, SDL_Keycode key, bool shift_held,
     break;
   }
 
-  // FFT size controls (1-7 keys select a supported size)
   case SDLK_1:
   case SDLK_2:
   case SDLK_3:
@@ -122,7 +116,6 @@ auto handle_control_key(ControlState &state, SDL_Keycode key, bool shift_held,
     break;
   }
 
-  // Color palette: 'c' cycles forward, Shift+C cycles backward.
   case SDLK_C: {
     state.cycle_palette(shift_held ? -1 : 1);
     LOG_INFO(std::string("[PALETTE] ") +
@@ -131,7 +124,6 @@ auto handle_control_key(ControlState &state, SDL_Keycode key, bool shift_held,
     break;
   }
 
-  // Window function controls (UP/DOWN arrows cycle through supported windows)
   case SDLK_UP:
   case SDLK_DOWN: {
     int const direction = (key == SDLK_UP) ? 1 : -1;
@@ -173,7 +165,6 @@ auto handle_control_key(ControlState &state, SDL_Keycode key, bool shift_held,
     break;
   }
 
-  // IQ logging toggle (Ctrl+S)
   case SDLK_S:
     if (ctrl_held && !shift_held) {
       state.request_iq_logging_toggle();
@@ -183,7 +174,6 @@ auto handle_control_key(ControlState &state, SDL_Keycode key, bool shift_held,
     }
     break;
 
-  // Spectrogram export (e key - instant export)
   case SDLK_E:
     if (!ctrl_held && !shift_held) {
       state.request_spectrogram_export();
@@ -193,8 +183,7 @@ auto handle_control_key(ControlState &state, SDL_Keycode key, bool shift_held,
     }
     break;
 
-  // Amplitude-trigger resume (Space): unfreeze the display and re-arm. No-op
-  // unless main() is currently frozen.
+  // Space resumes after an amplitude-trigger freeze.
   case SDLK_SPACE:
     if (!ctrl_held && !shift_held) {
       state.request_unfreeze();
@@ -202,7 +191,6 @@ auto handle_control_key(ControlState &state, SDL_Keycode key, bool shift_held,
     }
     break;
 
-  // Max-hold trace toggle (m key)
   case SDLK_M:
     if (!ctrl_held && !shift_held) {
       state.toggle_max_hold();
@@ -212,7 +200,6 @@ auto handle_control_key(ControlState &state, SDL_Keycode key, bool shift_held,
     }
     break;
 
-  // Video averaging toggle (a key)
   case SDLK_A:
     if (!ctrl_held && !shift_held) {
       state.toggle_averaging();

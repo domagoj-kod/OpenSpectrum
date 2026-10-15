@@ -12,10 +12,8 @@
 
 namespace openspectrum {
 
-// 8x16 bitmap font: the public-domain IBM VGA ROM typeface (CP437 glyphs
-// 0x20-0x7F). Bitmap font *data* (pixel patterns) is not copyrightable; only
-// the scalable font program would be. MSB of each byte = leftmost pixel,
-// matching render_text's (1 << (7 - src_x)). 16 bytes = 16 scanlines per glyph.
+// 8x16 IBM VGA ROM typeface (CP437 glyphs 0x20-0x7F); bitmap data, not a font
+// program. One byte per scanline, MSB = leftmost pixel.
 // clang-format off: one glyph per line
 const uint8_t TextRenderer::BITMAP_FONT[96][16] = {
     {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, // 0x20 'space'
@@ -119,8 +117,7 @@ const uint8_t TextRenderer::BITMAP_FONT[96][16] = {
 
 TextRenderer::TextRenderer(SDL_Renderer *sdl_renderer, int size)
     : renderer(sdl_renderer) {
-  // The font is natively 8x16; render at an integer multiple of that so glyphs
-  // stay crisp (nearest-neighbour, no blur). size is the target height.
+  // An integer multiple of the native 8x16 keeps the glyphs crisp.
   int scale = size / GLYPH_SRC_H;
   if (scale < 1) {
     scale = 1;
@@ -137,14 +134,11 @@ auto TextRenderer::render_text(const std::string &text, SDL_Color color)
     return nullptr;
   }
 
-  // For simplicity, render each string as a single texture
-  // Calculate total width
   int const total_width = static_cast<int>(text.length()) * glyph_width;
   int const total_height = glyph_height;
 
-  // STATIC, not TARGET: this texture is filled once via SDL_UpdateTexture (from
-  // the surface below) and only ever sampled — never rendered into. TARGET
-  // allocates a render-target view the driver never needs (heaviest on D3D11).
+  // STATIC, not TARGET: only sampled, and TARGET costs a render-target view
+  // (heaviest on D3D11).
   SDL_Texture *texture =
       SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA32,
                         SDL_TEXTUREACCESS_STATIC, total_width, total_height);
@@ -153,17 +147,14 @@ auto TextRenderer::render_text(const std::string &text, SDL_Color color)
     return nullptr;
   }
 
-  // SDL3 defaults alpha-format textures to SDL_BLENDMODE_BLEND. Under NONE the
-  // transparent fill below renders as opaque black — that *is* the black
-  // backdrop behind the status bar, PEAK, and IQ text. Keep NONE here; call
-  // sites that want real transparency (freq-scale labels, timing overlay) set
-  // BLEND explicitly on the result.
+  // NONE: the transparent fill below renders as the black backdrop of the
+  // status bar and panel. Call sites that want transparency set BLEND on the
+  // result.
   SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_NONE);
-  // Nearest (SDL3 defaults to linear) keeps the bitmap font crisp when the
-  // logical-presentation scaling stretches overlays on window resize.
+  // Nearest, not SDL3's linear default: the font stays crisp when a resize
+  // stretches the overlays.
   SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_NEAREST);
 
-  // Create surface
   SDL_Surface *surface =
       SDL_CreateSurface(total_width, total_height, SDL_PIXELFORMAT_RGBA32);
 
@@ -179,29 +170,23 @@ auto TextRenderer::render_text(const std::string &text, SDL_Color color)
   }
   auto *pixels = static_cast<uint32_t *>(surface->pixels);
 
-  // Fill with transparent
   for (int y = 0; y < total_height; ++y) {
     for (int x = 0; x < total_width; ++x) {
       pixels[(y * surface->pitch / 4) + x] = 0x00000000;
     }
   }
 
-  // Pack the colour for the surface's actual format. SDL_PIXELFORMAT_RGBA32 is
-  // an endian-dependent alias (ABGR8888 on little-endian x86), so a hand-rolled
-  // (r<<24)|(g<<16)|(b<<8)|a is wrong — it maps input red onto alpha, leaving
-  // any colour with r==0 fully transparent. SDL_MapSurfaceRGBA gets it right on
-  // any endian.
+  // SDL_MapSurfaceRGBA: RGBA32 is ABGR on little-endian, so hand-packing maps
+  // red onto alpha.
   const uint32_t packed =
       SDL_MapSurfaceRGBA(surface, color.r, color.g, color.b, color.a);
 
-  // Render each character
   for (size_t i = 0; i < text.length(); ++i) {
     char const c = text[i];
     int char_index = static_cast<int>(c) - 32;
 
-    // Only render printable ASCII
     if (char_index < 0 || char_index >= 95) {
-      char_index = 0; // Space
+      char_index = 0;
     }
 
     const uint8_t *bitmap = BITMAP_FONT[char_index];
