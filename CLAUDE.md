@@ -1,11 +1,14 @@
 # CLAUDE.md
 
-Real-time SDR spectrum analyzer: RTL-SDR, B200-series USRP (`UHD=1` builds) and
-playback of its own captures. C++20, SDL3, PocketFFT. Priorities, in order: low
-latency, low power (long battery runs), small footprint. Users are radio
-engineers, mostly on native Windows; `.iq` captures and PNG exports feed a
-Python pipeline. Keep it simple enough for a junior maintainer: clarity and
-deletion over cleverness.
+For understanding the code and for the working rules of this repository. In
+the spirit of late demoscene software: small, dense, nothing decorative. A
+line earns its place; what the code or the compiler already says is not
+repeated here.
+
+C++20. Priorities, in order: low latency, low power (long battery runs), small
+footprint. Users are radio engineers, mostly on native Windows; `.iq` captures
+and PNG exports feed a Python pipeline. Keep it simple enough for a junior
+maintainer: clarity and deletion over cleverness.
 
 ## Build and check
 
@@ -98,6 +101,7 @@ Vulkan on old Intel iGPUs is several times slower.
   staged lines). A bug fix starts from a check that fails: a test in `tests/`
   or a stated reproduction. UI and device changes need a run on Windows (and
   the device); say what was and was not run.
+- Nothing is committed before the maintainer has reviewed the diff.
 - One verified change per commit; commits are not squashed.
 - Conventional Commits: `type(scope): summary`, types `feat fix perf refactor
   docs test build ci chore style`. Subject at most 72 characters, imperative,
