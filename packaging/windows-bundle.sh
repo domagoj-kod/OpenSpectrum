@@ -28,7 +28,10 @@ mkdir -p "$STAGE"
 cp openspectrum.exe "$STAGE/"
 [ -f README.md ] && cp README.md "$STAGE/"
 [ -f LICENSE ]   && cp LICENSE   "$STAGE/"
-[ "${UHD:-}" = 1 ] && cp packaging/uhd-sweep.ps1 "$STAGE/"
+# Measurement scripts, for the test builds only (those are UHD=1).
+if [ "${UHD:-}" = 1 ]; then
+  cp packaging/uhd-sweep.ps1 packaging/play-bench.ps1 "$STAGE/"
+fi
 
 echo ">> Collecting MinGW runtime DLLs (ldd is recursive, so this is complete)…"
 # Keep only DLLs under the MSYS2 toolchain prefix; the C:\Windows system DLLs
