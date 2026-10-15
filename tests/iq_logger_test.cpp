@@ -88,6 +88,7 @@ auto main() -> int {
   signal(SIGXFSZ, SIG_IGN);
   rlimit const limit{10003, RLIM_INFINITY};
   setrlimit(RLIMIT_FSIZE, &limit);
+  std::puts("expected: one \"IQ flush short write\" error");
   IqLogger full(config);
   bool const full_started = full.start_capture(0, 20000, 0.0F);
   assert(full_started);
