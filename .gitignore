@@ -164,3 +164,6 @@ compile_commands.json
 # Benchmark / captured console logs (distilled results live in docs/)
 *.log
 logs/*-conditions.txt
+
+# cached dirs and files
+.cache
