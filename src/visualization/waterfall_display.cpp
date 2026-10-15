@@ -18,7 +18,7 @@
 
 namespace openspectrum {
 
-// steady_clock seconds; used both to stamp lines and to compute time-ago.
+// steady_clock seconds.
 static double steady_now_s() {
   return std::chrono::duration<double>(
              std::chrono::steady_clock::now().time_since_epoch())
@@ -47,8 +47,7 @@ void WaterfallDisplay::set_db_range(float min_db, float max_db) {
 }
 
 void WaterfallDisplay::rebuild_rgba_lut() {
-  m_needs_full_render =
-      true; // existing GPU texture is stale after a LUT change
+  m_needs_full_render = true;
   for (size_t q = 0; q < 256; ++q) {
     float const db = dequantize_db(static_cast<uint8_t>(q));
     RgbColor const color = m_palette.get_color(db);
@@ -80,23 +79,16 @@ void WaterfallDisplay::update_global_range() {
     return;
   }
 
-  // Top = last populated bucket: max is dominated by real signals, so it is
-  // well behaved. History is non-empty here, so at least one bucket is set.
+  // Top = last populated bucket. History is non-empty, so one is set.
   int q_max = 255;
   while (q_max > 0 && m_hist_counts[q_max] == 0) {
     --q_max;
   }
 
-  // Bottom = *median* bucket, not the first populated one. The waterfall shows
-  // raw per-bin dB, where a noise bin is exponentially distributed: the lowest
-  // populated bucket is the deepest null anywhere in the history, an
-  // extreme-value outlier tens of dB below the actual floor. Anchoring there
-  // stretched the LUT across a range the content never occupies, so the noise
-  // floor landed mid-palette and washed the whole pane out. Noise fills most
-  // of the screen, so the median bucket *is* the floor — anchoring there puts
-  // it at the dark end and leaves the rest of the palette for signals.
-  // Percentiles are why the histogram exists: an O(256) L1-resident walk, no
-  // sort, no scan of the history.
+  // Bottom = *median* bucket, never the first populated one: that is the
+  // deepest null in the history, an extreme value tens of dB under the floor.
+  // Noise fills most of the screen, so the median is the floor and sits at the
+  // dark end of the palette.
   int64_t total = 0;
   for (int32_t const c : m_hist_counts) {
     total += c;
@@ -111,11 +103,7 @@ void WaterfallDisplay::update_global_range() {
   }
 
 #ifndef NDEBUG
-  // Cross-check the incremental counts against a brute-force recount — O(n)
-  // work kept out of the hot path, here only in debug builds as an oracle.
-  // Comparing the buckets themselves (rather than a statistic derived from
-  // them) pins the actual invariant: the histogram is in lockstep with
-  // m_history, whatever we go on to read out of it.
+  // Debug oracle: a brute-force recount must equal m_hist_counts.
   int32_t bf[256] = {};
   for (size_t i = 0; i < m_history.size(); ++i) {
     for (uint8_t const v : m_history[i]) {
@@ -138,9 +126,8 @@ void WaterfallDisplay::update_global_range() {
     new_max += 5.0F;
   }
 
-  // Only rebuild the LUT (and mark a full re-render) when the range actually
-  // changes. rebuild_rgba_lut() sets m_needs_full_render=true, which defeats
-  // the GPU scroll path if called unconditionally every frame.
+  // Only on a real change: rebuild_rgba_lut() forces a full render, which
+  // defeats the GPU scroll path.
   if (new_min == m_global_min && new_max == m_global_max) {
     return;
   }
@@ -161,10 +148,9 @@ bool WaterfallDisplay::sample_at_y(float y_in_region, CursorTime &out) const {
       std::max<size_t>(1UL, m_height / m_history.capacity());
   const size_t row = static_cast<size_t>(y_in_region) / line_height;
   if (row >= lines) {
-    return false; // blank area below the filled history (during fill-up)
+    return false;
   }
-  // render() lays out history[i] at screen row i (0 = oldest = top), so the
-  // hovered row maps straight to the same index in the lockstep time buffer.
+  // history[i] is screen row i (0 = oldest = top), the same index as the times.
   out.seconds_ago = std::max(0.0, steady_now_s() - m_line_times[row]);
   return true;
 }
@@ -176,7 +162,7 @@ void WaterfallDisplay::reset() {
   m_global_min = m_min_db;
   m_global_max = m_max_db;
   m_palette.set_db_range(m_global_min, m_global_max);
-  m_needs_full_render = true; // GPU scroll texture must be re-seeded
+  m_needs_full_render = true;
   m_dirty_rects.push_back(
       {0, 0, static_cast<int>(m_width), static_cast<int>(m_height)});
 }
@@ -189,7 +175,6 @@ SDL_Rect WaterfallDisplay::line_to_rect(size_t line_index) const {
   size_t line_height = std::max<size_t>(1UL, m_height / m_history.capacity());
   size_t y_offset = line_index * line_height;
 
-  // Handle last line
   size_t actual_height = line_height;
   if (y_offset + line_height > m_height) {
     actual_height = m_height - y_offset;
@@ -201,15 +186,14 @@ SDL_Rect WaterfallDisplay::line_to_rect(size_t line_index) const {
 
 void WaterfallDisplay::add_spectrum_line(const std::vector<float> &db_values) {
   if (db_values.empty()) {
-    return; // Invalid input
+    return;
   }
 
-  // Resample if needed to match width (every branch writes all of line)
+  // Resample to the width; every branch writes the whole line.
   std::vector<float> &line = m_line_buf;
   if (db_values.size() == m_width) {
     line = db_values;
   } else if (db_values.size() > m_width) {
-    // Downsample by averaging
     float const scale =
         static_cast<float>(db_values.size()) / static_cast<float>(m_width);
     for (size_t i = 0; i < m_width; ++i) {
@@ -224,7 +208,6 @@ void WaterfallDisplay::add_spectrum_line(const std::vector<float> &db_values) {
                               : db_values[start];
     }
   } else {
-    // Upsample using nearest-neighbor interpolation
     float const scale =
         static_cast<float>(db_values.size()) / static_cast<float>(m_width);
     for (size_t i = 0; i < m_width; ++i) {
@@ -234,18 +217,15 @@ void WaterfallDisplay::add_spectrum_line(const std::vector<float> &db_values) {
     }
   }
 
-  // Track if we're wrapping around (overwriting old data)
   bool was_full = m_history.full();
   size_t old_size = m_history.size();
 
-  // Quantize float dB values to uint8 before storing (4:1 memory reduction)
   for (size_t i = 0; i < m_width; ++i) {
     m_quantized_buf[i] = quantize_db(line[i]);
   }
 
-  // Incremental autoscale histogram. When full, m_history[0] is the slot push()
-  // is about to overwrite, so drop its contribution first; then add the new
-  // line's. Keeps m_hist_counts in lockstep with the stored history.
+  // When full, m_history[0] is the slot push() overwrites: drop its counts
+  // first, then add the new line's.
   if (was_full) {
     for (uint8_t const q : m_history[0]) {
       --m_hist_counts[q];
@@ -256,21 +236,17 @@ void WaterfallDisplay::add_spectrum_line(const std::vector<float> &db_values) {
   }
 
   m_history.push(m_quantized_buf);
-  m_line_times.push(steady_now_s()); // lockstep with m_history
+  m_line_times.push(steady_now_s());
 
-  // Mark dirty rectangles
   if (old_size < m_history.capacity()) {
-    // Buffer was not full, new line added at end
     if (old_size > 0) {
       m_dirty_rects.push_back(line_to_rect(old_size));
     } else {
-      // First line - mark all
       m_dirty_rects.push_back(
           {0, 0, static_cast<int>(m_width), static_cast<int>(m_height)});
     }
   } else if (was_full) {
-    // Buffer was full - all logical indices have shifted due to circular
-    // overwrite Need to mark entire waterfall as dirty since all lines moved
+    // Every line moved up.
     m_dirty_rects.push_back(
         {0, 0, static_cast<int>(m_width), static_cast<int>(m_height)});
   }
@@ -280,8 +256,7 @@ void WaterfallDisplay::add_spectrum_line(const std::vector<float> &db_values) {
   render();
 }
 
-// Render one quantized history line into a raw RGBA destination buffer.
-// dst must have at least m_width * rows * 4 bytes capacity.
+// dst needs m_width * rows * 4 bytes.
 void WaterfallDisplay::render_line_into(const std::vector<uint8_t> &hist_line,
                                         uint8_t *dst_base, size_t rows) const {
   const size_t row_stride = m_width * 4;
@@ -321,16 +296,14 @@ void WaterfallDisplay::render() {
   const size_t line_height =
       std::max<size_t>(1UL, m_height / m_history.capacity());
 
-  // Steady-state scroll path: render only the newest line into m_new_line.
-  // SdlRenderer::render_displays_scroll() shifts the GPU texture and uploads
-  // just this strip — ~5 KB instead of ~1.5 MB per frame.
+  // Steady state: only the newest line, into m_new_line, for
+  // SdlRenderer::render_displays_scroll().
   if (!m_needs_full_render && m_history.full()) {
     render_line_into(m_history.back(), m_new_line.data(), line_height);
-    return; // no dirty rects — caller uses render_displays_scroll()
+    return;
   }
 
-  // Full render: rebuild m_pixels from all history lines.
-  // Needed after reset(), rebuild_rgba_lut(), or on the very first frame.
+  // Full render, after reset(), rebuild_rgba_lut() or on the first frame.
   std::memset(m_pixels.data(), 0, m_pixels.size());
   const size_t row_stride = m_width * 4;
   size_t y_offset = 0;

@@ -8,12 +8,10 @@
 
 #include "utils/attributes.h"
 
-// Forward declaration for SDL types
 #include <SDL3/SDL.h>
 
 namespace openspectrum {
 
-// RGB color structure for pixel data
 struct RgbColor {
   uint8_t red;
   uint8_t green;
@@ -25,20 +23,16 @@ struct RgbColor {
       : red(r), green(g), blue(b), alpha(a) {}
 };
 
-// Color palette for spectrum display (rainbow/jet colormap)
 class SpectrumPalette {
 public:
   static constexpr size_t PALETTE_SIZE = 256;
 
   SpectrumPalette();
 
-  // Set dB range for color mapping (call when range changes for optimization)
   void set_db_range(float min_db, float max_db);
 
-  // Get color for a dB value (uses precomputed range for efficiency)
   [[nodiscard]] RgbColor get_color(float db_value) const;
 
-  // Color map presets
   enum class ColorMap { JET, VIRIDIS, HOT, GRAYSCALE, BLUE_RED };
 
   void set_color_map(ColorMap map);
@@ -47,8 +41,7 @@ private:
   ColorMap m_color_map = ColorMap::JET;
   std::array<RgbColor, PALETTE_SIZE> m_palette;
 
-  // Precomputed values for fast color lookup (Phase 2: integer quantization)
-  // Using direct integer mapping: index = (int)((db - min) * scale + 0.5f)
+  // index = (int)((db - min) * scale + 0.5f)
   float m_scale_to_index = 1.0f; // (PALETTE_SIZE-1) / (max_db - min_db)
   float m_db_min = -120.0f;      // Cached min for clamp
   float m_db_max = 0.0f;         // Cached max for clamp
@@ -60,56 +53,45 @@ private:
   void generate_blue_red_palette();
 };
 
-// 2D Spectrum Display: Amplitude vs Frequency
-// Outputs to a 2D RGB buffer for rendering
+// Amplitude vs frequency: the trace geometry, autoscale and trace modes.
 class SpectrumDisplay {
 public:
   SpectrumDisplay(size_t width, size_t height);
   ~SpectrumDisplay() = default;
 
-  // Update spectrum data (frequency bins in dB)
   OS_HOT void update_spectrum(const std::vector<float> &db_values);
 
-  // Build GPU draw geometry for the current spectrum: one colored quad per bin
-  // (4 vertices + 6 indices), positioned in the spectrum region [0,region_w) x
-  // [0,region_h). Drawn by SdlRenderer::render_spectrum via SDL_RenderGeometry,
-  // so no pixels are painted or uploaded per frame. The out buffers are cleared
-  // and refilled (caller reuses them frame-to-frame so the capacity is retained
-  // — no per-frame allocation).
+  // GPU geometry for the spectrum region [0,region_w) x [0,region_h), drawn by
+  // SdlRenderer::render_spectrum. The out buffers are cleared and refilled; the
+  // caller reuses them so there is no per-frame allocation.
   OS_HOT void build_vertices(float region_w, float region_h,
                              std::vector<SDL_Vertex> &verts,
                              std::vector<int> &indices) const;
 
-  // Cursor readout sample: the displayed amplitude and the snapped trace point
-  // for a horizontal cursor position. Mirrors build_vertices() exactly (same
-  // averaging source, dB range, and bin->x / dB->y mapping) so the marker dot
-  // lands on the drawn curve.
+  // Cursor readout: the displayed amplitude and the snapped trace point.
+  // Mirrors build_vertices() exactly so the dot lands on the drawn trace.
   struct CursorSample {
-    float db = 0.0F;    // displayed dB at the cursor's bin
-    float dot_y = 0.0F; // y of the trace point within [0, region_h]
-    size_t bin = 0;     // bin index under the cursor
+    float db = 0.0F;
+    float dot_y = 0.0F;
+    size_t bin = 0;
   };
   [[nodiscard]] bool sample_at_x(float x, float region_w, float region_h,
                                  CursorSample &out) const;
 
-  // Get dimensions
   [[nodiscard]] size_t width() const noexcept { return m_width; }
   [[nodiscard]] size_t height() const noexcept { return m_height; }
 
-  // Configuration
   void set_color_map(SpectrumPalette::ColorMap map) {
     m_palette.set_color_map(map);
   }
   void set_db_range(float min_db, float max_db);
 
-  // Get current dB range
   [[nodiscard]] float min_db() const noexcept { return m_min_db; }
   [[nodiscard]] float max_db() const noexcept { return m_max_db; }
 
-  // Trace modes. Averaging replaces the drawn bars with an exponential moving
-  // average of the per-bin dB values (video averaging); max-hold overlays a
-  // line at the running per-bin maximum of the *raw* spectrum. Both traces
-  // re-seed automatically when the bin count changes (FFT size switch).
+  // Averaging draws an EMA of the per-bin dB values; max-hold overlays the
+  // running maximum of the *raw* spectrum. Both re-seed when the bin count
+  // changes.
   void set_averaging(bool on) {
     if (on != m_avg_enabled) {
       m_avg_enabled = on;
@@ -134,34 +116,24 @@ private:
   std::vector<float> m_spectrum_data;
   SpectrumPalette m_palette;
 
-  // Mutable copy for the autoscale median (nth_element reorders in place).
+  // Copy for the autoscale median: nth_element reorders it.
   std::vector<float> m_scratch;
 
-  // Trace state. m_avg_data is the EMA accumulator; m_max_hold_data the
-  // running raw-spectrum maximum. Empty vector == not yet seeded.
+  // Empty means not yet seeded.
   std::vector<float> m_avg_data;
   std::vector<float> m_max_hold_data;
-  // Averaging defaults on: with the per-column mean detector it takes the
-  // noise-floor spread to ~0.5 dB, which is what turns the floor into a line.
-  // ControlState owns the user-facing default; this keeps the class consistent
-  // on its own.
+  // ControlState owns the user-facing default.
   bool m_avg_enabled = true;
   bool m_max_hold_enabled = false;
-  // EMA weight for new data: ~6-frame settling, smooths the noise floor
-  // without visibly lagging real signal changes at 60 fps.
+  // EMA weight for new data: ~6-frame settling.
   static constexpr float kAvgAlpha = 0.25F;
-  // Headroom below the median bin for the autoscaled pane bottom. The median
-  // sits ~1.6 dB under the noise floor, so this leaves the floor ~12 dB up
-  // from the bottom edge — enough to read, without wasting the pane.
+  // Headroom below the median bin: the floor sits ~12 dB above the pane bottom.
   static constexpr float kFloorMargin = 10.0F;
-  // Take every Nth bin for the median estimate. Noise bins are iid, so this
-  // costs accuracy the axis cannot show and saves most of the selection work.
+  // Every Nth bin feeds the median; noise bins are iid.
   static constexpr size_t kMedianStride = 4;
-  // How far the autoscaled top may fall per frame (15 dB/s at 30 fps). It
-  // rises at once, so a burst is never clipped, and settles over about a
-  // second once it is gone, instead of rescaling the pane every frame.
+  // How far the autoscaled top may fall per frame; it rises at once.
   static constexpr float kTopDecayDb = 0.5F;
-  // Autoscaled top; -inf until the first frame seeds it.
+  // -inf until the first frame.
   float m_top_db = -std::numeric_limits<float>::infinity();
 
   float m_min_db = -120.0f;

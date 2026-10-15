@@ -12,11 +12,8 @@
 
 namespace openspectrum {
 
-// --- SpectrumPalette Implementation ---
-
 SpectrumPalette::SpectrumPalette() {
   generate_jet_palette();
-  // Initialize with default dB range
   set_db_range(-120.0F, 0.0F);
 }
 
@@ -77,7 +74,7 @@ void SpectrumPalette::generate_jet_palette() {
 }
 
 void SpectrumPalette::generate_viridis_palette() {
-  // Simplified viridis approximation
+  // Viridis approximation.
   for (size_t i = 0; i < PALETTE_SIZE; ++i) {
     float const t = static_cast<float>(i) / (PALETTE_SIZE - 1);
     float const r = std::clamp(0.267F + (0.329F * t) + (1.453F * t * t) -
@@ -124,9 +121,6 @@ void SpectrumPalette::set_db_range(float min_db, float max_db) {
   m_db_min = min_db;
   m_db_max = max_db;
 
-  // Phase 2: Integer quantization - precompute scale for direct int mapping
-  // index = (int)((db - min) * scale + 0.5f) where scale =
-  // (PALETTE_SIZE-1)/range
   float const range = max_db - min_db;
   if (range > 0.0F) {
     m_scale_to_index =
@@ -137,15 +131,10 @@ void SpectrumPalette::set_db_range(float min_db, float max_db) {
 }
 
 auto SpectrumPalette::get_color(float db_value) const -> RgbColor {
-  // Phase 2: Integer quantization - direct int mapping with rounding
-  // index = (int)((db - min) * scale + 0.5f)
-  // Uses fma (fused multiply-add) for: (db - min) * scale + 0.5f
   float const scaled = std::fma(db_value - m_db_min, m_scale_to_index, 0.5F);
 
-  // Convert to int (rounds to nearest due to +0.5f)
   int index = static_cast<int>(scaled);
 
-  // Clamp to [0, PALETTE_SIZE-1]
   index = std::max(index, 0);
   if (index >= static_cast<int>(PALETTE_SIZE)) {
     index = static_cast<int>(PALETTE_SIZE - 1);
@@ -154,15 +143,12 @@ auto SpectrumPalette::get_color(float db_value) const -> RgbColor {
   return m_palette[static_cast<size_t>(index)];
 }
 
-// --- SpectrumDisplay Implementation ---
-
 SpectrumDisplay::SpectrumDisplay(size_t width, size_t height)
     : m_width(width), m_height(height) {}
 
 void SpectrumDisplay::set_db_range(float min_db, float max_db) {
   m_min_db = std::min(min_db, max_db);
   m_max_db = std::max(min_db, max_db);
-  // Update palette with new range for optimized get_color()
   m_palette.set_db_range(m_min_db, m_max_db);
 }
 
@@ -171,9 +157,7 @@ void SpectrumDisplay::update_spectrum(const std::vector<float> &db_values) {
 
   const size_t n = db_values.size();
 
-  // Video averaging: EMA over the per-bin dB values. Seed (or re-seed after an
-  // FFT-size change) by copying the first frame. Simple fma loop —
-  // auto-vectorizes under -O3 -march=haswell.
+  // EMA over the per-bin dB values, seeded by the first frame.
   if (m_avg_enabled) {
     if (m_avg_data.size() != n) {
       m_avg_data = db_values;
@@ -186,8 +170,7 @@ void SpectrumDisplay::update_spectrum(const std::vector<float> &db_values) {
     }
   }
 
-  // Max-hold tracks the *raw* spectrum (true peak detector semantics, even
-  // while averaging smooths the drawn bars).
+  // Max-hold tracks the *raw* spectrum, even while averaging smooths the bars.
   if (m_max_hold_enabled) {
     if (m_max_hold_data.size() != n) {
       m_max_hold_data = db_values;
@@ -200,32 +183,21 @@ void SpectrumDisplay::update_spectrum(const std::vector<float> &db_values) {
     }
   }
 
-  // Autoscale. The top tracks the peak: max is dominated by real signals, and
-  // for pure noise it only lands ~10 dB above the floor, so it is well behaved.
-  // It follows a rising peak at once but falls at most kTopDecayDb per frame:
-  // in a busy band (2.4 GHz at 16 MS/s, where a frame is 4 ms of every 33)
-  // bursts come and go between frames, and a top that tracked each frame's
-  // max swung ~10 dB and rescaled the whole trace with it.
+  // Autoscale. The top follows a rising peak at once but falls at most
+  // kTopDecayDb per frame: bursts come and go between frames, and a top that
+  // tracked each frame's max rescaled the whole trace.
   //
-  // The bottom tracks the *median* bin, not the min. A single periodogram bin
-  // of Gaussian noise is exponentially distributed, so min over N bins is an
-  // extreme-value statistic with no physical meaning: at 16K bins the deepest
-  // null sits ~42 dB below the noise floor and re-rolls every frame, which
-  // stretched the pane across a ~90 dB range (half of it empty), pinned the
-  // floor at mid-screen and made the axis labels jitter. The median sits a
-  // fixed 1.6 dB below the floor's mean power and is stable to ~0.05 dB.
+  // The bottom tracks the *median* bin, never the min: the min of a noise
+  // periodogram is an extreme value (~42 dB under the floor at 16K bins) that
+  // re-rolls every frame. The median sits a fixed 1.6 dB below the floor's mean
+  // power.
   if (!db_values.empty()) {
     const float *ptr = db_values.data();
     float max_val = ptr[0];
     for (size_t i = 1; i < n; ++i) {
       max_val = std::max(max_val, ptr[i]);
     }
-    // nth_element needs a mutable copy — m_spectrum_data must stay in bin
-    // order. Noise bins are iid, so a strided subsample estimates the same
-    // median: at 16K bins a quarter-sample is still stable to ~0.1 dB. The
-    // stride is a small win on an already-cheap step (docs/MEASUREMENTS.md),
-    // kept because it is free, not because this was ever a bottleneck.
-    // resize() is a no-op after the first frame of a size.
+    // A strided subsample estimates the same median (docs/MEASUREMENTS.md).
     const size_t m = (n + kMedianStride - 1) / kMedianStride;
     m_scratch.resize(m);
     for (size_t i = 0; i < m; ++i) {
@@ -237,15 +209,9 @@ void SpectrumDisplay::update_spectrum(const std::vector<float> &db_values) {
     set_db_range(*mid - kFloorMargin, m_top_db);
   }
 
-  // The live render path draws the spectrum on the GPU from build_vertices();
-  // there is no CPU pixel buffer. Exports capture the rendered frame directly
-  // (SdlRenderer::request_capture), so nothing here needs to paint pixels.
+  // No CPU pixels: build_vertices() feeds the GPU, exports capture the frame.
 }
 
-// One colored quad per bin, emitted as 4 vertices + 6 indices into the caller's
-// reusable buffers. Positions are in spectrum-region coords: x spans the bin's
-// horizontal slice, y runs from the bar top (region_h - bar_height) down to the
-// region baseline (region_h). High dB => tall bar reaching toward the top.
 // Map display column c (0..cols) to its [lo, hi) FFT-bin range. Shared by
 // build_vertices and sample_at_x so the drawn bar and the cursor/marker readout
 // reduce the same bins.
@@ -261,10 +227,8 @@ static inline void column_bins(size_t c, size_t cols, size_t num_bins,
   }
 }
 
-// Mean dB across a column's bins — the display's detector. Averaging in the dB
-// domain is a log-average (geometric mean of power), the same "video average" a
-// swept analyzer applies; it reads a noise floor 2.51 dB below its true mean
-// power, which is the conventional price for a trace that sits still.
+// Mean dB across a column's bins: the display's detector. A log-average, as in
+// a swept analyzer; it reads a noise floor 2.51 dB below its mean power.
 static inline float column_mean(const float *bars, size_t lo, size_t hi) {
   float sum = 0.0F;
   for (size_t i = lo; i < hi; ++i) {
@@ -279,8 +243,8 @@ void SpectrumDisplay::build_vertices(float region_w, float region_h,
   verts.clear();
   indices.clear();
 
-  // Averaging swaps the bar source; the raw spectrum still drives autoscale
-  // and the max-hold trace (see update_spectrum).
+  // Averaging swaps the bar source; autoscale and max-hold use the raw
+  // spectrum.
   const std::vector<float> &bars =
       (m_avg_enabled && m_avg_data.size() == m_spectrum_data.size())
           ? m_avg_data
@@ -293,15 +257,9 @@ void SpectrumDisplay::build_vertices(float region_w, float region_h,
     return;
   }
 
-  // More bins than pixels wastes the GPU on sub-pixel overdraw (16K FFT → ~12
-  // bars/px at the default width). Collapse to one bar per pixel column,
-  // averaging the bins that land in it. Averaging is what makes the floor a
-  // line rather than grass: mean-of-12 leaves ~1.25 dB of spread, where a
-  // max-of-12 would read ~4.9 dB high (E[max of n exponentials] =
-  // H_n) and still spread ~1.8 dB. Spikes are not lost — max-hold (below) is
-  // the peak detector, and it is the trace that promises peak semantics.
-  // cols == num_bins when the FFT is already narrower than the pane, so
-  // smaller sizes are unchanged.
+  // One bar per pixel column, the mean of the bins in it, not the max: the
+  // mean makes the floor a line, and max-hold (below) is the peak detector.
+  // cols == num_bins when the FFT is narrower than the pane.
   const size_t cols =
       std::min(num_bins, std::max<size_t>(1, static_cast<size_t>(region_w)));
   const float col_w = region_w / static_cast<float>(cols);
@@ -321,8 +279,7 @@ void SpectrumDisplay::build_vertices(float region_w, float region_h,
         std::clamp((db - m_min_db) * db_to_height, 0.0F, region_h);
 
     RgbColor const c = m_palette.get_color(db);
-    // SDL3: SDL_Vertex uses SDL_FColor (float r,g,b,a) instead of SDL_Color
-    // (Uint8)
+    // SDL_Vertex takes SDL_FColor (float), not SDL_Color.
     SDL_FColor const col = {static_cast<float>(c.red) / 255.0f,
                             static_cast<float>(c.green) / 255.0f,
                             static_cast<float>(c.blue) / 255.0f,
@@ -347,9 +304,7 @@ void SpectrumDisplay::build_vertices(float region_w, float region_h,
     indices.push_back(base + 3);
   }
 
-  // Max-hold overlay: one thin horizontal segment per column at the held peak,
-  // drawn after (= on top of) the bars in the same SDL_RenderGeometry call.
-  // White reads against every palette; the stepped segments mirror bar tops.
+  // Max-hold: one white segment per column at the held peak, drawn on top.
   if (draw_hold) {
     constexpr float kHoldThickness = 2.0F;
     constexpr SDL_FColor kHoldColor = {1.0F, 1.0F, 1.0F, 1.0F};
@@ -386,7 +341,6 @@ void SpectrumDisplay::build_vertices(float region_w, float region_h,
 
 bool SpectrumDisplay::sample_at_x(float x, float region_w, float region_h,
                                   CursorSample &out) const {
-  // Use the same source the bars draw from (averaged when averaging is on).
   const std::vector<float> &bars =
       (m_avg_enabled && m_avg_data.size() == m_spectrum_data.size())
           ? m_avg_data
@@ -399,8 +353,7 @@ bool SpectrumDisplay::sample_at_x(float x, float region_w, float region_h,
     return false;
   }
 
-  // Mirror build_vertices' column decimation so the dot snaps onto the drawn
-  // bar (which is the mean of its pixel column, not a single raw bin).
+  // Mirrors build_vertices' column decimation: the bar is a column mean.
   const size_t cols =
       std::min(num_bins, std::max<size_t>(1, static_cast<size_t>(region_w)));
   const float col_w = region_w / static_cast<float>(cols);
