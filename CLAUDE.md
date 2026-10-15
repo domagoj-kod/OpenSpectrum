@@ -55,13 +55,13 @@ Single-threaded render loop fed by a producer thread: the async RTL-SDR callback
 Producer thread (RTL-SDR callback  OR  IqPlaybackSource reader)
   └─ async_sample_callback()
        ├─ FTZ/DAZ set once per thread
-       ├─ accumulates IQ samples into g_sample_accumulator_frame
-       └─ pushes complete FFT-sized FrameHandles → g_sample_queue
+       ├─ IQ capture tap (full rate, before the throttle)
+       └─ SampleQueue::push(): accumulates into FFT-sized frames, queues them
 
 Main thread (main.cpp)
   └─ SDL3 events → ControlState
-  └─ dequeues FrameHandle from g_sample_queue (8 ms timeout)
-  └─ drains queue to newest — drops any backlog (frame-rate throttle)
+  └─ SampleQueue::pop_newest() (8 ms timeout): newest frame only,
+     any backlog dropped (frame-rate throttle)
   └─ SignalProcessor: remove_dc() + apply_window()
   └─ FftAnalyzer: execute() → db_spectrum[]
   └─ SpectrumDisplay::update_spectrum()
@@ -75,6 +75,7 @@ The throttle (`while(!queue.empty()) move+pop`) runs inside the dequeue lock; ea
 
 ### Key data structures
 - **FramePool / FrameHandle** (`src/utils/frame_pool.h`): 64-byte-aligned pool of `complex<float>` buffers. `FrameHandle` is RAII (destruction returns to its pool). Never copy; always move.
+- **SampleQueue** (`src/utils/sample_queue.h`): producer → render hand-off. Owns the frame pool, the accumulator and the queue; `reconfigure()` (new FFT size) only while the source is stopped. Tested in `tests/sample_queue_test.cpp`.
 - **RingBuffer<T>** (`src/utils/ring_buffer.h`): fixed-capacity circular buffer. `[0]`=oldest, `back()`=newest. `full()` gates the waterfall scroll path.
 - **PixelBuffer** (`src/visualization/spectrum_display.h`): non-copyable raw `uint8_t*` RGBA buffer, used by both displays.
 
@@ -143,7 +144,7 @@ History = `RingBuffer<vector<uint8_t>>`; dB quantized to `uint8_t` over a fixed 
 - **fast-math on PocketFFT is measured and rejected** — the transform is the only code fast-math can reach, and scoping `-funsafe-math-optimizations` to `fft_analyzer.o` bought **+2.4% instructions and no cycle change** on the T470, against a −28% dev-box microbench. The microbench is GCC 15.2; CI ships GCC 13, so the win is not reachable downstream anyway. Never global `-ffast-math` (it folds `isnan` app-wide for zero speed). Full numbers + why the microbench misleads: `docs/TECHNICAL.md` → *Finding: fast-math on PocketFFT*.
 - **`render_build`/`present` are not comparable across backends.** The vsync idle-wait lands in `present` on Direct3D 11 and the software renderer, but in `render_build` on OpenGL — a large value there is mostly idle vblank wait, **not** work.
 - **Keep the default renderer.** OpenGL (Linux) and D3D11 (Windows) lock a clean 60 fps at ~1 ms real CPU. **Vulkan is a trap on old Intel iGPUs (HD 620 / Gen9):** ~30 fps, ~24 ms real `render_build`, ~7× slower than OpenGL on the same box — never suggest `SDL_RENDER_DRIVER=vulkan` there. The **software renderer** is the battery/thermal worst case but only ~2.5× OpenGL (~5.9 ms vs ~2.3 ms, T470/FFT 32768), a flat cost that does not grow with FFT size; fallback only.
-- **Memory is bounded and scales mildly with FFT size:** ~51 MB resident at FFT 16384 (D3D11/Windows, at `99257e3`). The frame pool is `MAIN_FRAME_POOL_FRAMES` (12) × `fft_size` × 8 B, so it grows with the transform — **+8 MB going 4096 → 65536**. A Linux/WSL2 profile reads much higher: that's the Mesa software-GL backing store, not heap.
+- **Memory is bounded and scales mildly with FFT size:** ~51 MB resident at FFT 16384 (D3D11/Windows, at `99257e3`). The frame pool is `SampleQueue::MAIN_FRAME_POOL_FRAMES` (12) × `fft_size` × 8 B, so it grows with the transform — **+8 MB going 4096 → 65536**. A Linux/WSL2 profile reads much higher: that's the Mesa software-GL backing store, not heap.
 - **65536's headroom is ~4%, and it is arithmetic, not performance.** Frame supply is `rate / fft_size` = **31.25/s** at 2.048 MS/s against the 30 fps cap, so raising `--max-fps` above 31 does nothing there. 131072 is excluded for the same reason — 4 device callbacks per frame cap the line rate at ~15.6/s (measured 15.4–16.0); `buf_len=65536` exists to escape that. Neither is a CPU limit.
 - Measuring on the i7-12700H: a window where `cpu`, `render_build` *and* `present` all move by the same factor is a P-core/E-core migration, not a workload change. The i5-7300U is homogeneous and gives cleaner (slower) numbers. **SMT also biases the A/B** — it halves the PMU counters (forcing multiplexed estimates) and its contention is workload-dependent, so it does not cancel between builds. Disable it before measuring.
 

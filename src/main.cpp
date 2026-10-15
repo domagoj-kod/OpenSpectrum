@@ -11,6 +11,7 @@
 #include "control_state.h"
 #include "frame_pool.h"
 #include "iq_logger.h"
+#include "sample_queue.h"
 #include "signal/signal_processor.h"
 #include "spectrogram_exporter.h"
 #include "utils/arg_parser.h"
@@ -21,20 +22,15 @@
 
 #include <algorithm>
 #include <atomic>
-#include <cassert>
 #include <cctype>
 #include <chrono>
 #include <complex>
-#include <condition_variable>
 #include <csignal>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <exception>
-#include <initializer_list>
 #include <memory>
-#include <mutex>
-#include <queue>
 #include <span>
 #include <string>
 #include <thread>
@@ -57,25 +53,6 @@ using namespace openspectrum;
 
 static std::atomic<bool> g_running{true};
 
-// Frames from the producer thread to the render loop. Pooled FrameHandles, so
-// the hot path allocates nothing.
-static std::queue<FrameHandle> g_sample_queue;
-static std::mutex g_sample_mutex;
-static std::condition_variable g_sample_cv;
-static size_t g_async_fft_size = 0;
-
-// Collects deliveries shorter than the FFT size into one frame.
-static FrameHandle g_sample_accumulator_frame;
-static std::mutex g_accumulator_mutex;
-
-// Frame pool for sample buffers (shared across callbacks)
-// shared_ptr (not unique_ptr) so FrameHandle's return path can hold a
-// weak_ptr<FramePool> and safely no-op when the pool has been destroyed.
-static std::shared_ptr<FramePool> g_frame_pool;
-
-// How many callbacks have been logged; only the first few are.
-static size_t g_callback_log_count = 0;
-
 // IQ capture tap. The logger lives in main(); the callback writes raw samples
 // to it BEFORE the drain-to-newest throttle, so captures are full-rate, not
 // one frame per render tick. g_iq_capturing gates the hot path so an idle
@@ -84,21 +61,6 @@ static size_t g_callback_log_count = 0;
 // already closed the file).
 static IqLogger *g_iq_logger = nullptr;
 static std::atomic<bool> g_iq_capturing{false};
-
-// Max queued FFT frames before the producer drops the oldest. The render loop
-// drains the queue to its newest entry every frame (drop-to-newest throttle),
-// so anything beyond a few frames is backlog the renderer would discard anyway
-// — this only needs to absorb scheduling jitter. IQ capture taps the producer
-// stream *before* the queue, so a small cap does not decimate captures. Kept
-// small because each queued frame holds a pooled FFT buffer (fft_size*8 B);
-// bounding the queue bounds the frame pool's peak occupancy.
-static const size_t MAX_SAMPLE_QUEUE_SIZE = 8;
-
-// Pre-allocated FFT frames in the main pool. Peak in-flight = up to
-// MAX_SAMPLE_QUEUE_SIZE queued + accumulator(1) + render-held(1).
-// 12 covers that without hot-path growth; the pool still grows on demand (a
-// graceful malloc, logged) if a transient burst exceeds it.
-static const size_t MAIN_FRAME_POOL_FRAMES = 12;
 
 // FTZ + DAZ on the calling thread. Eliminates the ~100-cycle microcode trap
 // every time a denormal float is produced or consumed — common in dB spectra
@@ -121,142 +83,29 @@ static void signal_handler(int signum) {
   }
 }
 
-// Async callback for RTL-SDR samples using FrameHandle
-// Accumulates samples until we have exactly g_async_fft_size
-static void async_sample_callback(FrameHandle samples_frame) {
-  // librtlsdr owns this thread; set FTZ/DAZ once per worker on first entry.
+// The producer thread's frame callback: every SampleSource calls it.
+static void async_sample_callback(SampleQueue &queue,
+                                  FrameHandle samples_frame) {
+  // The source owns this thread; set FTZ/DAZ once per worker on first entry.
   thread_local bool ftz_initialized = false;
   if (!ftz_initialized) {
     enable_ftz_daz();
     ftz_initialized = true;
   }
 
-  if (g_async_fft_size == 0 || !samples_frame) {
-    // FFT size not set yet, skip
-    return;
-  }
-
   // Faithful IQ capture: tap the full producer stream here, before the render
   // loop's drain-to-newest throttle discards any backlog. This only copies into
   // the logger's ring; the disk is written on the logger's own thread.
-  if (g_iq_capturing.load(std::memory_order_relaxed) &&
+  if (samples_frame && g_iq_capturing.load(std::memory_order_relaxed) &&
       g_iq_logger != nullptr) {
     g_iq_logger->write_samples(samples_frame.data(), samples_frame.size());
   }
 
-  std::unique_lock<std::mutex> acc_lock(g_accumulator_mutex);
-
-  // If we don't have an accumulator frame, get one from pool
-  if (!g_sample_accumulator_frame) {
-    if (g_frame_pool) {
-      g_sample_accumulator_frame = g_frame_pool->acquire();
-    }
-    if (!g_sample_accumulator_frame) {
-      // Pool not ready, skip
-      return;
-    }
-    g_sample_accumulator_frame.reset();
-  }
-
-  // Add new samples to the accumulator, which holds one frame (its capacity is
-  // the FFT size). Sources deliver whole frames or exact fractions of one, so
-  // normally everything fits. A USRP delivers a short frame after an overflow,
-  // and from then on what is held plus the next frame is more than one frame:
-  // take what completes the frame and drop the rest. That costs the display a
-  // few samples next to a gap it already has; captures are tapped above and
-  // lose nothing. (Dropping the held part instead never completed a frame
-  // while every delivery came short, which a sustained overflow does.)
-  size_t const samples_count = samples_frame.size();
-  size_t const current_accum_size = g_sample_accumulator_frame.size();
-  size_t const take =
-      std::min(samples_count,
-               g_sample_accumulator_frame.capacity() - current_accum_size);
-  std::copy_n(samples_frame.data(), take,
-              g_sample_accumulator_frame.data() + current_accum_size);
-  g_sample_accumulator_frame.resize(current_accum_size + take);
-
-  // Log first few callbacks to verify samples are arriving
-  if (g_callback_log_count++ < 5) {
-    LOG_INFO("Async callback: received " + std::to_string(samples_count) +
-             " samples, total accumulated: " +
-             std::to_string(g_sample_accumulator_frame.size()));
-  }
-
-  if (g_sample_accumulator_frame.size() < g_async_fft_size) {
-    return;
-  }
-  // A full accumulator is the frame: hand it over as it is, and the next
-  // delivery starts a fresh one from the pool.
-  FrameHandle frame = std::move(g_sample_accumulator_frame);
-  acc_lock.unlock();
-  {
-    std::lock_guard<std::mutex> queue_lock(g_sample_mutex);
-    if (g_sample_queue.size() >= MAX_SAMPLE_QUEUE_SIZE) {
-      g_sample_queue.pop(); // drop the oldest: the render loop wants the newest
-      LOG_DEBUG("Sample queue full, dropping oldest sample");
-    }
-    g_sample_queue.push(std::move(frame));
-  }
-  g_sample_cv.notify_one();
+  queue.push(std::move(samples_frame));
 }
-
-#ifndef NDEBUG
-// Debug builds run this at startup. It feeds async_sample_callback deliveries
-// numbered 0, 1, 2, ... and returns how many frames came out, checking that
-// each is a full frame of consecutive samples. `whole` says nothing may be
-// dropped, so the frames must also follow one another.
-static auto accumulate_selftest_run(size_t fft_size,
-                                    std::initializer_list<size_t> deliveries,
-                                    bool whole) -> size_t {
-  g_frame_pool = std::make_shared<FramePool>(fft_size, MAIN_FRAME_POOL_FRAMES);
-  g_async_fft_size = fft_size;
-  auto const source_pool = std::make_shared<FramePool>(fft_size, 1);
-  size_t frames = 0;
-  float next_in = 0.0F;
-  float next_out = 0.0F;
-  for (size_t const n : deliveries) {
-    FrameHandle in = source_pool->acquire();
-    in.resize(n);
-    for (size_t k = 0; k < n; ++k) {
-      in[k] = {next_in, 0.0F};
-      next_in += 1.0F;
-    }
-    async_sample_callback(std::move(in));
-    for (; !g_sample_queue.empty(); g_sample_queue.pop(), ++frames) {
-      FrameHandle const &out = g_sample_queue.front();
-      assert(out.size() == fft_size);
-      assert(!whole || out[0].real() == next_out);
-      for (size_t k = 1; k < fft_size; ++k) {
-        assert(out[k].real() == out[k - 1].real() + 1.0F);
-      }
-      next_out = out[fft_size - 1].real() + 1.0F;
-    }
-  }
-  g_sample_accumulator_frame = FrameHandle(nullptr);
-  g_frame_pool.reset();
-  g_async_fft_size = 0;
-  return frames;
-}
-
-static void accumulate_selftest() {
-  g_callback_log_count = 5; // keep the first-callbacks log for the real source
-  // Whole frames, and halves (an RTL-SDR at FFT 65536): nothing is dropped.
-  assert(accumulate_selftest_run(16, {16, 16, 16}, true) == 3);
-  assert(accumulate_selftest_run(16, {8, 8, 8, 8, 8, 8}, true) == 3);
-  // One short delivery (a USRP after an overflow): every later one still
-  // completes a frame.
-  assert(accumulate_selftest_run(16, {11, 16, 16, 16, 16}, false) == 4);
-  // Every delivery short (a sustained overflow): frames still come out.
-  assert(accumulate_selftest_run(16, {11, 11, 11, 11, 11, 11}, false) == 3);
-  g_callback_log_count = 0;
-}
-#endif
 
 auto main(int argc, char *argv[]) -> int {
   enable_ftz_daz();
-#ifndef NDEBUG
-  accumulate_selftest();
-#endif
 
   // Parse command-line arguments
   AppConfig const config = parse_arguments(argc, argv);
@@ -382,20 +231,14 @@ auto main(int argc, char *argv[]) -> int {
     SpectrogramExporter spectrogram_exporter;
     LOG_INFO("Spectrogram exporter initialized");
 
-    // 2. Initialize frame pool for zero-allocation sample processing
-    g_frame_pool =
-        std::make_shared<FramePool>(FFT_SIZE, MAIN_FRAME_POOL_FRAMES);
-    LOG_INFO("FramePool initialized for FFT size: " + std::to_string(FFT_SIZE));
+    // 2. The queue from the producer thread, with its frame pool
+    SampleQueue sample_queue(FFT_SIZE);
 
     // 2. Initialize the sample source: RTL-SDR hardware, or file playback.
     // Both feed the same FrameHandle callback path; everything downstream is
     // source-agnostic.
-    g_async_fft_size = FFT_SIZE;
-
-    // Use frame-based callback for zero-allocation
-    // The callback receives FrameHandle which automatically returns to pool
-    auto frame_callback = [](FrameHandle samples_frame) {
-      async_sample_callback(std::move(samples_frame));
+    auto frame_callback = [&sample_queue](FrameHandle samples_frame) {
+      async_sample_callback(sample_queue, std::move(samples_frame));
     };
 
     // The one place a receiver is chosen. Everything after this block talks
@@ -738,33 +581,9 @@ auto main(int argc, char *argv[]) -> int {
         // Reinitialize FFT-dependent components
         current_fft_size = new_fft_size;
 
-        // Stop the sample source while reconfiguring
+        // The queue is reconfigured with the source stopped
         source->stop();
-
-        // Clear the sample queue and accumulator
-        {
-          std::lock_guard<std::mutex> lock(g_sample_mutex);
-          while (!g_sample_queue.empty()) {
-            // Explicitly release FrameHandle to return frame to old pool before
-            // destruction, then pop it from the queue
-            g_sample_queue.front() = FrameHandle(nullptr);
-            g_sample_queue.pop();
-          }
-        }
-        {
-          // Explicitly release accumulator frame to return to old pool before
-          // destruction
-          std::lock_guard<std::mutex> lock(g_accumulator_mutex);
-          g_sample_accumulator_frame = FrameHandle(nullptr);
-        }
-
-        // Now safe to destroy old pools and create new ones
-        g_frame_pool = std::make_shared<FramePool>(current_fft_size,
-                                                   MAIN_FRAME_POOL_FRAMES);
-
-        // Update async FFT size and restart the sample source
-        g_async_fft_size = current_fft_size;
-
+        sample_queue.reconfigure(current_fft_size);
         source->start(current_fft_size);
 
         // Recreate signal processor with new size
@@ -829,11 +648,7 @@ auto main(int argc, char *argv[]) -> int {
           // Scale label updates immediately (render_frequency_scale sees new
           // freq); dropping the queue makes the spectrum snap in sync rather
           // than lagging behind by up to MAX_SAMPLE_QUEUE_SIZE × FFT frames.
-          std::lock_guard<std::mutex> lock(g_sample_mutex);
-          while (!g_sample_queue.empty()) {
-            g_sample_queue.front() = FrameHandle(nullptr); // return to pool
-            g_sample_queue.pop();
-          }
+          sample_queue.clear();
         }
         s_last_freq = now_freq;
       }
@@ -1081,38 +896,11 @@ auto main(int argc, char *argv[]) -> int {
       }
 
       // === 2. Read samples from async queue (non-blocking) ===
-      // Wait for samples with timeout (8ms = ~125fps max, reduced from 16ms)
-      FrameHandle async_samples_frame;
-      bool got_samples = false;
-      {
-        std::unique_lock<std::mutex> lock(g_sample_mutex);
-        if (g_sample_queue.empty()) {
-          // Wait for samples with timeout
-          if (g_sample_cv.wait_for(lock, std::chrono::milliseconds(8), [] {
-                return !g_sample_queue.empty() || !g_running.load();
-              })) {
-            if (!g_sample_queue.empty()) {
-              async_samples_frame = std::move(g_sample_queue.front());
-              g_sample_queue.pop();
-              got_samples = true;
-            }
-          }
-        } else {
-          async_samples_frame = std::move(g_sample_queue.front());
-          g_sample_queue.pop();
-          got_samples = true;
-        }
-
-        // Throttle: at high sample rates the RTL-SDR callback can produce
-        // frames faster than the render loop consumes them. Drain any backlog
-        // and keep only the newest — older frames represent latency the user
-        // cannot perceive on a 60 Hz display. Each move-assignment releases
-        // the previously held FrameHandle back to the pool.
-        while (got_samples && !g_sample_queue.empty()) {
-          async_samples_frame = std::move(g_sample_queue.front());
-          g_sample_queue.pop();
-        }
-      }
+      // Wait for samples with timeout (8ms = ~125fps max). Only the newest
+      // frame comes back; the backlog is dropped.
+      FrameHandle async_samples_frame =
+          sample_queue.pop_newest(std::chrono::milliseconds(8));
+      bool const got_samples = static_cast<bool>(async_samples_frame);
 
       // === 2.1. Update displays and render even if no new samples ===
       // This fixes keyboard input freeze: overlays (status bar, peak, IQ
