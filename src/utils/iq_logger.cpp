@@ -7,6 +7,7 @@
 #include "utils/time_utils.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cerrno>
 #include <chrono>
 #include <cmath>
@@ -151,10 +152,28 @@ void IqLogger::close_files() {
   // Flush any remaining data in our buffer
   flush_buffer();
 
-  // Close and finalize metadata
+  // fclose writes what stdio still holds, so a full disk can surface here.
   if (m_data_file != nullptr) {
-    std::fclose(m_data_file);
+    if (std::fclose(m_data_file) != 0) {
+      LOG_ERROR("IQ close failed: " + std::string(std::strerror(errno)));
+      m_write_error.store(true, std::memory_order_relaxed);
+    }
     m_data_file = nullptr;
+  }
+
+  // The file is what a reader gets, and after a short write neither our count
+  // nor fwrite's return says how much of it reached the disk: count from its
+  // size, cut to whole samples (the disk may fill mid-sample).
+  std::error_code ec;
+  auto const bytes = std::filesystem::file_size(m_data_filename, ec);
+  if (!ec) {
+    size_t const per_sample = m_config.format == IqSampleFormat::CS16
+                                  ? 2 * sizeof(int16_t)
+                                  : sizeof(std::complex<float>);
+    size_t const samples = bytes / per_sample;
+    assert(m_write_error || samples == m_stats.sample_count);
+    std::filesystem::resize_file(m_data_filename, samples * per_sample, ec);
+    m_stats.sample_count = samples;
   }
 
   // Update final metadata with actual statistics

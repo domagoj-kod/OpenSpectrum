@@ -10,12 +10,17 @@
 #include <chrono>
 #include <cmath>
 #include <complex>
+#include <csignal>
 #include <cstddef>
 #include <cstdio>
 #include <filesystem>
 #include <string>
 #include <thread>
 #include <vector>
+
+#ifndef _WIN32
+#include <sys/resource.h>
+#endif
 
 using namespace openspectrum;
 
@@ -76,5 +81,29 @@ auto main() -> int {
   assert(meta.find(
              "\"dropped_samples\": " + std::to_string(kBatch * kBatches - n) +
              ",") != std::string::npos);
+
+#ifndef _WIN32
+  // A full disk, as a file size limit that ends inside a sample: the file is
+  // cut to whole samples and the sidecar counts exactly those.
+  signal(SIGXFSZ, SIG_IGN);
+  rlimit const limit{10003, RLIM_INFINITY};
+  setrlimit(RLIMIT_FSIZE, &limit);
+  IqLogger full(config);
+  bool const full_started = full.start_capture(0, 20000, 0.0F);
+  assert(full_started);
+  for (int b = 0; b < 5; ++b) { // 13 320 B
+    full.write_samples(batch.data(), kBatch);
+  }
+  full.stop_capture();
+  assert(full.write_failed());
+  assert(fs::file_size(full.get_data_filename()) == 10000);
+  f = std::fopen(full.get_metadata_filename().c_str(), "r");
+  assert(f != nullptr);
+  meta.assign(4096, '\0');
+  meta.resize(std::fread(meta.data(), 1, meta.size(), f));
+  std::fclose(f);
+  assert(meta.find("\"sample_count\": 1250,") != std::string::npos);
+  assert(meta.find("\"write_error\": true") != std::string::npos);
+#endif
   fs::remove_all(config.output_directory);
 }

@@ -284,8 +284,7 @@ Sidecar fields a consumer should check before trusting a file:
   plus batches the capture writer dropped because it was half a second behind
   (logged as `IQ writer fell behind`).
 - `capture.write_error` — `true` if a short write (disk full) ended the
-  capture. The file is then valid up to its own length; `sample_count`
-  includes samples that never reached the disk.
+  capture early. `sample_count` is still exactly what the file holds.
 - `signal.measured_sample_rate_hz` — samples received after the first batch,
   over the time between first and last write. A value clearly below
   `sample_rate_hz` means samples were lost before the source could count them.

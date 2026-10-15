@@ -6,13 +6,6 @@ live in `docs/MEASUREMENTS.md`.
 
 ## Open
 
-- [ ] **Next: `sample_count` after a short write overstates the file.** When a
-  full disk ends a capture, the sidecar counts more samples than the `.iq`
-  holds (a 20 MB file limit: 21 037 056 B counted, 20 480 000 B on disk), so a
-  reader that trusts `sample_count` reads short. Same on `520064b`, so not from
-  the phase 5 refactor. Fix: on the short write, cut the count to the bytes
-  written. Reproduce on Linux: `trap '' XFSZ; ulimit -f 20000`, then
-  `--play <capture> --iq-log`; the file must be exactly `sample_count` × 8 B.
 - [ ] **The trigger fires above the drawn peak.** It compares the raw
   `get_max_db()` (the panel's PEAK); the trace is averaged and a mean per
   pixel column, a few dB lower, so a threshold set on the trace fires "early"
