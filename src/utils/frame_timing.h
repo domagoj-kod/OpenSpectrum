@@ -38,7 +38,7 @@ public:
   void add(double cpu_ms, double render_ms, double present_ms) {
     double const build_ms = render_ms - present_ms;
     m_cpu.add(cpu_ms);
-    m_build.add(build_ms < 0.0 ? 0.0 : build_ms); // clock skew guard
+    m_build.add(build_ms < 0.0 ? 0.0 : build_ms);
     m_present.add(present_ms);
     ++m_frames;
 

@@ -28,14 +28,11 @@ void SampleQueue::push(FrameHandle samples) {
     m_accumulator.reset();
   }
 
-  // Add new samples to the accumulator, which holds one frame (its capacity is
-  // the FFT size). Sources deliver whole frames or exact fractions of one, so
-  // normally everything fits. A USRP delivers a short frame after an overflow,
-  // and from then on what is held plus the next frame is more than one frame:
-  // take what completes the frame and drop the rest. That costs the display a
-  // few samples next to a gap it already has; captures are tapped before this
-  // and lose nothing. (Dropping the held part instead never completed a frame
-  // while every delivery came short, which a sustained overflow does.)
+  // Normally a delivery fits the accumulator. A USRP delivers a short frame
+  // after an overflow, and then held + next is more than one frame: take what
+  // completes it and drop the rest. Dropping the held part instead never
+  // completes a frame under a sustained overflow. Captures are tapped before
+  // this.
   size_t const samples_count = samples.size();
   size_t const current_accum_size = m_accumulator.size();
   size_t const take =
@@ -43,7 +40,6 @@ void SampleQueue::push(FrameHandle samples) {
   std::copy_n(samples.data(), take, m_accumulator.data() + current_accum_size);
   m_accumulator.resize(current_accum_size + take);
 
-  // Log first few deliveries to verify samples are arriving
   if (m_log_count++ < 5) {
     LOG_INFO(
         "Async callback: received " + std::to_string(samples_count) +
@@ -53,8 +49,7 @@ void SampleQueue::push(FrameHandle samples) {
   if (m_accumulator.size() < m_fft_size) {
     return;
   }
-  // A full accumulator is the frame: hand it over as it is, and the next
-  // delivery starts a fresh one from the pool.
+  // A full accumulator is the frame; the next delivery starts a fresh one.
   FrameHandle frame = std::move(m_accumulator);
   acc_lock.unlock();
   {
@@ -71,10 +66,7 @@ void SampleQueue::push(FrameHandle samples) {
 auto SampleQueue::pop_newest(std::chrono::milliseconds timeout) -> FrameHandle {
   std::unique_lock<std::mutex> lock(m_queue_mutex);
   m_cv.wait_for(lock, timeout, [this] { return !m_queue.empty(); });
-  // Throttle: at high sample rates the producer can queue frames faster than
-  // the render loop consumes them. Keep only the newest — older frames are
-  // latency the user cannot perceive on a 60 Hz display. Each move-assignment
-  // releases the previously held FrameHandle back to the pool.
+  // Keep only the newest: older frames are latency.
   FrameHandle newest;
   while (!m_queue.empty()) {
     newest = std::move(m_queue.front());

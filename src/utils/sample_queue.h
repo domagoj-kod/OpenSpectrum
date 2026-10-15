@@ -17,19 +17,13 @@ namespace openspectrum {
 // nothing; the render loop takes only the newest frame.
 class SampleQueue {
 public:
-  // Max queued FFT frames before the producer drops the oldest. The render
-  // loop takes only the newest, so anything beyond a few frames is backlog it
-  // would discard anyway — this only needs to absorb scheduling jitter. IQ
-  // capture taps the producer stream *before* the queue, so a small cap does
-  // not decimate captures. Kept small because each queued frame holds a pooled
-  // FFT buffer (fft_size*8 B); bounding the queue bounds the pool's peak
-  // occupancy.
+  // Queued frames before the producer drops the oldest. The render loop takes
+  // only the newest, so this just absorbs scheduling jitter. Captures tap the
+  // stream before the queue and are not affected.
   static constexpr size_t MAX_SAMPLE_QUEUE_SIZE = 8;
 
-  // Pre-allocated FFT frames in the pool. Peak in-flight = up to
-  // MAX_SAMPLE_QUEUE_SIZE queued + accumulator(1) + render-held(1). 12 covers
-  // that without hot-path growth; the pool still grows on demand (a graceful
-  // malloc, logged) if a transient burst exceeds it.
+  // Peak in flight: the queue + accumulator + the frame the render loop holds.
+  // The pool grows on demand past this.
   static constexpr size_t MAIN_FRAME_POOL_FRAMES = 12;
 
   explicit SampleQueue(size_t fft_size);
@@ -49,9 +43,8 @@ public:
   void reconfigure(size_t fft_size);
 
 private:
-  // Declared first so it is destroyed last, after the frames it owns.
-  // shared_ptr (not unique_ptr) so FrameHandle's return path can hold a
-  // weak_ptr<FramePool> and safely no-op once the pool is gone.
+  // Declared first so it is destroyed last. shared_ptr: FrameHandles hold a
+  // weak_ptr to it.
   std::shared_ptr<FramePool> m_pool;
   size_t m_fft_size;
 

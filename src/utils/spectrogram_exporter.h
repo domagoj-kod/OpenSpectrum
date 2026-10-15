@@ -8,15 +8,13 @@
 
 namespace openspectrum {
 
-// Configuration for spectrogram export
 struct SpectrogramExportConfig {
   std::string output_directory = "spectrograms";
   std::string filename_prefix = "spectrogram";
-  bool include_metadata = true;  // Generate JSON metadata file
+  bool include_metadata = true;
   int png_compression_level = 8; // 0-9, 9 = maximum compression
 };
 
-// Result of an export operation
 struct ExportResult {
   bool success = false;
   std::string filename;
@@ -24,23 +22,18 @@ struct ExportResult {
   std::string error_message;
 };
 
-// Spectrogram exporter for PNG and metadata files
-// Handles exporting spectrum and waterfall displays as PNG images
-// with optional JSON metadata for ML analysis
+// Writes a PNG of the display and a JSON metadata sidecar.
 class SpectrogramExporter {
 public:
   explicit SpectrogramExporter(
       const SpectrogramExportConfig &config = SpectrogramExportConfig());
   ~SpectrogramExporter() = default;
 
-  // Non-copyable, non-movable (mutex)
   SpectrogramExporter(const SpectrogramExporter &) = delete;
   SpectrogramExporter &operator=(const SpectrogramExporter &) = delete;
 
-  // Export a pre-composited frame: tightly packed RGBA captured straight from
-  // the renderer (base spectrum + waterfall plus the dB/time axis strip,
-  // frequency scale, and HUD overlays). The caller has already stitched and
-  // annotated the image, so this only writes the PNG and its metadata sidecar.
+  // Writes a frame the renderer has already composited: tightly packed RGBA,
+  // overlays included.
   ExportResult export_framebuffer(const uint8_t *rgba, size_t width,
                                   size_t height, uint64_t center_freq_hz,
                                   uint32_t sample_rate_hz, float gain_db,
@@ -49,19 +42,14 @@ public:
                                   const std::string &color_map = "jet",
                                   const std::string &notes = "");
 
-  // Get current configuration
   const SpectrogramExportConfig &get_config() const { return m_config; }
 
 private:
-  // Internal helper methods
   bool create_output_directory();
-  // Build a filename using a caller-provided timestamp so the PNG name and
-  // the JSON's export_timestamp_iso8601 field always agree, even if the
-  // wall clock crosses a second between the two reads.
+  // The caller passes the timestamp so the PNG name and the JSON field agree.
   std::string generate_filename(const std::string &extension,
                                 const std::string &iso8601_timestamp) const;
-  // Derive the metadata filename from an already-generated PNG name so the
-  // pair shares the same timestamp/sequence even if export crosses a second.
+  // From the PNG name, so the pair shares timestamp and sequence.
   static std::string metadata_filename_for(const std::string &png_filename);
   ExportResult write_png(const std::string &filename, const uint8_t *data,
                          int width, int height, int stride_bytes);
@@ -75,7 +63,7 @@ private:
 
   SpectrogramExportConfig m_config;
   mutable std::mutex m_mutex;
-  uint32_t m_export_count = 0; // For unique filenames on multiple exports
+  uint32_t m_export_count = 0;
 };
 
 } // namespace openspectrum

@@ -11,12 +11,11 @@
 #include <utility>
 
 #ifdef _WIN32
-#include <malloc.h> // For _aligned_malloc, _aligned_free
+#include <malloc.h> // _aligned_malloc
 #endif
 
 namespace openspectrum {
 
-// Cache-line aligned frame for FFT samples
 struct alignas(64) FFTFrame {
   size_t capacity{0};
   size_t size{0};
@@ -78,7 +77,6 @@ struct alignas(64) FFTFrame {
 
 class FramePool;
 
-// Lightweight frame handle with RAII for automatic pool return
 class FrameHandle {
 public:
   FrameHandle() = default;
@@ -135,21 +133,17 @@ public:
   }
 
 private:
-  // Return the frame to its pool, or destroy it if the pool is gone.
-  // Defined below FramePool (needs its definition).
+  // Returns the frame to its pool, or destroys it if the pool is gone.
+  // Defined below FramePool.
   void release();
 
   FFTFrame *m_frame = nullptr;
   std::weak_ptr<FramePool> m_pool;
 };
 
-// Thread-safe pool of pre-allocated FFT frames.
-//
-// Ownership note: FramePool MUST be constructed via std::make_shared so that
-// shared_from_this() works. FrameHandle's return path captures a weak_ptr to
-// the pool; if the pool has been destroyed by the time the handle is dropped,
-// the frame is destroyed directly instead of touching the dead pool. This
-// eliminates a destruction-order UAF when FrameHandles outlive g_frame_pool.
+// Thread-safe pool of FFT frames. Must be built with std::make_shared: a
+// FrameHandle holds a weak_ptr to it and destroys its frame directly if the
+// pool is gone.
 class FramePool : public std::enable_shared_from_this<FramePool> {
 public:
   explicit FramePool(size_t frame_capacity, size_t initial_count = 8)
@@ -162,10 +156,7 @@ public:
   }
 
   ~FramePool() {
-    // Only destroy frames sitting in the free queue. Frames currently held by
-    // FrameHandles are owned by those handles — their return-func sees the
-    // dead weak_ptr and destroys them itself. Destroying them here would
-    // double-free.
+    // Free frames only; frames held by handles are destroyed by the handles.
     std::lock_guard<std::mutex> lock(m_mutex);
     while (!m_free_queue.empty()) {
       delete m_free_queue.front();
@@ -210,7 +201,7 @@ inline void FrameHandle::release() {
   if (auto pool = m_pool.lock()) {
     pool->release_frame(m_frame);
   } else {
-    // Pool is gone — frame ownership falls to us.
+    // Pool is gone: the frame is ours.
     delete m_frame;
   }
   m_frame = nullptr;

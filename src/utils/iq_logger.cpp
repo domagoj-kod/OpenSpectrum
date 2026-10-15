@@ -21,9 +21,7 @@
 namespace openspectrum {
 
 IqLogger::IqLogger(const IqLoggerConfig &config) : m_config(config) {
-  // The write-coalescing buffer (buffer_size_bytes, e.g. 1 MB) is allocated
-  // lazily in start_capture and released in stop_capture, so an idle logger —
-  // the common case, capture is opt-in via Ctrl+S — holds no buffer memory.
+  // The write buffer lives only during a capture; an idle logger holds none.
   m_buffer_pos = 0;
 }
 
@@ -46,7 +44,6 @@ bool IqLogger::create_output_directory() {
 std::string IqLogger::generate_filename(const std::string &extension) const {
   const std::string &timestamp = m_start_iso8601;
   std::string freq_str = format_frequency(m_center_freq_hz);
-  // Replace spaces in frequency string
   freq_str.erase(std::remove(freq_str.begin(), freq_str.end(), ' '),
                  freq_str.end());
 
@@ -56,7 +53,6 @@ std::string IqLogger::generate_filename(const std::string &extension) const {
   }
   filename += "." + extension;
 
-  // Prepend output directory
   if (!m_config.output_directory.empty()) {
     filename = m_config.output_directory + "/" + filename;
   }
@@ -69,12 +65,10 @@ bool IqLogger::start_capture(uint64_t center_freq_hz, uint32_t sample_rate_hz,
                              const std::string &window_function,
                              const std::string &notes,
                              const std::string &device) {
-  // Already capturing?
   if (m_capturing) {
     return false;
   }
 
-  // Store capture parameters
   m_center_freq_hz = center_freq_hz;
   m_sample_rate_hz = sample_rate_hz;
   m_gain_db = gain_db;
@@ -83,7 +77,6 @@ bool IqLogger::start_capture(uint64_t center_freq_hz, uint32_t sample_rate_hz,
   m_notes = notes;
   m_device = device;
 
-  // Reset statistics
   m_stats = IqCaptureStats{};
   m_dropped_samples = 0;
   m_write_error = false;
@@ -97,20 +90,16 @@ bool IqLogger::start_capture(uint64_t center_freq_hz, uint32_t sample_rate_hz,
   // end time under a field every reader takes for the start.
   m_start_iso8601 = get_iso8601_timestamp();
 
-  // Allocate the write-coalescing buffer for the duration of this capture.
   m_buffer.resize(m_config.buffer_size_bytes);
   m_buffer_pos = 0;
 
-  // Create output directory
   if (!create_output_directory()) {
     return false;
   }
 
-  // Generate filenames
   m_data_filename = generate_filename("iq");
   m_metadata_filename = generate_filename("meta.json");
 
-  // Open files
   open_files();
 
   if (m_data_file == nullptr) {
@@ -118,7 +107,6 @@ bool IqLogger::start_capture(uint64_t center_freq_hz, uint32_t sample_rate_hz,
     return false;
   }
 
-  // Write initial metadata (will be updated on stop)
   write_metadata();
 
   // ponytail: half a second of samples, capped at 128 MB; size it from a
@@ -135,7 +123,6 @@ bool IqLogger::start_capture(uint64_t center_freq_hz, uint32_t sample_rate_hz,
 }
 
 void IqLogger::open_files() {
-  // Open data file in binary mode
   m_data_file = std::fopen(m_data_filename.c_str(), "wb");
   if (m_data_file == nullptr) {
     // --iq-output is a file-name prefix inside the capture directory; a
@@ -144,12 +131,10 @@ void IqLogger::open_files() {
     return;
   }
 
-  // Set buffer for the FILE* (in addition to our own buffer)
-  setvbuf(m_data_file, nullptr, _IOFBF, 1048576); // 1MB buffer
+  setvbuf(m_data_file, nullptr, _IOFBF, 1048576);
 }
 
 void IqLogger::close_files() {
-  // Flush any remaining data in our buffer
   flush_buffer();
 
   // fclose writes what stdio still holds, so a full disk can surface here.
@@ -176,7 +161,6 @@ void IqLogger::close_files() {
     m_stats.sample_count = samples;
   }
 
-  // Update final metadata with actual statistics
   write_metadata();
 }
 
@@ -184,11 +168,8 @@ void IqLogger::flush_buffer() {
   if (m_buffer_pos > 0 && m_data_file != nullptr) {
     size_t written = std::fwrite(&m_buffer[0], 1, m_buffer_pos, m_data_file);
     if (written < m_buffer_pos) {
-      // Partial write — almost always out-of-space or a hard I/O error.
-      // Retrying won't help, and silently dropping bytes would corrupt the
-      // interleaved IQ stream (subsequent writes would land at a misaligned
-      // sample boundary, breaking offline parsing). Mark the capture dead,
-      // close the file, and let the operator see the error in the log.
+      // Out of space or an I/O error. Dropping bytes would misalign the
+      // interleaved stream, so the capture ends here.
       LOG_ERROR("IQ flush short write: " + std::to_string(written) + "/" +
                 std::to_string(m_buffer_pos) +
                 " bytes — stopping capture to preserve file integrity");
@@ -212,7 +193,6 @@ void IqLogger::append_bytes(const uint8_t *data, size_t size) {
     m_buffer_pos += to_copy;
     done += to_copy;
 
-    // Flush if buffer is full
     if (m_buffer_pos >= m_config.buffer_size_bytes) {
       flush_buffer();
     }
@@ -277,7 +257,6 @@ void IqLogger::write_block(const std::complex<float> *samples, size_t count) {
     return;
   }
 
-  // Update statistics
   update_stats(samples, count);
 
   if (m_config.format == IqSampleFormat::CF32) {
@@ -324,17 +303,14 @@ void IqLogger::stop_capture() {
                 " samples dropped from the capture");
   }
 
-  // Close files and finalize metadata (flushes any buffered tail first).
   close_files();
 
-  // An idle logger holds no buffer memory.
   m_buffer.clear();
   m_buffer.shrink_to_fit();
   m_buffer_pos = 0;
   m_ring.clear();
   m_ring.shrink_to_fit();
 
-  // Invoke completion callback if set
   if (m_complete_cb) {
     m_complete_cb(m_data_filename, m_metadata_filename);
   }
@@ -363,7 +339,6 @@ std::string IqLogger::generate_metadata_json() const {
   ss << "{\n";
   ss << "  \"version\": \"1.1\",\n";
 
-  // Capture info
   ss << "  \"capture\": {\n";
   ss << R"(    "timestamp_iso8601": ")" << m_start_iso8601 << "\",\n";
   ss << "    \"timestamp_unix\": " << m_start_time << ",\n";
@@ -377,13 +352,11 @@ std::string IqLogger::generate_metadata_json() const {
   ss << "    \"write_error\": " << (m_write_error ? "true" : "false") << "\n";
   ss << "  },\n";
 
-  // Device info
   ss << "  \"device\": {\n";
   ss << R"(    "type": ")" << escape_json_string(m_device) << "\",\n";
   ss << "    \"index\": 0\n";
   ss << "  },\n";
 
-  // Signal parameters
   ss << "  \"signal\": {\n";
   ss << "    \"center_frequency_hz\": " << m_center_freq_hz << ",\n";
   ss << "    \"sample_rate_hz\": " << m_sample_rate_hz << ",\n";
@@ -406,7 +379,6 @@ std::string IqLogger::generate_metadata_json() const {
   }
   ss << "\n  },\n";
 
-  // Environment
   ss << "  \"environment\": {\n";
   ss << "    \"application\": \"OpenSpectrum\",\n";
   ss << R"(    "version": ")" << OS_STRINGIFY(OPENSPECTRUM_VERSION) << "\",\n";
@@ -419,7 +391,6 @@ std::string IqLogger::generate_metadata_json() const {
 #endif
   ss << "  },\n";
 
-  // Statistics
   ss << "  \"statistics\": {\n";
   // min/max start at +-inf, which is not JSON; an empty capture has none.
   ss << "    \"average_signal_db\": " << m_stats.average_db << ",\n";
@@ -449,10 +420,7 @@ void IqLogger::write_metadata() {
 }
 
 void IqLogger::update_stats(const std::complex<float> *samples, size_t count) {
-  // Welford-style online mean: increment count per sample so the divisor in
-  // avg += (x - avg) / n is the correct running sample index. The previous
-  // implementation incremented sample_count once for the whole batch, which
-  // made the divisor constant inside the loop and biased the average.
+  // Online mean: avg += (x - avg) / n with n the running sample index.
   for (size_t i = 0; i < count; ++i) {
     std::complex<float> const &sample = samples[i];
     float const magnitude = std::abs(sample);

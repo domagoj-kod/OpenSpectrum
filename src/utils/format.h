@@ -16,14 +16,9 @@
 
 namespace openspectrum {
 
-// Format a frequency in Hz with auto-scaled units (Hz / kHz / MHz / GHz).
-// The fractional part is the remainder in the next-lower unit, zero-padded to
-// three digits (milli-unit resolution) — 1_090_000_000 → "1.090 GHz", not
-// "1.90 GHz". The %03u pad is load-bearing: without it std::to_string dropped
-// leading zeros and 1.009/1.090 GHz both collapsed toward "1.9". It's intended
-// for status bars, log lines, and JSON "*_formatted" fields, not for
-// round-tripping a numeric value.
-// 64-bit on purpose: 32 bits end at 4.29 GHz, below the 5.8 GHz band.
+// A frequency with auto-scaled units. The fraction is zero-padded to three
+// digits: 1_090_000_000 is "1.090 GHz", not "1.90 GHz". For display, not for
+// round-tripping. 64-bit: 32 bits end at 4.29 GHz.
 inline std::string format_frequency(uint64_t hz) {
   char buf[40];
   auto const whole = [hz](uint64_t unit) {
@@ -46,8 +41,8 @@ inline std::string format_frequency(uint64_t hz) {
   return buf;
 }
 
-// Escape a string for embedding in JSON output (quotes, backslashes, named
-// whitespace escapes; other control characters are dropped).
+// JSON string escape: quotes, backslashes, whitespace; other control characters
+// are dropped.
 inline std::string escape_json_string(const std::string &str) {
   std::string result;
   result.reserve(str.size() * 2);

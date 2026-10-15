@@ -6,17 +6,14 @@
 
 namespace openspectrum {
 
-// Log levels
 enum class LogLevel { DEBUG, INFO, WARNING, ERROR };
 
 // Thread-safe console logger (singleton). Formats each entry with a timestamp,
 // coloured level tag, thread id, and source location, and writes it to stdout.
 class Logger {
 public:
-  // Singleton access
   static Logger &get_instance();
 
-  // Set minimum log level
   void set_level(LogLevel level) noexcept { m_min_level = level; }
 
   // Log a message (use the LOG_* macros instead of calling directly)
@@ -30,7 +27,6 @@ private:
   std::mutex m_mutex; // also makes Logger non-copyable
 };
 
-// Helper macros for easy logging
 #define LOG_DEBUG(msg)                                                         \
   ::openspectrum::Logger::get_instance().log(                                  \
       ::openspectrum::LogLevel::DEBUG, __FILE__, __LINE__, __func__, msg)

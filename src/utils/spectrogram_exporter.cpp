@@ -10,9 +10,6 @@
 #include <iomanip>
 #include <sstream>
 
-// stb_image_write keeps its implementation block outside the include guard,
-// so one #include with STB_IMAGE_WRITE_IMPLEMENTATION defined is sufficient
-// to get both the declarations and the implementation in this TU.
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
@@ -21,7 +18,6 @@ namespace openspectrum {
 SpectrogramExporter::SpectrogramExporter(const SpectrogramExportConfig &config)
     : m_config(config) {}
 
-// Create output directory if it doesn't exist
 bool SpectrogramExporter::create_output_directory() {
   if (m_config.output_directory.empty()) {
     return true;
@@ -31,17 +27,14 @@ bool SpectrogramExporter::create_output_directory() {
   return std::filesystem::is_directory(m_config.output_directory);
 }
 
-// Generate filename with timestamp and optional frequency
 std::string SpectrogramExporter::generate_filename(
     const std::string &extension, const std::string &iso8601_timestamp) const {
   std::string filename = m_config.filename_prefix + "_" + iso8601_timestamp;
 
-  // Prepend output directory
   if (!m_config.output_directory.empty()) {
     filename = m_config.output_directory + "/" + filename;
   }
 
-  // Add export count for multiple exports in same second
   if (m_export_count > 0) {
     filename += "_" + std::to_string(m_export_count);
   }
@@ -60,7 +53,6 @@ SpectrogramExporter::metadata_filename_for(const std::string &png_filename) {
   return png_filename + ".meta.json";
 }
 
-// Write PNG file using stb_image_write
 ExportResult SpectrogramExporter::write_png(const std::string &filename,
                                             const uint8_t *data, int width,
                                             int height, int stride_bytes) {
@@ -71,9 +63,8 @@ ExportResult SpectrogramExporter::write_png(const std::string &filename,
     return result;
   }
 
-  // stbi_write_png_compression_level is a process-wide global. Set/restore
-  // is safe within a single exporter (member mutex serialises calls) but
-  // races across exporter instances. Serialise the global window here.
+  // stbi_write_png_compression_level is a process-wide global, so the set and
+  // restore are serialised across exporters here.
   static std::mutex s_stbi_compression_mutex;
   int success = 0;
   {
@@ -81,7 +72,6 @@ ExportResult SpectrogramExporter::write_png(const std::string &filename,
     int previous_compression = stbi_write_png_compression_level;
     stbi_write_png_compression_level = m_config.png_compression_level;
 
-    // Write PNG file (RGBA = 4 components)
     success =
         stbi_write_png(filename.c_str(), width, height, 4, data, stride_bytes);
 
@@ -98,7 +88,6 @@ ExportResult SpectrogramExporter::write_png(const std::string &filename,
   return result;
 }
 
-// Write JSON metadata file
 void SpectrogramExporter::write_metadata(
     const std::string &filename, int image_width, int image_height,
     const std::string &image_type, uint64_t center_freq_hz,
@@ -107,8 +96,7 @@ void SpectrogramExporter::write_metadata(
     const std::string &notes, const std::string &iso8601_timestamp) {
 
   std::stringstream ss;
-  // Default precision is 6 significant digits: a Unix time came out as
-  // 1.79198e+09, i.e. to the nearest 10000 s. Same format as the IQ sidecar.
+  // Fixed notation: six significant digits rounded a Unix time to 10000 s.
   ss << std::fixed << std::setprecision(3);
   double timestamp = get_unix_timestamp();
 
@@ -117,7 +105,6 @@ void SpectrogramExporter::write_metadata(
   ss << R"(  "export_timestamp_iso8601": ")" << iso8601_timestamp << "\",\n";
   ss << "  \"export_timestamp_unix\": " << timestamp << ",\n";
 
-  // Capture parameters
   ss << "  \"capture\": {\n";
   ss << "    \"center_frequency_hz\": " << center_freq_hz << ",\n";
   ss << R"(    "center_frequency_formatted": ")"
@@ -129,7 +116,6 @@ void SpectrogramExporter::write_metadata(
      << "\"\n";
   ss << "  },\n";
 
-  // Image parameters
   ss << "  \"image\": {\n";
   ss << R"(    "type": ")" << image_type << "\",\n";
   ss << "    \"width\": " << image_width << ",\n";
@@ -139,7 +125,6 @@ void SpectrogramExporter::write_metadata(
   ss << "    \"compression_level\": " << m_config.png_compression_level << "\n";
   ss << "  },\n";
 
-  // Application info
   ss << "  \"application\": {\n";
   ss << "    \"name\": \"OpenSpectrum\",\n";
   ss << R"(    "version": ")" << OS_STRINGIFY(OPENSPECTRUM_VERSION) << "\",\n";
@@ -152,14 +137,12 @@ void SpectrogramExporter::write_metadata(
 #endif
   ss << "  }" << (notes.empty() ? "\n" : ",\n");
 
-  // Notes
   if (!notes.empty()) {
     ss << R"(  "notes": ")" << escape_json_string(notes) << "\"\n";
   }
 
   ss << "}";
 
-  // Write to file
   std::string json = ss.str();
   FILE *f = std::fopen(filename.c_str(), "w");
   if (f != nullptr) {
@@ -190,7 +173,7 @@ ExportResult SpectrogramExporter::export_framebuffer(
 
   int stride = static_cast<int>(width * 4);
 
-  // Single timestamp read shared by the filename and the metadata field.
+  // One timestamp read, shared by the filename and the metadata.
   std::string const iso_ts = get_iso8601_timestamp();
   std::string png_filename = generate_filename("png", iso_ts);
 

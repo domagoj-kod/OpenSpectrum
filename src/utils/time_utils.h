@@ -9,10 +9,8 @@
 
 namespace openspectrum {
 
-// Thread-safe wrappers around localtime/gmtime. The C variants return a
-// pointer to a process-wide static buffer; concurrent callers across
-// independent classes race even when each class holds its own mutex. These
-// route to the reentrant POSIX (`*_r`) or Windows (`*_s`) variants.
+// Thread-safe localtime/gmtime: the C variants share a static buffer. These
+// use the POSIX `*_r` or Windows `*_s` ones.
 
 inline std::tm safe_localtime(std::time_t t) {
   std::tm out{};
@@ -34,8 +32,7 @@ inline std::tm safe_gmtime(std::time_t t) {
   return out;
 }
 
-// Current UTC time as a compact ISO-8601 stamp (YYYYMMDDTHHMMSSZ) — used in
-// capture/export filenames and their metadata sidecars.
+// Compact UTC ISO-8601 stamp (YYYYMMDDTHHMMSSZ) for capture/export filenames.
 inline std::string get_iso8601_timestamp() {
   std::time_t const t =
       std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());

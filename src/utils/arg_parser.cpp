@@ -128,7 +128,6 @@ auto parse_arguments(int argc, char *argv[]) -> AppConfig {
         std::exit(1);
       }
       std::string window_name = argv[++i];
-      // Convert to lowercase for case-insensitive matching
       std::ranges::transform(window_name, window_name.begin(),
                              [](unsigned char c) { return std::tolower(c); });
       if (window_name == "rectangle") {
@@ -188,7 +187,7 @@ auto parse_arguments(int argc, char *argv[]) -> AppConfig {
         std::exit(1);
       }
       ++i;
-      config.iq_logging_enabled = true; // Enable logging if duration is set
+      config.iq_logging_enabled = true;
     } else if (arg == "--iq-output") {
       if (i + 1 >= argc) {
         std::cerr << "Error: IQ output filename required\n";
@@ -196,7 +195,7 @@ auto parse_arguments(int argc, char *argv[]) -> AppConfig {
         std::exit(1);
       }
       config.iq_output_file = argv[++i];
-      config.iq_logging_enabled = true; // Enable logging if output is set
+      config.iq_logging_enabled = true;
     } else if (arg == "--iq-format") {
       std::string_view const fmt = i + 1 < argc ? argv[i + 1] : "";
       if (fmt == "cf32") {
