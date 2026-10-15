@@ -80,8 +80,7 @@ render loop (main.cpp):
 
 There is no performance problem: 30 fps at every FFT size on a 15 W i5-7300U.
 The DSP is AVX2 throughout; do not touch the SIMD, and fast-math was measured
-and rejected. Read `docs/TECHNICAL.md` ("Performance & footprint") before
-optimising anything.
+and rejected. Read `docs/MEASUREMENTS.md` before optimising anything.
 
 Measuring: same machine, same session, A and B alternated. `cpu` is wall clock
 at whatever clock the governor chose, so compare it only at the same FFT size.

@@ -125,432 +125,52 @@ modules communicating over narrow interfaces. Following community standards
 ```
 OpenSpectrum/
 ├── src/
-│   ├── hardware/       # SDR device abstraction (RTL2832U, future devices)
+│   ├── hardware/       # SampleSource: RTL2832U, B200 USRP, capture playback
 │   ├── signal/         # DC removal, windowing
 │   ├── fft/            # FFT & spectral analysis (PocketFFT)
 │   ├── visualization/  # Spectrum & waterfall rendering logic
 │   ├── gui/            # SDL3 window and event management
 │   └── utils/          # Logging, config, utilities
-├── include/
+├── tests/              # make check: programs of asserts
 └── third_party/        # stb_image_write (PNG export), pocketfft
 ```
 
 A single-threaded render loop is fed by a producer thread — the RTL-SDR async
-callback, or an `IqPlaybackSource` under `--play` that replays a capture in real
-time. Both push FFT-sized frames into a bounded queue; the renderer drains to
+callback, the USRP receive loop, or an `IqPlaybackSource` under `--play` that
+replays a capture in real time. All push FFT-sized frames into a bounded queue; the renderer drains to
 the newest each paint (a frame-rate throttle that prevents latency buildup). The
 signal chain downstream of the callback is source-agnostic. See CLAUDE.md for
-the full pipeline diagram and the SIMD hot-path invariants.
-
-## Performance & footprint
-
-At 2.048 MS/s with the default `--max-fps 30`, the pipeline holds **30.0 fps at
-every selectable FFT size, 1024 through 65536**, on a 15 W i5-7300U. CPU is not
-the limit at any size. The rest of this section is how that was measured, what
-the numbers mean, and — more often — what they do not.
-
-### Reading `cpu`
-
-`cpu` in the `FRAME-TIMING` line is wall-clock around DC removal + window + FFT
-+ display update. It is **work ÷ whatever clock the governor chose**, not a
-measure of how much work the code does.
-
-`--max-fps 30` leaves the CPU idle ~97% of the time, so it never leaves its
-lowest P-state. Effective clock (cycles ÷ task-clock) across the sweep below, on
-a part with a **2.6 GHz base / 3.5 GHz turbo**:
-
-| FFT | 1024 | 2048 | 4096 | 8192 | 16384 | 32768 | 65536 |
-|-----|-----:|-----:|-----:|-----:|------:|------:|------:|
-| clock | 350 MHz | 420 MHz | 413 MHz | 454 MHz | 484 MHz | 587 MHz | 749 MHz |
-
-**13–29% of base, and it rises with the workload.** Three consequences:
-
-1. **`cpu` is not comparable across FFT sizes.** A 65536 frame runs on a core
-   clocked 2.1× faster than a 1024 frame. Any "cpu scales as N log N" reading is
-   measuring the governor's response as much as the transform.
-2. **`cpu` is not a work budget.** Most of it is clock state. No code change
-   touches that, so optimising against the number is chasing the governor.
-3. **A same-size, same-session A/B is the only clean use** — and even then the
-   run-to-run spread reaches 13–18% at 32768/65536 (see below), which is larger
-   than most changes worth making.
-
-Corollary: never divide a tight-loop measurement by a `FRAME-TIMING` one. They
-are different regimes; the same work measures ~2.5× apart between them.
-
-And the converse, which is easier to get wrong: **a number measured on another
-machine is not a wrong number.** `cpu` at FFT 65536 is ~3.3 ms on an i7-12700H
-and ~7 ms on an i5-7300U; both are correct, and neither refutes the other. Before
-retracting a figure, check the machine it was labelled with — every performance
-claim in this file names its box for that reason. Retract on evidence from the
-same box, not from a different one.
-
-### Live testing: FFT sweep, v3.9.0 vs v3.9.1
-
-**Method.** `./bench.sh <binary> <tag>`, both binaries in one session on one
-box. 7 sizes × 2 reps × 40 s, `--play` of a 21 s capture at 2.048 MS/s,
-`--max-fps 30`, SIGINT shutdown. Counters are exact (the event set fits the PMU;
-nothing multiplexed). Conditions recorded per run in `logs/<tag>-conditions.txt`.
-
-**Box.** ThinkPad T470, i5-7300U (2.6 GHz base), Intel HD 620, OpenGL,
-**SMT disabled**, `powersave` / `intel_pstate`, Ubuntu. Taken at the then-default
-**1050×576** canvas; the shipped canvas is now a fixed 1280×720 (~1.5× the
-pixels). `cpu` here is DSP-side (DC + window + FFT + display update) and barely
-moves with canvas size — the raster cost lives in `render_build`/`present`, which
-rise sub-linearly and still hold 30.0 fps.
-
-`cpu` per run median, ms — both runs shown, because the spread is the point:
-
-| FFT | v3.9.0 | v3.9.1 | verdict |
-|-----|--------|--------|---------|
-| 1024 | 0.13, 0.12 | 0.11, 0.11 | v3.9.1 faster |
-| 2048 | 0.21, 0.22 | 0.19, 0.19 | v3.9.1 faster |
-| **4096** (default) | 0.53, 0.55 | **0.47, 0.47** | **v3.9.1 faster** |
-| 8192 | 1.42, 1.34 | 0.95, 0.94 | v3.9.1 faster |
-| 16384 | 2.64, 2.60 | 2.53, 1.87 | v3.9.1 faster |
-| 32768 | 4.42, 4.83 | 3.77, 4.44 | unresolved — runs overlap |
-| 65536 | 7.06, 6.85 | 6.73, 7.63 | unresolved — runs overlap |
-
-`fps` is **30.0 at every size in both builds**. `render_build` 0.98–1.61 ms and
-`present` 0.93–1.62 ms, both flat across FFT size in both builds — render cost is
-independent of bin count (the scroll path uploads one line, not the pane).
-
-"Unresolved" means the two runs of each build interleave: at 32768/65536 the
-run-to-run spread (13–18%) exceeds any effect. It does not mean *equal*. Two reps
-is thin; raise `REPS` before claiming anything there.
-
-### Live testing: Windows / Direct3D 11, live device
-
-**Corroborating only — the T470 sweep above is the primary dataset.** Spot check
-of the shipped Windows build (v3.9.1, `a772ae7`) against a live RTL-SDR, not
-`--play`: i7-12700H / Direct3D 11 / `--max-fps 30`, **SMT enabled** (locked-down
-machine, BIOS not accessible), one session, two sizes, no reps, and **no `perf`**
-— so no counters, and wall-clock is all there is. Weigh it accordingly: it is
-enough to confirm a figure previously measured on the same box under the same
-conditions, and not enough to build on. Per-second `FRAME-TIMING` medians:
-
-| FFT | cpu | render_build | present | windows |
-|-----|----:|-------------:|--------:|--------:|
-| 4096 (default) | **0.13** (0.25 incl. waterfall fill) | 1.15 | 0.46 | 13 |
-| 65536 | **3.32** (p25–p75 3.23–3.38) | 1.26 | 0.51 | 73 |
-
-Two things worth taking from it:
-
-- **The crossover is real and lands between 16384 and 32768, on both machines.**
-  At the 4096 default the render stage dominates the DSP by ~12× on Windows
-  (1.61 vs 0.13) and ~6× on the T470 (3.08 vs 0.47). At 65536 it inverts: the
-  DSP is **1.9× the render stage** on Windows (3.32 vs 1.77) and ~3.8× on the
-  T470 (7.24 vs 1.91). So *render-bound through 16384, DSP-bound at 32768/65536*
-  is an accurate description of this pipeline — read "bound" as *which stage
-  dominates*, not as *what fails*: the frame rate is 30.0 either way.
-- **Measurement noise is machine-dependent.** The 12700H holds a 4.6%
-  interquartile spread at 65536 where the i5-7300U spreads 13–18%. A faster part
-  that ramps quickly is also a quieter instrument — do not assume a spread
-  measured on one box transfers to another.
-
-### Finding: PocketFFT plan cache (v3.9.1)
-
-PocketFFT defaults `POCKETFFT_CACHE_SIZE` to 0, which reconstructs the plan —
-factorize, recompute the twiddle tables, allocate and free them — on **every**
-`c2c` call, 30×/s, for a plan that never changes. `src/fft/pocketfft_wrapper.h`
-sets it to 1 (one FFT size is live at a time; a 10-entry cache measured no faster
-for 7× the twiddle memory).
-
-**Result: it helps the small sizes, including the 4096 default, and does nothing
-at the large ones.** The default drops 0.55 → 0.47 ms (−14%); 32768 and 65536 are
-unresolved.
-
-That is what theory predicts, and it is the reason to expect it: **the rebuild is
-O(N) twiddle computation against an O(N log N) transform**, so it is
-proportionally largest where the transform is cheapest, and drowns as N grows.
-
-What it does **not** do, all measured, all previously claimed in this file and
-wrong:
-
-- **It is not a 65536 optimisation.** At 65536 the effect is unresolvable.
-- **It does not cut cycles.** Instructions fall monotonically (−1.5% at 1024 to
-  −12.7% at 65536) while cycles move −3.4%…+0.8%. The removed work was cheap,
-  high-IPC ALU work absorbed in spare issue slots. Fewer instructions ≠ less time.
-- **It does not fix a page-fault storm.** At 65536: 164,468 → 161,898 (−1.6%).
-  The recurring faults are PocketFFT's per-call *scratch* buffer crossing glibc's
-  mmap threshold, which the plan cache does not touch. Fault counts are also
-  bimodal across runs — glibc's dynamic mmap threshold adapts to allocation
-  history — so treat them as an unstable metric.
-- **It is not a power win.** Cycles are flat; there is no energy saving to claim.
-
-Kept because it measurably improves the default size, costs one `#define`, and
-no size shows a reproducible regression.
-
-### Finding: fast-math on PocketFFT — rejected (2026-07-17)
-
-PocketFFT is the only code here fast-math can reach: every other hot DSP loop is
-hand-written AVX2 intrinsics and is immune (log10 output was byte-identical
-across builds), and FMA is already on at `-march=haswell`. It is header-only and
-included solely via `pocketfft_wrapper.h`, whose only caller is
-`fft_analyzer.cpp` — so `-funsafe-math-optimizations -fno-math-errno` scopes
-cleanly to that one object. (Never global `-ffast-math`: it additionally implies
-`-ffinite-math-only`, which folds `isnan`/`isinf` to constants app-wide for zero
-extra speed.)
-
-A microbench of the transform in isolation — WSL2, GCC 15.2, i7-12700H — measured
-**−25% at 4096 and −28% at 16384/65536**, at an accuracy cost of nothing that
-matters (max dB error 0.00347 → 0.00365 at 65536, against the display's 0.47 dB
-quantization step).
-
-**Result on the target: no win, and a small instruction regression.** Whole-app
-A/B on the i5-7300U — two same-day CI AppImages, same capture, 7 sizes × 2 reps ×
-40 s, HT off:
-
-| FFT | instructions | rep noise | cycles | rep noise |
-|-----|-------------:|----------:|-------:|----------:|
-| 1024–8192 | +0.1…+0.7% | 0.1–0.4% | flat | 1.0–3.5% |
-| 16384 | +0.8% | 0.3% | −2.2% | 1.9% |
-| 32768 | **+2.3%** | 0.3% | −0.2% | 0.8% |
-| 65536 | **+2.4%** | 0.3% | −1.8% | 8.7% |
-
-Instructions are reproducible to 0.1–0.4% across reps, so +2.4% is real. Cycles
-are a wash at every size — the reps interleave (65536: base 9.56/10.15 G vs test
-9.26/10.10 G). 16384's −2.2% is barely outside its own noise and its instructions
-rose; it is not a win.
-
-**This is not whole-app dilution — the transform genuinely did not get faster.**
-Instructions per frame run 2.69 M at 1024 to 10.62 M at 65536, so the
-size-independent baseline (render, SDL, playback, panel) is ~2.65 M and the DSP
-is **~75% of instructions at 65536**, consistent with the 71% share measured
-below. A 25% cheaper transform would have shown as ~−19% total. It measured
-+2.4%.
-
-The live hypothesis is **the compiler**: the microbench was local GCC 15.2 on
-Alder Lake; the shipped AppImage is built on ubuntu-24.04, which is GCC 13, and
-runs here on Kaby Lake. Different vectorizer, different µarch, different answer.
-
-Not pursued, because **CI is what ships**. Users get the GCC-13 AppImage, so a
-win that only exists under GCC 15.2 on a developer's box is unreachable
-downstream. Claiming it would mean bumping the CI toolchain — its own change,
-its own full-app A/B, its own risk surface — for a payoff still unproven on the
-target. Nothing was broken to begin with: every size already holds 30.0 fps.
-
-Two things this run re-confirms, both already argued in *Reading `cpu`* above:
-
-- **`cpu` could not have answered this.** At 65536 it read 6.97/7.88 ms (base) vs
-  7.44/8.80 ms (test) — a spread that supports any conclusion you like. It is
-  useful only as a sanity check that the run was sane, which it was: base
-  brackets the ~7 ms already documented here.
-- **Deltas do not port across machines — this is the second time.** The plan
-  cache predicted −26% on WSL2 and was unresolvable on the T470; fast-math
-  predicted −28% and delivered nothing. A microbench on the dev box is a
-  hypothesis, not a result. **If you re-run the microbench and see 28%, this
-  section is why that number does not mean what it looks like.**
-
-### Where the per-frame work is
-
-Per-stage cost at FFT 65536, **tight loop, i7-12700H**, measured against the
-project sources. These are *relative shares of real work* — not per-frame cost on
-any machine, and not comparable to the `cpu` figures above, which are duty-cycled
-and governor-limited. Check this list before proposing any DSP optimisation:
-
-| Stage | ms | share |
-|-------|---:|------:|
-| pocketfft transform | 0.812 | **71%** |
-| `update_spectrum` (`nth_element`) | 0.142 | 12% |
-| sign-trick fill + dB/log10 loop | 0.067 | 6% |
-| `get_max_db` | 0.058 | 5% |
-| `apply_window` | 0.029 | 3% |
-| `add_spectrum_line` | 0.017 | 1% |
-| `remove_dc` | 0.014 | 1% |
-| **total** | **1.14** | |
-
-The transform dominates; everything around it is already AVX2 and already
-negligible. `get_max_db` is the only unvectorized loop left (a scalar max
-reduction — GCC will not auto-vectorize float max without `-ffast-math`) and is
-worth 0.05 ms of a 33 ms frame. There is no DSP optimisation left that pays for
-its own code.
-
-### Latency and the frame-supply ceiling
-
-Latency is frame-paced: ~16.7 ms/frame at 60 fps vsync, ~33 ms at `--max-fps 30`.
-Per-frame compute is a fraction of that at every size, so the rate holds at the
-cap from 1024 through 65536.
-
-**65536's headroom is ~4%, and it is arithmetic, not performance.** Frame supply
-is `rate / fft_size` = **31.25/s** at 2.048 MS/s, against the 30 fps default cap.
-The locked 30.0 fps there is the cap sitting just under the supply, so raising
-`--max-fps` above 31 does nothing at that size and any dip in supply drops frames
-immediately. Same wall excludes 131072: four device callbacks per frame cap the
-line rate at ~15.6/s (measured 15.4–16.0). 65536 is simply the last size that
-clears the default cap. Neither is a CPU limit.
-
-### Memory
-
-~51 MB resident at FFT 16384 (native Windows / Direct3D 11, measured at
-`99257e3`; the older "<49 MB" figure was v3.7.0). Bounded, but **scales mildly
-with FFT size** — the frame pool is 12 frames × `fft_size` × 8 B, measured
-**+8 MB going 4096 → 65536**. The waterfall stores one byte per cell (4:1 vs
-float); the ~1 MB IQ write buffer exists only while a capture is running.
-
-> A Linux/WSL2 memory profile reads much higher — mostly the Mesa software-GL
-> backing store from running without GPU passthrough, an artifact of the
-> environment, not heap growth. Direct3D 11 keeps those surfaces in video memory,
-> so the ~51 MB figure is the representative one.
-
-### Renderer
-
-Keep the default backend: Direct3D 11 (Windows), OpenGL (Linux). Both hold a
-clean 60 fps at ~1 ms CPU.
-
-- **Don't force Vulkan on old Intel iGPUs** (HD 6xx / Gen9): roughly half the
-  frame rate for no benefit.
-- **Software renderer** is the battery/thermal worst case but ~2.5× OpenGL, not a
-  disaster: `render_build` + `present` ≈ **5.9 ms** (3.17 + 2.77; vsync off there,
-  so `present` is real blit work) against ~2.3 ms on OpenGL — T470 / Linux /
-  1050×576 / `--max-fps 30` / FFT 32768. The gap is a flat **+3.6 ms/frame and
-  does not grow with FFT size**. Still single-core, still warns loudly, still a
-  fallback. An earlier "~16 ms" figure does not reproduce; its conditions are
-  unknown. The v3.8.1 case-study figure below (9.7 → 6.7 ms) is a different
-  machine and is not reconcilable with this one — re-measure per box.
-
-### Benchmark: FFT size vs. renderer
-
-Measured on a **ThinkPad T470 (i5-7300U, Intel HD 620, 16 GB)** under Ubuntu,
-commit `148b0a4` (representative of v3.7.0), replaying a 21 s capture with
-`--play`, **vsync off / `--max-fps 0`**, stepping FFT size `1`→`5` live. Values
-are steady-state averages of the per-second `FRAME-TIMING` log line; the first
-~1 s after each size change is dropped as warm-up. SMT was left
-enabled, so expect minor run-to-run variance — not order-of-magnitude.
-
-> **These `cpu` values are not comparable to the capped sweep above, and the gap
-> is a useful control.** Uncapped, the CPU is saturated, so the governor ramps.
-> Same box, same FFT 16384: **1.6 ms here vs 2.60 ms at `--max-fps 30`** — the
-> same work, 1.6× apart, purely from clock state. Read this table for the
-> *renderer-vs-data-rate crossover* it was built to show; do not read its `cpu`
-> column as the cost of the DSP.
-
-Representative raw lines (timestamp/thread prefix stripped):
-
-```
-# OpenGL — FFT 1024
-FRAME-TIMING fps=530.5 frames=531 | cpu avg=0.06 | render_build avg=1.42 | present avg=0.23 (ms)
-# OpenGL — FFT 16384
-FRAME-TIMING fps=125.1 frames=126 | cpu avg=1.56 | render_build avg=3.46 | present avg=0.38 (ms)
-# Software — FFT 1024
-FRAME-TIMING fps=280.2 frames=281 | cpu avg=0.04 | render_build avg=2.92 | present avg=0.52 (ms)
-# Software — FFT 16384
-FRAME-TIMING fps=121.8 frames=122 | cpu avg=0.59 | render_build avg=3.99 | present avg=0.63 (ms)
-```
-
-| FFT | Data rate¹ | OpenGL fps | Software fps | cpu² (ms) | Limited by |
-|----:|-----------:|-----------:|-------------:|----------:|------------|
-| 1024  | 2000 | ~530 | ~277 | 0.05 | renderer |
-| 2048  | 1000 | ~529 | ~262 | 0.10 | renderer |
-| 4096  |  500 | ~498 | ~257 | 0.15 | renderer (OpenGL at data rate) |
-| 8192  |  250 | ~241 | ~248 | 0.35 | data rate |
-| 16384 |  125 | ~124 | ~120 | 1.6  | data rate |
-
-¹ `rate / FFT` = the real-time frame supply from `--play` at 2.048 MS/s — a hard
-ceiling, since the renderer can't draw a frame that doesn't exist yet.
-² CPU = DC removal + window + FFT + display update; backend-independent.
-
-Two regimes, and the crossover is the whole story:
-
-- **Renderer-bound (small FFT).** The faucet supplies more frames than the GPU
-  can draw, so the backend sets the ceiling: OpenGL ~530 fps, software ~260 fps —
-  **OpenGL ~2× faster**. The cost is `render_build` (~1.4 ms OpenGL vs ~3.0 ms
-  software); CPU/DSP is negligible (<0.2 ms). FFT size barely moves the ceiling.
-- **Data-bound (large FFT).** `rate / FFT` drops below both renderers' ceilings,
-  so both converge to the data rate — at 16384, ~120–125 fps **regardless of
-  backend**. The renderer choice stops mattering; you're waiting on the real-time
-  faucet (see [FFT size, resolution, and latency](#fft-size-resolution-and-latency)).
-- **Crossover** is where `rate / FFT` dips under the renderer ceiling: ~4096 for
-  OpenGL, ~8192 for software.
-
-**Power note.** "Smaller FFT = higher fps" holds only in the renderer-bound
-regime — and higher fps means *more* GPU/battery draw, not less. For long
-unattended runs the lever points the other way: `--max-fps 30` pins every size to
-30 fps. **`--max-fps` is the real power control**; FFT size is a second-order one.
-
-Sizing that against cycles rather than wall-clock (the sweep above, T470, whole
-process over 40 s, so it includes the producer thread and GL):
-
-| FFT | 4096 | 16384 | 32768 | 65536 |
-|-----|-----:|------:|------:|------:|
-| cycles | 3,163 M | 4,106 M | 5,733 M | 9,125 M |
-| vs 4096 | — | +30% | +81% | **+189%** |
-
-So through 16384 FFT size is primarily a resolution/latency choice costing ~30%
-more cycles than the default. **At 32768/65536 it becomes a real power lever** —
-65536 is ~2.9× the default's cycles, and it also drags the core to a higher clock
-(413 → 749 MHz), which costs energy again on top. Pick the opt-in sizes for
-narrow-signal work, not as a default, and see
-[FFT size, resolution, and latency](#fft-size-resolution-and-latency) for why the
-resolution they buy is not visible on the pane.
-
-### Case study: the panel-text render regression (v3.8.0 → v3.8.1)
-
-v3.8.0 consolidated all status / PEAK / timing text into the right-hand
-instrument panel. Every label and value was drawn through `blit_text`, which
-**created, rasterized, uploaded, and destroyed an `SDL_Texture` per string, per
-frame** — ~15–40 times a frame. v3.7.0's overlays were cached textures. The cost
-was invisible in fps (vsync pins the frame rate regardless), but it was real
-render work and therefore real power — design priority #2.
-
-Measured across v3.7.0 (`6c8e173`), v3.8.0 (`7785c84`), and the v3.8.1 fix,
-**hyperthreading disabled**, replaying an FM capture with `--play`. The shipped
-builds hardcode **vsync on**, so fps is pinned and the signal lives in
-`render_build` and CPU counters, not frame rate. Direct3D 11 figures are from an
-**i7-12700H** — the churn is worst on an accelerated backend, where the baseline
-render is tiny; the Linux `perf stat` is from the **T470 (i5-7300U)**.
-
-On Direct3D 11 and the software renderer the vsync idle-wait lands in `present`,
-so `render_build` is real work — the metric that exposes the regression. (On
-OpenGL the idle lands in `render_build` and masks it; read total CPU counters
-there instead.)
-
-| `render_build` (ms) — Direct3D 11 / i7-12700H | v3.7.0 | v3.8.0 | v3.8.1 |
-|---|---:|---:|---:|
-| `--max-fps 30` | 2.95 | 5.80 | **2.74** |
-| `--max-fps 60` | 2.30 | 4.09 | **2.16** |
-
-v3.8.0 nearly doubled `render_build`; v3.8.1 returned it *below* v3.7.0. The
-backend-independent picture is the same — `perf stat` over an identical ~34.5 s
-workload (T470, OpenGL, FFT 16384, `--max-fps 60`):
-
-| Counter (same ~34.5 s workload) | v3.7.0 | v3.8.0 | v3.8.1 |
-|---|---:|---:|---:|
-| instructions | 10.93 B | 17.57 B | **9.78 B** |
-| cycles | 10.39 B | 17.60 B | **8.12 B** |
-| task-clock | 15.56 s | 20.59 s | **12.71 s** |
-
-v3.8.0 spent **+61% instructions / +69% cycles** for pixel-identical output;
-v3.8.1 cut instructions 44% and cycles 54% below v3.8.0, landing under v3.7.0 —
-the panel now renders cheaper than the pre-panel UI did. On the same Windows box,
-Task Manager tracked it in power terms at FFT 16384: CPU / GPU roughly
-1% / 4.5% (v3.7.0) → 2% / 9% (v3.8.0) → 0.8% / 3.5% (v3.8.1).
-
-> **This is the measurement to copy.** It compares *counters* over a fixed
-> workload with SMT disabled, not wall-clock — which is why its conclusion still
-> stands while every wall-clock claim in this file has had to be redone. A ±60%
-> swing in instructions is real regardless of what clock the governor picked; a
-> ±16% swing in `cpu` usually is not.
-
-The fix is two changes:
-
-- **`SdlRenderer::blit_text` caches the rendered string-texture**, keyed by
-  colour + string; a per-frame mark-and-sweep evicts strings not drawn last
-  frame, bounding the cache to what's on screen. Unchanged labels/values are
-  rasterized once, not every frame — and it covers every overlay caller, not
-  just the panel.
-- **`TextRenderer::render_text` allocates the glyph texture as
-  `SDL_TEXTUREACCESS_STATIC`, not `TARGET`.** It is only ever sampled, so the
-  render-target view `TARGET` reserves is dead weight — heaviest on Direct3D 11.
-
-On the software renderer the win is smaller (`render_build` 9.7 → 6.7 ms at
-`--max-fps 30`, part of it shifting into `present`): text rasterization was never
-the bottleneck there, the whole-scene raster dominates.
-
-> **Maintainer takeaway.** Never create/destroy an `SDL_Texture` per frame for
-> content that rarely changes — cache it and upload only on change, the pattern
-> `render_frequency_scale` already uses for the frequency scale. Under vsync a
-> render/power regression like this is invisible in fps; watch `render_build`
-> (Direct3D 11 / software) or a `perf stat` instruction count, not the frame rate.
+the pipeline diagram and what is easy to break.
+
+## Performance
+
+Figures, each with its date, machine and build, are in
+[MEASUREMENTS.md](MEASUREMENTS.md); read its "Reading `cpu`" before acting on
+any `cpu` number. What follows from the design:
+
+- **Latency is one frame**: ~33 ms at the default `--max-fps 30`, ~16.7 ms at
+  60 fps. The render loop takes the newest frame and drops the backlog, so no
+  latency builds up, and the per-frame work is a fraction of a frame at every
+  FFT size.
+- **Frame supply is `rate / fft_size`**: 31.25/s at 2.048 MS/s and 65536, just
+  above the 30 fps cap. At that size raising `--max-fps` above 31 does nothing,
+  and any dip in supply drops a frame. 131072 would need four RTL callbacks per
+  frame (~15.6 lines/s) and is not offered.
+- **`--max-fps` is the power control.** FFT size is a second-order one up to
+  16384; 32768 and 65536 nearly triple the cycles of the 4096 default and pull
+  the clock up with them. They are for narrow-signal work, not the default.
+- **The transform is the DSP.** PocketFFT is ~70% of the per-frame work at
+  65536; everything around it is AVX2 and already negligible.
+- **Memory is bounded**: the frame pool is 12 frames × `fft_size` × 8 B, the
+  waterfall one byte per cell, and the capture ring (half a second of samples)
+  exists only while a capture runs.
+- **Renderer**: keep the default, Direct3D 11 on Windows and OpenGL on Linux.
+  Vulkan on old Intel iGPUs (HD 6xx / Gen9) is much slower; do not force it.
+  The software renderer is a fallback and the battery worst case.
+- **Text is cached.** `SdlRenderer::blit_text` keeps one texture per colour and
+  string and evicts what was not drawn last frame; glyph textures are
+  `STATIC`. A texture created and destroyed per frame is invisible in fps
+  under vsync and shows only in `render_build` and instruction counts.
 
 ## Adding a new SDR device
 
@@ -634,82 +254,10 @@ the USRP's rate and the three RTL-only options are ignored.
 - **A new streamer per `start()`.** A reused one delivers packets from before
   the stop, and the gap count would report the pause as a loss.
 
-Measured 2026-10-13 on a B210, USB 3, through WSL2 usbipd, release build,
-2.44 GHz, 30 s `cs16` captures:
-
-| Run | Samples in file | `dropped_samples` | `measured_sample_rate_hz` |
-|---|---|---|---|
-| 2.048 MS/s | 60 903 424 | 0 | 2 048 033 (+16 ppm) |
-| 4 MS/s | 118 976 512 | 0 | 4 000 029 (+7 ppm) |
-| 2.048 MS/s, process stopped for 1 s (`kill -STOP`) | 58 875 523 | 2 006 180 | 1 980 578 (-3.3 %) |
-
-Each file is exactly `sample_count` x 4 bytes. The third row is the control
-that the counter is not a decorative zero: file plus dropped is 60 881 703,
-the same 29.7 s as the clean run, and the measured rate falls by the missing
-share. That run also found a display freeze, since fixed: the short frame
-after an overflow left the accumulator in `async_sample_callback` off the
-frame boundary and it refused every frame after it.
-
-usbipd is the limit here, not the receiver: UHD's own `benchmark_rate` held
-2.048 MS/s cleanly, had one overrun in 20 s at 5 MS/s, and from 10 MS/s up
-delivered about 5.6 MS/s whatever was asked.
-
-Measured the same day on native Windows 11 (the same laptop, USB 3, the CI
-build with UCRT64 and UHD 4.8), `packaging/uhd-sweep.ps1`: 20 s `cs16`
-captures at 2.44 GHz, at the smallest and the largest FFT size.
-
-| Rate | FFT 1024: dropped | FFT 65536: dropped |
-|---|---|---|
-| 2 MS/s | 0 | 0 |
-| 4 MS/s | 0 | 0 |
-| 8 MS/s | 0 | 54 875 (0.03 %) |
-| 16 MS/s | 0 | 74 436 (0.02 %) |
-| 32 MS/s | 431 805 414 (68 %) | 441 763 553 (70 %) |
-| 56 MS/s | 965 619 240 (87 %) | capture did not end |
-
-Every file was `sample_count` x 4 bytes with no write error, the clean runs
-were within 43 ppm of the asked rate, and the whole program used under half a
-core. Samples in the file plus samples dropped come to 19.8 to 19.9 s of the
-asked rate in both collapsed runs, so the loss count holds up even there.
-
-The collapse above 16 MS/s is the host, not this program. UHD's own
-`benchmark_rate` (Ettus's Windows build of UHD 4.8, no disk, 20 s) on the same
-machine: 16 MS/s clean (320 071 215 received, 0 dropped), 32 MS/s 86 % lost
-(86 415 808 received), 56 MS/s 95 % lost (58 399 801 received). Through this
-program more arrived at both rates than through the benchmark, so the capture
-write on the receive thread is not what limits it here. The benchmark is
-still clean at 20 MS/s (400 189 579 received) and loses 57 % at 24 MS/s and
-75 % at 28 MS/s, so this host's ceiling is between 20 and 24 MS/s. Every
-failing run reports about 1260 overruns in 20 s whatever the rate, one per
-15.9 ms; that is close to Windows' default 15.6 ms timer tick, which suggests
-the recovery after an overflow waits for a tick, but that is a reading of the
-number, not a finding. Whether another host or UHD's transport settings move
-the ceiling is not measured. The 56 MS/s run at FFT 65536 never completed a
-frame, because every delivery came short and the accumulator dropped what it
-held each time; it now completes the frame and drops the excess instead.
-Rerun on 2026-10-14 (build `3567187`): that run ends on time, and 32 and
-56 MS/s both draw at 30 fps while losing.
-
-The small losses below the ceiling are rare and not tied to the FFT size.
-Over the 28 runs of 20 s below the ceiling on 2026-10-14 (five passes of 8
-and 16 MS/s at both sizes, then one full sweep), six lost samples, each time
-in one burst (one UHD `O`): 16 MS/s 3 of 12, 102 to 132 thousand samples (6
-to 8 ms); 8 MS/s 2 of 12, 13 thousand; 4 MS/s 1 of 2, 8 thousand; 2 MS/s
-none of 2. Four were at FFT 1024 and two at 65536. The benchmark had none at
-16 MS/s, but in a single run. They are not the capture writer: without
-`--iq-log`, five runs at 16 MS/s / 65536 still showed 0 to 2 `O` each.
-
-Bursts are, or were. Later on 2026-10-14 (build `b389cba`), 16 MS/s at FFT
-65536 lost 7 to 71 million samples (46 to 447 `O`) in 4 of 6 runs, at FFT
-1024 never more than 2 `O`; without `--iq-log` none of five runs burst. The
-capture write (sample statistics, format conversion and `fwrite`) then ran
-on the receive thread, about 19 % of a core at 16 MS/s before any disk wait
-(Linux, release). It now runs on the logger's own thread behind a half-second
-ring, and the receive thread only copies. With that (build `6fce657`, same
-host): 16 MS/s at FFT 65536 clean in 4 of 4 runs, a full sweep clean at every
-rate up to 16 MS/s at both sizes, and at 32 and 56 MS/s more arrives than
-before (64 to 66 % and 84 to 85 % lost, against 69 to 73 % and 88 to 89 %).
-The ceiling itself is unchanged.
+Measured capture losses on a B210, through WSL2 usbipd and on native
+Windows: [MEASUREMENTS.md](MEASUREMENTS.md). The host, not the program,
+sets the ceiling (about 5.6 MS/s through usbipd, 20 to 24 MS/s on the
+Windows host measured).
 
 ## Capture files
 
@@ -746,9 +294,10 @@ Sidecar fields a consumer should check before trusting a file:
 
 ## Testing & hardware checks
 
-There is no automated test suite — OpenSpectrum is a real-time GUI/SDR app whose
-behavior is verified by running it against live hardware or a recorded capture
-(`--play`). Confirm the device is seen first:
+`make check` builds and runs `tests/`: the logic that can be checked without a
+device or a window (sample queue, capture writer, formatting, plot overlays).
+Everything else is verified by running the program against live hardware or a
+recorded capture (`--play`). Confirm the device is seen first:
 
 ```bash
 rtl_test -t       # list available RTL-SDR devices
@@ -782,11 +331,10 @@ Builds compile with these flags by default:
 | `-Wl,-z,noexecstack` | Non-executable stack |
 | `-Wall -Wextra -Wpedantic` | Comprehensive warnings |
 
-Linker hardening is Linux-side; the Windows build links static libs instead —
-see CLAUDE.md's platform table.
+`-fPIE` and the three `-Wl,-z` flags are Linux-only.
 
 These flags guard the program's actual input surface — `.iq` captures, the
-`.meta.json` sidecar, and the RTL-SDR USB stream — where a malformed file or a
+`.meta.json` sidecar, and the receivers' USB streams — where a malformed file or a
 glitching device could otherwise turn a parser slip into a memory-safety issue.
 There is no network listener, no elevated privilege, and no setuid surface, so
 nothing beyond this near-zero-cost baseline is warranted (don't add to it, don't

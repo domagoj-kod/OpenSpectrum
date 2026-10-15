@@ -16,11 +16,13 @@ https://github.com/user-attachments/assets/f758865f-75fa-4cd9-9109-d0f49247ab4c
 
 > [!IMPORTANT]
 > RTL-SDR outputs complex IQ samples, so the observed bandwidth is roughly equal
-> to the sample rate. The RF/DSP concepts, architecture, performance profile,
-> and how to add a device live in **[docs/TECHNICAL.md](docs/TECHNICAL.md)**.
+> to the sample rate. The RF/DSP concepts, architecture and how to add a
+> device live in **[docs/TECHNICAL.md](docs/TECHNICAL.md)**; measured
+> performance in [docs/MEASUREMENTS.md](docs/MEASUREMENTS.md).
 
-**Documentation:** usage below · RF/DSP, architecture & performance in
-[docs/TECHNICAL.md](docs/TECHNICAL.md) · maintainer/hot-path notes in
+**Documentation:** usage below · RF/DSP & architecture in
+[docs/TECHNICAL.md](docs/TECHNICAL.md) · measurements in
+[docs/MEASUREMENTS.md](docs/MEASUREMENTS.md) · maintainer/hot-path notes in
 [CLAUDE.md](CLAUDE.md).
 
 ## Features
@@ -176,9 +178,9 @@ Contributions welcome:
 1. **Modularity first** — add features as separate modules where possible (see
    the [architecture](docs/TECHNICAL.md#architecture)).
 2. **Keep the security flags** in the Makefile.
-3. **Validation** — there is no automated test suite; verify changes by building
-   and running against live hardware or a recorded capture (`--play`), and note
-   what you checked.
+3. **Validation** — `make check` runs the tests in `tests/`; beyond that, run
+   against live hardware or a recorded capture (`--play`), and note what you
+   checked.
 4. **Update docs** for significant changes.
 
 Workflow: fork → feature branch (`git checkout -b feature/x`) → commit → PR.

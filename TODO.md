@@ -1,8 +1,8 @@
 # TODO
 
 Active backlog only. Completed work lives in git log; knowledge/diagnostics
-live in the README's Conceptual section, not here. Measured performance claims
-live in `docs/TECHNICAL.md`.
+live in `docs/TECHNICAL.md`, not here. Measured performance claims
+live in `docs/MEASUREMENTS.md`.
 
 ## Open
 
@@ -22,7 +22,7 @@ live in `docs/TECHNICAL.md`.
 - [ ] **Rare small losses on the B210 below the host ceiling.** Six of 28
   captures of 20 s lost one burst each (one UHD `O`, 8 to 132 thousand
   samples), at 4, 8 and 16 MS/s and at both FFT sizes, so neither explains it
-  (Windows sweep, 2026-10-14, in `docs/TECHNICAL.md`). Next: the same sweep
+  (Windows sweep, 2026-10-14, in `docs/MEASUREMENTS.md`). Next: the same sweep
   without `--iq-log`, counting `O` in the logs, to tell the capture writer
   (`IqLogger::write_samples` runs on the receive thread) from the host.
 - [ ] **Run the RTL-SDR on the source interface.** `SampleSource` and 64-bit
@@ -98,11 +98,11 @@ unusable anyway (fps is capped, latency is frame-paced, and waking a second core
 30×/s costs more power than it saves on a 15 W part). **fast-math on PocketFFT**
 (`-funsafe-math-optimizations -fno-math-errno` on `fft_analyzer.o`) — a dev-box
 microbench says −28%; the target says **+2.4% instructions and no cycle change**.
-Measured, rejected, don't re-try on the microbench number: `docs/TECHNICAL.md` →
-*Finding: fast-math on PocketFFT*.
+Measured, rejected, don't re-try on the microbench number: `docs/MEASUREMENTS.md` →
+*fast-math on PocketFFT: rejected*.
 
 **Nothing left in the DSP.** At 65536 the transform is 71% of real work;
 `get_max_db` is the only unvectorized loop and is worth 0.05 ms of a 33 ms frame.
 Every size 1024–65536 holds 30 fps on a 15 W i5-7300U. Read the `cpu` caveat in
-`docs/TECHNICAL.md` before acting on any performance number — `cpu` is wall-clock
+`docs/MEASUREMENTS.md` before acting on any performance number — `cpu` is wall-clock
 divided by whatever clock the governor picked, not a measure of work.
