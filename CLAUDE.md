@@ -1,174 +1,102 @@
 # CLAUDE.md
 
-Guidance for Claude Code (claude.ai/code) working in this repository.
+Real-time SDR spectrum analyzer: RTL-SDR, B200-series USRP (`UHD=1` builds) and
+playback of its own captures. C++20, SDL3, PocketFFT. Priorities, in order: low
+latency, low power (long battery runs), small footprint. Users are radio
+engineers, mostly on native Windows; `.iq` captures and PNG exports feed a
+Python pipeline. Keep it simple enough for a junior maintainer: clarity and
+deletion over cleverness.
 
-## Purpose & audience
-
-Real-time SDR spectrum analyzer (RTL2832U, and a B200-series USRP in `UHD=1` builds; the modular device layer is ready for a company's proprietary SDR). Design priorities, in order: **low latency, low power** (extended battery lab measurements), then **minimal footprint**.
-
-Who runs it: mostly **non-software people** — radio/electronics engineers testing devices — on **native Windows**, with a Linux/WSL2 developer path alongside. The `.iq` captures + PNG spectrogram exports feed a downstream **Python/AI** pipeline. Private repo, going public as it matures.
-
-Two consequences that keep driving decisions: **(1) no scary UX** — a console window, an AV prompt, or a driver hoop reads as malware to this audience (see *Windows distribution* below), so native Windows ships GUI-only; **(2) grooming for handoff to junior maintainers** — favour clarity and deletion over cleverness.
-
-## Build
+## Build and check
 
 ```bash
-make              # debug (O0, symbols, OPENSPECTRUM_DEBUG defined)
-make release      # O3 + LTO + -march=haswell + footprint trim + strip
-make profile      # O2 + gprof instrumentation
-make dist         # package a release bundle for the current platform → dist/
-make check        # build + run tests/ (assert programs)
-make clean
+make                 # debug: -O0, asserts on
+make release         # -O3, LTO, -march=haswell, stripped
+make profile         # -O2 -pg
+make check           # build and run tests/
+make dist            # bundle for this platform -> dist/
+make release UHD=1   # any target; adds the USRP source
+./lint.sh [--check]  # clang-format + clang-tidy over src/ and tests/ (UHD=1 adds uhd_device.cpp)
+./bench.sh <bin> <tag>
 ```
 
-Binary: `openspectrum` (Linux) / `openspectrum.exe` (Windows/MSYS2). `make check` builds and runs `tests/*_test.cpp`: plain programs of asserts, linked against every object but `main.o` (debug config; a new test is one new file). Invariants that must hold while the app runs stay as debug-only asserts in the code (run-it validation), and performance is `./bench.sh <binary> <tag>` (FFT sweep + `perf` counters + the conditions the numbers only mean anything under — run it once per binary, same box, same session).
-
-**Objects live in `build/$(CONFIG)/`** (`debug`/`release`/`profile`), and `all` *copies* that config's binary out to `./openspectrum`. Both details are load-bearing, because **make tracks source timestamps, not flags**. With a shared `build/`, `make release` after `make` saw the objects as up to date and relinked stale `-O0` objects into a release-named binary — a real bogus benchmark (4.68 ms vs 0.57 ms cpu) — and the reverse baked `-DNDEBUG` into a "debug" build, compiling out the asserts this project leans on for run-it validation. With a shared *binary path*, switching back skipped the link entirely (`./openspectrum` is newer than the other config's objects) and silently left the wrong build in place. Configs now coexist, switch correctly, and stay incremental. Quick tell: **~380 KB release, ~1.1 MB debug**. A new config must pass `CONFIG=` in its recursive-make line. `UHD=1` (USRP support, any config: `make release UHD=1`) adds a define, so for the same reason it builds in `build/$(CONFIG)-uhd/`; without it `uhd_device.cpp` is not compiled and nothing links UHD.
-
-Release flags: `-march=haswell` (AVX2+FMA3), `-flto`, `-ffunction-sections -fdata-sections -fvisibility=hidden -fvisibility-inlines-hidden` + `-Wl,--gc-sections`, `-falign-functions=32 -falign-loops=32` (hot loops in one DSB fetch line). See `TRIM_CFLAGS`/`TRIM_LDFLAGS` in the Makefile. `-s` (strip at link, release-only) drops the ~40K symbol table — there's no DWARF in the binary, so it costs nothing at runtime; debug/profile keep symbols for gdb/gprof.
-
-**Linting covers the whole tree** (`src/` and `tests/`; `third_party/` is vendored and built with `-isystem`, so its warnings stay out). The tree is clang-format and clang-tidy clean; keep it that way. The 8x16 font table is fenced with `// clang-format off`. Config in `.clang-tidy` / `.clang-format`. Wrapper:
-```bash
-./lint.sh            # format in place + clang-tidy
-./lint.sh --check    # change nothing; non-zero exit if anything is flagged
-UHD=1 ./lint.sh      # also tidy uhd_device.cpp (needs the UHD headers)
-```
-It fails if `clang-format` or `clang-tidy` is missing (Ubuntu: `apt install clang-tidy`). Its include flags mirror the Makefile's `INCLUDES`: only `-Isrc` (plus `-isystem` for `third_party/`), because **every project include is its path from `src/`** — `#include "utils/logger.h"`, `"signal/signal_processor.h"`, `"control_state.h"`, even from a file in the same directory. A bare `"logger.h"` fails to compile, which is the point.
-
-**Header-dep tracking**: compile rules pass `DEPFLAGS := -MMD -MP` → a `.d` beside each `.o`, `-included` at the Makefile bottom, so editing a header rebuilds dependents. `DEPFLAGS` is kept **separate from `CXXFLAGS`** because `release`/`profile*` override `CXXFLAGS` via recursive make and would strip it. A new compile rule must append `$(DEPFLAGS)`.
-
-## Release & packaging
-
-`make dist` → self-contained bundle into `dist/` (Linux AppImage, Windows/MSYS2 zip with bundled DLLs). Dispatches on `$(OS)` to `packaging/{linux-appimage,windows-bundle}.sh`. Version defaults to `git describe --tags --always`; override `make dist VERSION=vX`.
-
-`.github/workflows/release.yml` runs the **same scripts**; triggers on `v*` tag push (manual `workflow_dispatch` builds artifacts but does not publish; its `uhd` checkbox builds both with `UHD=1`, and the Windows bundle then also carries the measurement scripts: `packaging/uhd-sweep.ps1`, the sample-rate sweep for a USRP, and `packaging/play-bench.ps1`, frame timing from a capture played back). Two jobs (Linux `ubuntu-24.04`, Windows MSYS2 UCRT64) build, upload an artifact, and publish a Release (body = annotated tag message). Cut a release: `git tag -s vX -F notes.txt && git push origin vX`; see `RELEASING.md`.
-
-App icon: source `packaging/openspectrum.svg`; the rasterized `openspectrum.png` (Linux/AppImage) and multi-size `openspectrum.ico` (16–256 px, Windows) are **committed** and consumed directly — no build-time SVG rasterization. Regenerate after editing the SVG: `rsvg-convert -w256 -h256 openspectrum.svg -o openspectrum.png`, and render 16/24/32/48/64/128/256 PNGs + `icotool -c` for the `.ico`. On Windows the Makefile compiles `openspectrum.rc` → COFF via `windres` (`RES_OBJ`, gated on `OS=Windows_NT`, empty elsewhere) and links it into the `.exe` so the shell shows the icon.
-
-**Windows distribution — unsigned = AV false positives.** A stripped, statically-linked `.exe` with no code-signing certificate and no download reputation reliably trips Windows Defender's ML heuristic (`Trojan:Win32/Wacatac.C!ml`; ~1/61 on VirusTotal — a false positive). The durable fix is **Authenticode signing** (EV cert → instant SmartScreen trust) + a Microsoft false-positive submission (`microsoft.com/en-us/wdsi/filesubmission`). Until then, do **not** add AV-suspicious Win32 APIs to the shipped build — `AttachConsole` console-attach was added for terminal output and reverted precisely because it worsened the FP. This is why native Windows is **GUI-only, no stdout/stderr**.
+- Objects go to `build/$(CONFIG)[-uhd]/` and `all` copies the binary to
+  `./openspectrum`: make tracks timestamps, not flags. A new config passes its
+  own `CONFIG=`.
+- Includes are paths from `src/` (`"utils/logger.h"`); only `-Isrc` is set.
+- `DEPFLAGS` stays out of `CXXFLAGS` (release/profile replace `CXXFLAGS`); a new
+  compile rule appends it.
+- The tree is lint-clean; keep it so.
+- `tests/*_test.cpp` are programs of asserts; a new test is a new file.
+  Invariants that must hold at runtime stay as debug asserts in the code.
 
 ## Architecture
 
-Single-threaded render loop fed by a producer thread: the async RTL-SDR callback, or with `--play file.iq` an `IqPlaybackSource` (`src/hardware/iq_playback.*`) replaying an IqLogger capture in real time, looping at EOF. A third producer, `UhdDevice` (`src/hardware/uhd_device.*`, `--device uhd`, B200-series USRP, only in `UHD=1` builds), runs its own receive thread. All implement `SampleSource` (`src/hardware/sample_source.h`) and feed `async_sample_callback`; after the source-selection block `main.cpp` holds only a `SampleSource` (`source->tunable()` is false for playback → tuner writes and the retune queue-drain are skipped). Frequency is `uint64_t` everywhere (32 bits end at 4.29 GHz); a new receiver is one subclass, see `docs/TECHNICAL.md` "Adding a new SDR device" and "Capture files" for the `.iq`/sidecar format. Producer + render threads call `enable_ftz_daz()` once per thread (kills the ~100-cycle denormal trap near the dB floor). While capturing, `IqLogger` runs a writer thread: the producer only copies into its half-second ring, and statistics, `cs16` conversion and `fwrite` run there, so a slow disk cannot stall the receiver (on the receive thread it cost 16 MS/s bursts of hundreds of UHD `O`). A batch that does not fit is dropped whole and counted in the sidecar's `dropped_samples`.
-
 ```
-Producer thread (RTL-SDR callback  OR  IqPlaybackSource reader)
-  └─ async_sample_callback()
-       ├─ FTZ/DAZ set once per thread
-       ├─ IQ capture tap (full rate, before the throttle)
-       └─ SampleQueue::push(): accumulates into FFT-sized frames, queues them
-
-Main thread (main.cpp)
-  └─ SDL3 events → ControlState
-  └─ SampleQueue::pop_newest() (8 ms timeout): newest frame only,
-     any backlog dropped (frame-rate throttle)
-  └─ SignalProcessor: remove_dc() + apply_window()
-  └─ FftAnalyzer: execute() → db_spectrum[]
-  └─ SpectrumDisplay::update_spectrum()
-  └─ WaterfallDisplay::add_spectrum_line()
-  └─ SdlRenderer: render_displays() or render_displays_scroll()
+producer thread: SampleSource (RtlSdrDevice | UhdDevice | IqPlaybackSource)
+  -> async_sample_callback: IQ capture tap (full rate), SampleQueue::push
+render loop (main.cpp):
+  SampleQueue::pop_newest  -> remove_dc, apply_window -> FftAnalyzer
+  -> SpectrumDisplay, WaterfallDisplay -> SdlRenderer
 ```
 
-The throttle (`while(!queue.empty()) move+pop`) runs inside the dequeue lock; each move releases the prior `FrameHandle` to the pool, only the newest survives — prevents latency accumulation when the callback outpaces the renderer.
+- A new receiver is one `SampleSource` subclass (`docs/TECHNICAL.md`, "Adding
+  a new SDR device"; capture format under "Capture files"). Frequencies are
+  `uint64_t`.
+- The render loop takes only the newest frame and drops the backlog: no
+  latency builds up.
+- `IqLogger` writes on its own thread; the producer only copies into its ring.
+- `ControlState` holds what the keys change; `apply_to_device()` is the one
+  place that writes the receiver.
+- Markers, cursor readout and amplitude trigger live in
+  `src/gui/plot_overlays.h`.
+- After `stop()`, `rtlsdr_read_async` returning negative is the expected
+  shutdown, not an error.
 
-**Shutdown is not an error path**: `stop_streaming()` cancels the transfer → `rtlsdr_read_async` returns negative (e.g. -5) on the callback thread. Expected, gated on `m_thread_running`; do not log as ERROR. Only a negative return while still running is a real fault.
+## Easy to break
 
-### Key data structures
-- **FramePool / FrameHandle** (`src/utils/frame_pool.h`): 64-byte-aligned pool of `complex<float>` buffers. `FrameHandle` is RAII (destruction returns to its pool). Never copy; always move.
-- **SampleQueue** (`src/utils/sample_queue.h`): producer → render hand-off. Owns the frame pool, the accumulator and the queue; `reconfigure()` (new FFT size) only while the source is stopped. Tested in `tests/sample_queue_test.cpp`.
-- **RingBuffer<T>** (`src/utils/ring_buffer.h`): fixed-capacity circular buffer. `[0]`=oldest, `back()`=newest. `full()` gates the waterfall scroll path.
-- **PixelBuffer** (`src/visualization/spectrum_display.h`): non-copyable raw `uint8_t*` RGBA buffer, used by both displays.
+- **Spectrum centring**: two-sided, DC centred by the pre-FFT `(-1)^n` sign
+  trick. Do not also swap output halves.
+- **Autoscale anchors on the median, never the min**: the min of a noise
+  periodogram is an extreme value (~42 dB under the floor at FFT 16384).
+- **The trace is a mean per pixel column, not a max**: max-hold is the peak
+  detector. `sample_at_x` must mirror `build_vertices`.
+- **The trigger compares the raw `get_max_db()` (panel PEAK)**, not the drawn
+  trace, which sits a few dB lower.
+- **Waterfall**: `m_hist_counts` stays in lockstep with `m_history` (a debug
+  assert recounts it); only `mark_rendered()` clears `m_needs_full_render`.
+- **Window functions** write both `m_window_coeffs` and
+  `m_window_coeffs_doubled` (the AVX2 path uses the second).
+- **PocketFFT**: the patched `aligned_alloc` for `_WIN32` is required on MSYS2.
+- **SDL3**: pack colours with `SDL_MapSurfaceRGBA` (`RGBA32` is ABGR on
+  little-endian). Textures default to blend + linear; `render_text` sets none +
+  nearest.
+- **FFT 4096 default is deliberate**: sized for the oldest machine expected,
+  not the fastest.
+- `OS_HOT`/`OS_COLD` (`src/utils/attributes.h`) mark per-frame and one-shot
+  functions.
 
-### FFT backend (PocketFFT)
-`third_party/pocketfft/pocketfft_hdronly.h`; shim `src/fft/pocketfft_wrapper.h` defines `pocketfft_cpx = std::complex<float>` and `pocketfft_forward` (forward-only — the analyzer never inverse-transforms). Layout-compatible, so input fill / output copy are `memcpy`.
+## Performance
 
-**Windows MinGW**: the patched `aligned_alloc` shim (~line 152 of the header) routes to `_aligned_malloc`/`_free` from `<malloc.h>` on `_WIN32`. Restoring upstream `::aligned_alloc` breaks MSYS2 — do not revert.
+There is no performance problem: 30 fps at every FFT size on a 15 W i5-7300U.
+The DSP is AVX2 throughout; do not touch the SIMD, and fast-math was measured
+and rejected. Read `docs/TECHNICAL.md` ("Performance & footprint") before
+optimising anything.
 
-### FftAnalyzer hot loop
-`execute()` post-FFT loop is manually vectorized: power → fma → `fast_log10_avx2` → `m_db_spectrum`. Uses `20·log10(sqrt(p)·c) ≡ 10·log10(p·c²)` (sqrt eliminated); epsilon squared (`1e-24`). The dB spectrum is the only output — there is no power/magnitude/phase path (an earlier opt-in "extras" variant with a manual branch unswitch was removed once nothing consumed it).
+Measuring: same machine, same session, A and B alternated. `cpu` is wall clock
+at whatever clock the governor chose, so compare it only at the same FFT size.
+`render_build`/`present` hold the vsync wait on different sides per backend:
+not comparable across backends. Keep the default renderer (OpenGL / D3D11);
+Vulkan on old Intel iGPUs is several times slower.
 
-`fast_log10_avx2` (file-local): log10 via `2·atanh((m-1)/(m+1))`, Horner through y⁶. Max rel err ~1.7e-5 (~0.00015 dB).
+## Windows and releases
 
-**Two-sided spectrum** (complex IQ): all N bins are computed and map 1:1 onto the axis `[center-rate/2, center+rate/2]`; every bin is scale=1 — there is no real-rfft negative-mirror fold, so no +6 dB doubling. DC centering is the **pre-FFT sign trick** (input × `(-1)^n` shifts the spectrum by N/2 → DC lands at bin N/2 = screen center). Do NOT also swap output halves — a second fftshift cancels the first and misaligns the spectrum with the axis by half the span.
-
-### SignalProcessor SIMD invariants
-`m_window_coeffs_doubled` is a 2N-float window with each coeff duplicated (`[w0,w0,w1,w1,...]`) so AVX2 `apply_window` is one `_mm256_mul_ps` against interleaved IQ, no shuffles. `precompute_window()` regenerates both arrays on size/type change — a new window must write both `m_window_coeffs` and `m_window_coeffs_doubled`.
-
-`remove_dc`: 4 independent `__m256` accumulators (breaks the FMA latency chain on Haswell), 16 complex floats/iter, horizontal reduce, then broadcast-mean unrolled-4 subtract.
-
-Both keep a scalar fallback under `#ifdef __AVX2__`; debug builds (no `-march=haswell`) exercise it.
-
-### Render path (two modes)
-After `add_spectrum_line()`, main.cpp checks `needs_full_render()`:
-- **Full** (`true`, while `m_history` is filling or after `reset()`/`rebuild_rgba_lut()`): upload entire `m_pixels` via `render_displays()`.
-- **Scroll** (`false`, only when `m_history.full()`): render only the newest line; `render_displays_scroll()` GPU-shifts `m_wf_scroll_tex` up by `line_height` and uploads the new bottom strip via `m_wf_line_tex` (~5 KB vs ~1.5 MB/frame).
-
-`needs_full_render()` returns `m_needs_full_render || !m_history.full()` — the flag alone is insufficient: `mark_rendered()` clears it after every frame, fill included. Only `mark_rendered()` may clear it: cleared any earlier (e.g. in `render()`), a LUT change goes down the scroll path and the waterfall keeps its old colours.
-
-**Transition continuity**: scroll textures are allocated lazily in `render_displays_scroll()` (`ensure_wf_scroll_textures()`); on the first scroll call (`m_wf_scroll_valid` false) the seed branch copies the current waterfall from `m_texture` shifted up by `line_height` instead of clearing to black → seamless fill→scroll.
-
-**Frame pacing**: vsync is on (hardcoded in `main.cpp`'s `SdlRenderer` ctor), so the loop is paced by the display refresh, not a busy-spin. `--max-fps N` (default **30**, `0` = uncapped) adds a top-of-loop `std::this_thread::sleep_until` that throttles *below* refresh to cut GPU/battery draw for long unattended runs; it paces every path (frozen / no-sample / render) uniformly and keeps vsync on, so frames stay tear-free. Windows' ~15 ms timer granularity makes the effective rate undershoot the cap slightly (harmless — undershoots power too). The right-panel PERF block (`fps` / `cpu` / `render_build` / `present` ms) is always shown; the old `t` toggle was removed.
-
-### Autoscale: anchor on the median, never the min
-Both panes autoscale, and both anchor their **bottom on the median, never the minimum**. This is the easiest thing in the codebase to "fix" back and get wrong — `min` looks like the obviously correct floor and is not.
-
-A periodogram bin of Gaussian noise is exponentially distributed, so `min` over N bins is an *extreme-value statistic with no physical meaning*: at FFT 16384 the deepest null lands **~42 dB below the actual noise floor** and re-rolls every frame. Anchoring there stretched the spectrum pane over ~90 dB (half of it empty, floor pinned mid-screen, labels jittering) and stretched the waterfall LUT over ~80 dB the content never occupies (floor at mid-palette → the whole pane washed out to uniform light blue). The median sits a fixed **1.6 dB** below the floor's mean power and is stable to ~0.05 dB. `max` *is* fine as the top: it is signal-dominated, and even for pure noise only lands ~10 dB above the floor.
-
-- `SpectrumDisplay::update_spectrum` → `nth_element` over a **stride-4 subsample** into `m_scratch` (noise bins are iid, so a quarter-sample gives the same median to ~0.1 dB; sorting all 16K cost ~0.2 ms/frame — a third of the DSP budget — for a number that barely moves). Bottom = median − `kFloorMargin` (10 dB), top = max + 5, rising at once but falling at most `kTopDecayDb` (0.5 dB) per frame — a per-frame top pumped ~10 dB in a bursty band.
-- `WaterfallDisplay::update_global_range` → cumulative walk to the median bucket. This is what the histogram is *for*: a percentile is O(256) and L1-resident, cheaper than the min/max scan it replaced.
-
-Related invariants, same root cause — **the drawn trace must not be a peak detector**: the per-pixel-column reduction in `build_vertices` is a **mean** (`column_mean`), not a max. Max-of-12-bins reads ~4.9 dB high (E[max of n exponentials] = Hₙ) and still spreads ~1.8 dB — that is the "grass" on the noise floor. Nothing is lost by averaging: **max-hold is the peak detector** and keeps `std::max`; it is the trace that promises those semantics. `sample_at_x` must mirror whatever `build_vertices` does, or the cursor dot floats off the bar.
-
-Sanity check when touching any of this: while the peak is steady or rising, peak + 5 must equal the top axis label exactly.
-
-### WaterfallDisplay
-History = `RingBuffer<vector<uint8_t>>`; dB quantized to `uint8_t` over a fixed -120..0 dB range (4:1 vs float). RGBA LUT (`m_rgba_lut[256]`, `uint32_t`) maps quantized → color; render inner loop is `memcpy`/pixel (scalar) or `_mm256_i32gather_epi32`×8 (AVX2).
-
-**Autoscale is incremental, not a rescan.** `m_hist_counts[256]` tracks how many history pixels sit at each quantized level; `update_global_range()` walks it (O(256), L1-resident) for the median + last-populated bucket instead of scanning the whole history each frame. The invariant: the histogram must stay in lockstep with `m_history` — `add_spectrum_line` decrements the evicted row's counts (`m_history[0]`, the slot `push()` is about to overwrite) *before* push and increments the new row's; `reset()` zeroes it. A debug-only (`#ifndef NDEBUG`) cross-check brute-force recounts the buckets and asserts they match `m_hist_counts` element-wise — it pins the invariant itself rather than one statistic derived from it, so any bookkeeping drift fails loudly under run-it validation and the oracle survives a change of readout.
-
-### Platform differences
-| Concern | Windows (`_WIN32`) | Linux |
-|---------|-------------------|-------|
-| SDL render driver | `SDL_HINT_RENDER_DRIVER = "direct3d11"` pre-`SDL_CreateRenderer` | default |
-| Security linker flags | none (static libs) | `-Wl,-z,now -Wl,-z,relro -Wl,-z,noexecstack` |
-| pocketfft `aligned_alloc` | `_aligned_malloc`/`_free` (`<malloc.h>`) | `::aligned_alloc` (C11) |
-
-### Performance profile — there is no performance problem to solve
-**The pipeline holds a locked 30.0 fps at every selectable FFT size, 1024 through 65536, on a 15 W i5-7300U. CPU is not the limit anywhere.** Measured across both binaries in one session with `./bench.sh`; the sweep, conditions and findings are in `docs/TECHNICAL.md` → *Performance & footprint*. Don't re-derive them, and don't optimise against them without reading the next two bullets first.
-
-- **`cpu` is not a work measurement.** It is wall-clock ÷ whatever clock the governor chose, and `--max-fps 30` leaves the core ~97% idle at **13–29% of base** — 350 MHz at FFT 1024 rising to 749 MHz at 65536. So the inflation *varies per configuration*: comparing `cpu` across FFT sizes silently compares different clock speeds, and no code change touches any of it. Same-size, same-session A/B is its only clean use.
-- **Measure on the target, with counters, in one session.** Deltas do **not** port across machines: a WSL2/i7-12700H A/B of the plan cache predicted `cpu` −26%; the T470 showed no resolvable difference at that size. Prefer `instructions`/`cycles` over a fixed workload with SMT off (the v3.8.1 case study in `docs/TECHNICAL.md` is the model) — a ±60% swing in instructions is real whatever the clock did; a ±16% swing in `cpu` usually is not. Run-to-run spread on `cpu` reaches 13–18% on the i5-7300U but only ~4.6% on the i7-12700H — noise is machine-dependent too.
-- **A number from another machine is not a wrong number.** `cpu` at FFT 65536 is **~3.3 ms** (i7-12700H / D3D11) and **~7 ms** (i5-7300U / OpenGL); at the 4096 default, **0.13 ms** and **0.47 ms**. Both are right. Every figure in the docs names its box — check that before "correcting" one, and retract only on evidence from the same box.
-- **Render-bound through 16384, DSP-bound at 32768/65536** — on both machines. At 4096 the render stage dominates the DSP ~12× (Windows) / ~6× (T470); at 65536 it inverts to ~1.9× / ~3.8× the other way. Read "bound" as *which stage dominates*, not *what fails*: every size holds 30.0 fps.
-- **The DSP is finished — do not touch the SIMD.** `remove_dc`, `apply_window`, the sign-trick fill and the dB/log10 loop are all AVX2 already. At 65536 the transform is **71% of the real work** and everything around it is vectorized and negligible; `get_max_db` is the one scalar loop left and is worth 0.05 ms of a 33 ms frame. Render-path SIMD is retired for good (`TODO.md`). There is no DSP optimisation left that pays for its own code.
-- **fast-math on PocketFFT is measured and rejected** — the transform is the only code fast-math can reach, and scoping `-funsafe-math-optimizations` to `fft_analyzer.o` bought **+2.4% instructions and no cycle change** on the T470, against a −28% dev-box microbench. The microbench is GCC 15.2; CI ships GCC 13, so the win is not reachable downstream anyway. Never global `-ffast-math` (it folds `isnan` app-wide for zero speed). Full numbers + why the microbench misleads: `docs/TECHNICAL.md` → *Finding: fast-math on PocketFFT*.
-- **`render_build`/`present` are not comparable across backends.** The vsync idle-wait lands in `present` on Direct3D 11 and the software renderer, but in `render_build` on OpenGL — a large value there is mostly idle vblank wait, **not** work.
-- **Keep the default renderer.** OpenGL (Linux) and D3D11 (Windows) lock a clean 60 fps at ~1 ms real CPU. **Vulkan is a trap on old Intel iGPUs (HD 620 / Gen9):** ~30 fps, ~24 ms real `render_build`, ~7× slower than OpenGL on the same box — never suggest `SDL_RENDER_DRIVER=vulkan` there. The **software renderer** is the battery/thermal worst case but only ~2.5× OpenGL (~5.9 ms vs ~2.3 ms, T470/FFT 32768), a flat cost that does not grow with FFT size; fallback only.
-- **Memory is bounded and scales mildly with FFT size:** ~51 MB resident at FFT 16384 (D3D11/Windows, at `99257e3`). The frame pool is `SampleQueue::MAIN_FRAME_POOL_FRAMES` (12) × `fft_size` × 8 B, so it grows with the transform — **+8 MB going 4096 → 65536**. A Linux/WSL2 profile reads much higher: that's the Mesa software-GL backing store, not heap.
-- **65536's headroom is ~4%, and it is arithmetic, not performance.** Frame supply is `rate / fft_size` = **31.25/s** at 2.048 MS/s against the 30 fps cap, so raising `--max-fps` above 31 does nothing there. 131072 is excluded for the same reason — 4 device callbacks per frame cap the line rate at ~15.6/s (measured 15.4–16.0); `buf_len=65536` exists to escape that. Neither is a CPU limit.
-- Measuring on the i7-12700H: a window where `cpu`, `render_build` *and* `present` all move by the same factor is a P-core/E-core migration, not a workload change. The i5-7300U is homogeneous and gives cleaner (slower) numbers. **SMT also biases the A/B** — it halves the PMU counters (forcing multiplexed estimates) and its contention is workload-dependent, so it does not cancel between builds. Disable it before measuring.
-
-### ControlState flow
-**The 4096 default is deliberate — don't "optimize" it up.** It is sized for the machine we *don't* control — a radio engineer on a 6th-gen i3, not a modern desktop. On a 15 W i5-7300U it costs **0.47 ms** where 16384 costs **2.45 ms** and 65536 costs **~7 ms** (`--max-fps 30`; see `docs/TECHNICAL.md`), and in cycles 16384 is +30% and 65536 is +189% over it. Every size holds 30 fps on that box, so the argument for raising it is never *"it fits"* — it is whether the resolution is worth the power, and mostly it is not: raising it buys RBW the pane cannot draw (see the autoscale section). If you change it, justify it against the oldest machine you expect to run this, not the fastest.
-
-`SdlControlInput` writes `ControlState` (freq, gain, FFT size, window). Main loop polls `*_changed()` each iter; `apply_to_device(source)` is the single hardware-register write site. A freq change drains the sample queue so the spectrum snaps in sync with the freq scale.
-- **Palette** (`c` / `Shift+C`): `cycle_palette(±1)` over `PALETTE_COUNT`; main looks up `kPaletteMap[...]`, pushes to both displays via `set_color_map()`. On the waterfall → `rebuild_rgba_lut()` → `m_needs_full_render=true`, recoloring the whole waterfall from quantized history (LUT is the only change).
-- **Trace modes** (`m` max-hold, `a` averaging, `x` reset): flags in `ControlState`, pushed to `SpectrumDisplay` each frame (display resets only on transitions). Averaging = per-bin EMA (`kAvgAlpha=0.25`), **default on** (with the mean detector it takes the noise floor to ~0.5 dB of spread — that is what makes it a line rather than a band; the panel's TRACE field surfaces it so the default is not silent). Autoscale + max-hold track the raw spectrum. Max-hold = white segments in the same `SDL_RenderGeometry` buffer. Re-seed on bin-count change; the waterfall always shows raw data.
-- **Amplitude trigger** (`Shift`+left-drag, `Space`): `Trigger` in `src/gui/plot_overlays.h` owns `threshold_db`/`armed`/`frozen` (next to `Markers` and `CursorTracker`, not in `ControlState`; their logic is in `tests/plot_overlays_test.cpp`). `SdlRenderer::poll_events` turns `Shift`+left motion (button-mask, no button-up tracking) / button-down into a `take_trigger_set()` request (render-space y); plain left still drops a marker. `Trigger::set_from_y` maps y→dB against the spectrum's autoscaled range (drag onto the pane bottom disarms), and fires when `peak_db >= threshold` (`get_max_db()`). Freeze = a gate **before §2** that skips the dequeue/processing but keeps `present_frame()` + input, so the triggering frame is the one held; `add_spectrum_line` sits after the gate so the waterfall history is genuinely static (the "seconds-ago" axis is held via `frozen_wf_top_seconds` so its labels don't drift against the live clock). `Space` → `ControlState::request_unfreeze()` → resume + re-arm. `SdlRenderer::draw_trigger` draws the threshold line + left-anchored `TRIG` tag (clear of the top-right PEAK) and the centered FROZEN banner.
-
-### Frequency scale overlay
-`render_frequency_scale()` bakes ticks+labels onto one target texture (`m_freq_scale_texture`) only when `center_hz`/`sample_rate_hz` change; `render_overlays()` issues one `SDL_RenderCopy`/frame. Avoids the per-frame blend-mode save/restore spike.
-
-### Text renderer
-`TextRenderer` (`src/gui/text_renderer.*`): bitmap font, no glyph cache — each `render_text()` returns a fresh caller-owned `SDL_Texture` (call sites cache the string-texture). Font = public-domain IBM VGA 8x16 (`BITMAP_FONT[96][16]`, 16 scanlines/glyph). **MSB = leftmost pixel** (`1 << (7 - src_x)`). Integer-only scaling (`scale = font_size / GLYPH_SRC_H`).
-
-**Colour byte-order**: pack with `SDL_MapSurfaceRGBA(surface,r,g,b,a)`, never hand-rolled shifts — `RGBA32` is `ABGR8888` on LE x86, so a hand-rolled shift maps red onto alpha (any `r==0` colour → transparent). Use the `SDL_PIXELFORMAT_RGBA32` alias, never a hardcoded `8888`.
-
-**SDL3 texture defaults**: SDL3 defaults alpha textures to `BLENDMODE_BLEND` + `SCALEMODE_LINEAR` (SDL2 was NONE/nearest). Transparent-filled text under `BLENDMODE_NONE` renders **opaque black** (the backdrop behind status/PEAK/IQ text). `render_text()` sets `BLENDMODE_NONE` + `SCALEMODE_NEAREST` on every texture it returns; call sites wanting transparency (freq-scale labels, timing overlay) opt into `BLEND`. All textures set `SCALEMODE_NEAREST` so resize scaling stays pixel-crisp.
-
-## Code-layout discipline
-`src/utils/attributes.h` defines `OS_HOT`/`OS_COLD` (gated on GCC/Clang, else no-op):
-- **`OS_HOT`** on per-frame functions: `FftAnalyzer::execute`, `SignalProcessor::apply_window`/`remove_dc`, `WaterfallDisplay::add_spectrum_line`, `SpectrumDisplay::update_spectrum`, `SdlRenderer::render_displays`/`render_displays_scroll`/`present_frame`.
-- **`OS_COLD`** on init/one-shot: constructors, `precompute_window` + `compute_*` builders, `parse_arguments`, `print_usage`.
-
-These survive `--gc-sections` and cluster hot text on contiguous I-cache lines.
+- The unsigned `.exe` trips Defender's ML heuristic (a false positive); the fix
+  is Authenticode signing. Do not add AV-suspicious Win32 APIs (`AttachConsole`
+  was reverted for this). The `.exe` is a console program: the Makefile drops
+  SDL's `-mwindows`.
+- Release: `git tag -s vX -F notes.txt && git push origin vX`; CI runs the same
+  `packaging/` scripts as `make dist` (`RELEASING.md`). `UHD=1` bundles also
+  carry `uhd-sweep.ps1` and `play-bench.ps1`.
+- Icon: `packaging/openspectrum.svg`; the `.png` and `.ico` are committed, so
+  regenerate them after editing it.

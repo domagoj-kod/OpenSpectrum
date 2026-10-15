@@ -1,27 +1,19 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # OpenSpectrum Makefile - Secure Cross-Platform Compilation
 
-# Compiler selection
 CC := gcc
 CXX := g++
 
-# Build version stamped into the binary (IqLogger capture metadata) and reused
-# by `make dist`. git-describe at the top level; override with `make VERSION=v3.0.1`.
-# Passed as a bare token and stringized in C++ (OS_STRINGIFY) so the recursive
-# CXXFLAGS overrides in the release/profile targets don't fight nested quoting.
+# Stamped into capture metadata and used by `make dist`. A bare token,
+# stringized in C++ (OS_STRINGIFY): quotes would not survive the recursive make.
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 VERSION_DEF := -DOPENSPECTRUM_VERSION=$(VERSION)
 
-# SDL3 flags (detect via pkg-config, fallback to manual)
 SDL3_CFLAGS := $(shell pkg-config --cflags sdl3 2>/dev/null || echo "")
 SDL3_LDFLAGS := $(shell pkg-config --libs sdl3 2>/dev/null || echo "-lSDL3")
-# On Windows SDL's pkg-config adds -mwindows, which makes a GUI-subsystem .exe:
-# no console, so --help, the log and every startup error vanish in a terminal.
-# This program reports through stdout (the Linux desktop entry asks for a
-# terminal too), so it stays a console program.
+# SDL adds -mwindows on Windows: a GUI .exe, whose --help and log go nowhere.
 SDL3_LDFLAGS := $(filter-out -mwindows,$(SDL3_LDFLAGS))
 
-# Platform-specific configuration
 ifeq ($(OS),Windows_NT)
     # Windows (MinGW/MSYS2)
     TARGET := openspectrum.exe
@@ -37,13 +29,10 @@ ifeq ($(OS),Windows_NT)
 
     BASE_LDFLAGS := -lrtlsdr $(SDL3_LDFLAGS) -static-libgcc -static-libstdc++
 
-    # Embed the app icon into the .exe via windres (MinGW-only). Deferred (=) so
-    # $(BUILD_DIR), defined later, expands at use time. The build rule is gated
-    # on OS below; RES_OBJ is empty on every other platform.
+    # The app icon. Deferred (=): BUILD_DIR is defined further down.
     WINDRES ?= windres
     RES_OBJ = $(BUILD_DIR)/openspectrum_res.o
 else
-    # Linux and other Unix-like systems
     TARGET := openspectrum
 
     BASE_CFLAGS := -g -D_FORTIFY_SOURCE=2 -fstack-protector-strong -fPIE
@@ -59,49 +48,34 @@ else
                    -Wl,-z,relro \
                    -Wl,-z,noexecstack
 
-    # No Windows resource object off-Windows; keeps the shared link line clean.
     RES_OBJ =
 endif
 
-# USRP support through UHD, opt-in: `make UHD=1` (also `make release UHD=1`).
-# Off by default so the stock build and the release bundles do not grow a
-# dependency on UHD and Boost. UHD is GPL-3, as is this program.
+# USRP support, opt-in: keeps UHD and Boost out of the default build.
 ifeq ($(UHD),1)
     BASE_CXXFLAGS += -DOPENSPECTRUM_UHD
     BASE_LDFLAGS += -luhd
-    # UHD reports errors by throwing. On Windows libuhd.dll uses the shared GCC
+    # UHD reports errors by throwing. Windows libuhd.dll uses the shared GCC
     # runtime, and an exception cannot cross into an .exe that linked its own
-    # static copy, so this build takes the runtime as DLLs too.
+    # static copy.
     STATIC_RUNTIME := -static-libgcc -static-libstdc++
     BASE_CXXFLAGS := $(filter-out $(STATIC_RUNTIME),$(BASE_CXXFLAGS))
     BASE_LDFLAGS := $(filter-out $(STATIC_RUNTIME),$(BASE_LDFLAGS))
 endif
 
-# Default to debug build (safe default)
 .DEFAULT_GOAL := all
 CFLAGS   := $(BASE_CFLAGS) -O0 -DOPENSPECTRUM_DEBUG
 CXXFLAGS := $(BASE_CXXFLAGS) -O0 -DOPENSPECTRUM_DEBUG
 LDFLAGS  := $(BASE_LDFLAGS)
 
-# Header-dependency tracking. -MMD emits a .d file per object listing the headers
-# it pulled in (excluding system headers); -MP adds a phony target for each header
-# so deleting/renaming one doesn't wedge the build with a "no rule to make" error.
-# The .d files are -included below, so editing a header rebuilds every .cpp that
-# includes it. Kept OUT of CXXFLAGS on purpose: release/profile targets
-# replace CXXFLAGS via recursive make, which would otherwise strip this.
+# Not in CXXFLAGS: release/profile replace CXXFLAGS and would drop it.
 DEPFLAGS := -MMD -MP
 
-# Footprint-trim flags shared by the release target.
-# - function/data-sections + --gc-sections: drop every symbol the linker can
-#   prove unreachable, shrinking I-cache pressure.
-# - visibility=hidden: only main() (and SDL3 hooks) need external linkage.
-#   Strips export tables, lets LTO be more aggressive.
-# - align-loops/functions=32: hot loops fit in one DSB fetch line.
+# Release footprint trim; 32-byte alignment keeps hot loops in one DSB line.
 TRIM_CFLAGS  := -ffunction-sections -fdata-sections -fvisibility=hidden \
                 -fvisibility-inlines-hidden -falign-functions=32 -falign-loops=32
 TRIM_LDFLAGS := -Wl,--gc-sections
 
-# Release target overrides
 release:
 	$(MAKE) CONFIG=release \
 	       CFLAGS="$(BASE_CFLAGS) -O3 -DNDEBUG -flto=auto -march=haswell $(TRIM_CFLAGS)" \
@@ -109,7 +83,6 @@ release:
 	       LDFLAGS="$(BASE_LDFLAGS) -s -flto=auto -march=haswell $(TRIM_CFLAGS) $(TRIM_LDFLAGS)" \
 	       all
 
-# Profile target overrides
 profile:
 	$(MAKE) CONFIG=profile \
 	       CFLAGS="$(BASE_CFLAGS) -O2 -pg" \
@@ -117,25 +90,15 @@ profile:
 	       LDFLAGS="$(BASE_LDFLAGS) -pg" \
 	       all
 
-# Debug target (already set as default)
 debug:
 	$(MAKE) all
 
-# Directories
 SRC_DIR := src
 THIRD_PARTY := third_party
 THIRD_PARTY_STB := third_party/stb
-# One object dir per config. All three configs compile the same sources with
-# different flags, but make only tracks source *timestamps*, not flags — so a
-# shared build/ silently relinked whatever objects were already there. `make
-# release` after `make` produced a debug-speed binary with a release name (a
-# real bogus benchmark: 4.68 ms vs 0.57 ms cpu), and the reverse baked -DNDEBUG
-# into a "debug" build, compiling out the asserts this project leans on for
-# run-it validation. Keying the dir on CONFIG lets the configs coexist and stay
-# incremental, rather than making `release` force a full LTO rebuild every time.
-# Size still tells you what you have: ~367 KB release, ~1.1 MB debug.
+# One object dir per config and per UHD=1: make tracks timestamps, not flags,
+# so a shared dir relinks the other config's objects.
 CONFIG ?= debug
-# UHD=1 changes a define, so it gets its own object dir for the same reason.
 BUILD_DIR := build/$(CONFIG)$(if $(filter 1,$(UHD)),-uhd)
 HARDWARE_DIR := $(SRC_DIR)/hardware
 SIGNAL_DIR := $(SRC_DIR)/signal
@@ -144,14 +107,10 @@ VIS_DIR := $(SRC_DIR)/visualization
 UTILS_DIR := $(SRC_DIR)/utils
 GUI_DIR := $(SRC_DIR)/gui
 
-# Include paths
-# -isystem: vendored headers are not ours to fix, and their warnings (47 from
-# PocketFFT alone) would bury the ones that are. Only src/ itself: every
-# project include is its path from there ("utils/logger.h").
+# -isystem keeps vendored warnings out. Project includes are paths from src/.
 INCLUDES := -isystem $(THIRD_PARTY) -isystem $(THIRD_PARTY)/pocketfft \
             -isystem $(THIRD_PARTY_STB) -I$(SRC_DIR) $(SDL3_CFLAGS)
 
-# Source files
 HARDWARE_SRCS := $(wildcard $(HARDWARE_DIR)/*.cpp)
 ifneq ($(UHD),1)
     HARDWARE_SRCS := $(filter-out $(HARDWARE_DIR)/uhd_device.cpp,$(HARDWARE_SRCS))
@@ -164,10 +123,8 @@ GUI_SRCS := $(wildcard $(GUI_DIR)/*.cpp)
 CORE_SRCS := $(wildcard $(SRC_DIR)/control_state.cpp)
 MAIN_SRC := $(SRC_DIR)/main.cpp
 
-# All source files
 ALL_SRCS := $(HARDWARE_SRCS) $(SIGNAL_SRCS) $(FFT_SRCS) $(VIS_SRCS) $(UTILS_SRCS) $(GUI_SRCS) $(CORE_SRCS) $(MAIN_SRC)
 
-# Object files
 HARDWARE_OBJS := $(patsubst $(HARDWARE_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(HARDWARE_SRCS))
 SIGNAL_OBJS := $(patsubst $(SIGNAL_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(SIGNAL_SRCS))
 FFT_OBJS := $(patsubst $(FFT_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(FFT_SRCS))
@@ -177,39 +134,27 @@ GUI_OBJS := $(patsubst $(GUI_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(GUI_SRCS))
 CORE_OBJS := $(patsubst $(SRC_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(CORE_SRCS))
 MAIN_OBJ := $(BUILD_DIR)/main.o
 
-# Aggregate object list, reused by the link target and the dependency include.
 ALL_OBJS := $(HARDWARE_OBJS) $(SIGNAL_OBJS) $(FFT_OBJS) $(VIS_OBJS) \
             $(UTILS_OBJS) $(GUI_OBJS) $(CORE_OBJS) $(MAIN_OBJ)
 
-# Tests: each tests/*_test.cpp is a program of asserts, linked against every
-# object but main.o. `make check` builds and runs them all; one that fails
-# stops the rest.
+# Each tests/*_test.cpp is a program of asserts, linked with all but main.o.
 TEST_SRCS := $(wildcard tests/*_test.cpp)
 TEST_OBJS := $(patsubst tests/%.cpp,$(BUILD_DIR)/tests/%.o,$(TEST_SRCS))
 TEST_BINS := $(TEST_OBJS:.o=)
-# Kept: as intermediates of a chained rule make would delete them each run.
+# Intermediates of a chained rule: make would delete them after each run.
 .SECONDARY: $(TEST_OBJS)
 
-# Per-object dependency files (one .d beside each .o). The leading '-' silences
-# the missing-file noise on a clean build before any .d exists; `make clean`
-# wipes BUILD_DIR, so they're removed alongside the objects.
 DEPS := $(ALL_OBJS:.o=.d) $(TEST_OBJS:.o=.d)
 -include $(DEPS)
 
-# Copy the config's binary out to ./$(TARGET) rather than linking there
-# directly. The binary path is shared by every config, so a release-built
-# ./openspectrum is newer than build/debug/*.o — make would call it up to date,
-# skip the link, and silently leave you running the other config's binary.
-# `all` is .PHONY, so this copy always refreshes it from the config you asked
-# for.
+# Copied, not linked here: ./$(TARGET) is shared by every config, and one built
+# by another config would look up to date.
 all: $(BUILD_DIR)/$(TARGET)
 	@cp -f $< $(TARGET)
 
-# Build directory
 $(BUILD_DIR):
 	@mkdir -p $(BUILD_DIR)
 
-# Object file rules
 $(BUILD_DIR)/%.o: $(HARDWARE_DIR)/%.cpp | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(DEPFLAGS) -c $< -o $@
 
@@ -234,10 +179,6 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp | $(BUILD_DIR)
 $(MAIN_OBJ): $(MAIN_SRC) | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(DEPFLAGS) -c $< -o $@
 
-# Final target. Links inside the per-config dir; `all` copies it out to
-# ./$(TARGET) (see there for why the copy is not a dependency).
-# $(RES_OBJ) is the windres-compiled icon on Windows, empty elsewhere, so $^
-# links it only where it exists.
 $(BUILD_DIR)/$(TARGET): $(ALL_OBJS) $(RES_OBJ)
 	$(CXX) $^ -o $@ $(LDFLAGS)
 
@@ -251,19 +192,13 @@ $(BUILD_DIR)/tests/%.o: tests/%.cpp | $(BUILD_DIR)
 $(BUILD_DIR)/tests/%_test: $(BUILD_DIR)/tests/%_test.o $(filter-out $(MAIN_OBJ),$(ALL_OBJS))
 	$(CXX) $^ -o $@ $(LDFLAGS)
 
-# Windows: compile the icon resource (.rc -> COFF object). Gated on OS because
-# windres ships only with MinGW; off-Windows RES_OBJ is empty and this rule is
-# never read. Depends on the .ico so re-icon'ing rebuilds the resource.
+# windres ships only with MinGW.
 ifeq ($(OS),Windows_NT)
 $(RES_OBJ): packaging/openspectrum.rc packaging/openspectrum.ico | $(BUILD_DIR)
 	$(WINDRES) $< -O coff -o $@
 endif
 
-# Package a release into a distributable, self-contained bundle for the current
-# platform (Linux -> AppImage, Windows/MSYS2 -> zip with bundled DLLs). Output
-# lands in dist/. Same scripts CI runs, so local and CI packaging stay identical.
-# Override the version with: make dist VERSION=v2.5.0 (VERSION is defined at the
-# top of this file so it's also compiled into the binary).
+# Linux: AppImage; Windows: zip with the DLLs. The scripts CI runs too.
 dist:
 ifeq ($(OS),Windows_NT)
 	bash packaging/windows-bundle.sh "$(VERSION)"
@@ -271,9 +206,7 @@ else
 	bash packaging/linux-appimage.sh "$(VERSION)"
 endif
 
-# Clean
 clean:
 	rm -rf build $(TARGET)
 
-# Phony targets
 .PHONY: all check clean dist release profile debug
