@@ -19,11 +19,8 @@ namespace openspectrum {
 // Same reasoning as RtlSdrDevice: one frame is in flight at a time.
 static constexpr size_t kDeviceFramePoolFrames = 4;
 
-// The samples are taken from UHD as int16 and scaled here, by a power of two,
-// rather than asking UHD for floats. The capture writer turns a float back
-// into cs16 as x * 32768, rounded; that returns the receiver's own integer only
-// if the scale on the way in was exactly 1/32768, and the scale UHD applies is
-// its own business. open() asserts the round trip in debug builds.
+// Scaled here by 1/32768, not by UHD: the capture writer's x * 32768 returns
+// the receiver's own integer only for exactly that scale. open() asserts it.
 static void convert_iq_s16_to_f32(const int16_t *__restrict src,
                                   float *__restrict dst, size_t n) {
   for (size_t k = 0; k < n; ++k) {
@@ -35,7 +32,7 @@ UhdDevice::~UhdDevice() { stop(); }
 
 auto UhdDevice::open() -> bool {
 #ifndef NDEBUG
-  // The round trip the comment above promises, over every int16.
+  // The round trip, over every int16.
   for (int v = -32768; v <= 32767; ++v) {
     assert(std::lrintf(static_cast<float>(v) * (1.0F / 32768.0F) * 32768.0F) ==
            v);

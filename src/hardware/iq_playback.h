@@ -26,11 +26,8 @@ struct IqCaptureMeta {
   std::optional<float> gain_db; // absent in hand-made sidecars
 };
 
-// Replays a raw .iq capture (either IqLogger format) through the same
-// FrameHandle callback path the live receiver uses, paced in real time at the
-// capture's sample rate. Loops at EOF, so a capture plays forever — the app
-// runs without hardware (demos, development, PGO training, regression checks
-// against known captures).
+// Replays a raw .iq capture (either IqLogger format) through the frame
+// callback, paced in real time at the capture's sample rate. Loops at EOF.
 class IqPlaybackSource : public SampleSource {
 public:
   OS_COLD IqPlaybackSource(std::string path, uint32_t sample_rate_hz,
@@ -48,15 +45,12 @@ public:
   // Opens the file; false if missing or empty.
   OS_COLD bool open() override;
 
-  // Starts the reader thread emitting chunk_size-sample frames. Safe to call
-  // again after stop() with a new chunk size (the FFT-size reconfiguration
-  // path does exactly that).
+  // Safe to call again after stop() with a new chunk size.
   void start(size_t chunk_size) override;
   void stop() override; // joins the reader thread
 
-  // Parses the IqLogger .meta.json sidecar next to iq_path (capture_X.iq ->
-  // capture_X.meta.json). Returns true if frequency and rate were found; a
-  // sidecar without sample_format is the original complex-float layout.
+  // Parses the .meta.json sidecar next to iq_path. True if frequency and rate
+  // were found; no sample_format means complex float.
   OS_COLD static bool read_meta_sidecar(const std::string &iq_path,
                                         IqCaptureMeta &meta);
 

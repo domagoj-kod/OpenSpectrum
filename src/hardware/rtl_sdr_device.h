@@ -51,16 +51,13 @@ private:
   float m_gain = 29.0f;               // dB
   bool m_direct_sampling = false;
 
-  // Buffer pooling for zero-allocation sample processing
   size_t m_fft_size = 8192;
-  // shared_ptr is required: FramePool relies on enable_shared_from_this so
-  // FrameHandles can hold a weak_ptr to the pool and survive its destruction.
+  // shared_ptr: FrameHandles hold a weak_ptr to the pool.
   std::shared_ptr<FramePool> m_frame_pool;
 
   bool m_streaming = false;
   std::atomic<uint64_t> m_dropped{0};
 
-  // Async thread support
   std::thread m_async_thread;
   std::atomic<bool> m_thread_running{false};
 };

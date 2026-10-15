@@ -15,11 +15,9 @@
 
 namespace openspectrum {
 
-// Frames in the source's own pool. Each lives for one synchronous callback
-// (moved in, released when it returns), so one is in flight at a time.
+// One frame is in flight at a time.
 static constexpr size_t kPlaybackPoolFrames = 4;
 
-// Bytes one complex sample takes on disk.
 static auto sample_bytes(IqSampleFormat format) -> size_t {
   return format == IqSampleFormat::CS16 ? 2 * sizeof(int16_t)
                                         : sizeof(std::complex<float>);
@@ -101,9 +99,8 @@ auto IqPlaybackSource::read_samples(std::complex<float> *dst, size_t count)
   return got;
 }
 
-// Paced reader: emit one chunk, sleep to the next real-time deadline, repeat.
-// Mirrors the live-hardware cadence, so the render loop's drain-to-newest
-// throttle behaves identically for files and dongles.
+// Emit one chunk, sleep to the next real-time deadline: the cadence of live
+// hardware, so the render loop behaves the same for files.
 void IqPlaybackSource::thread_main() {
   using clock = std::chrono::steady_clock;
   auto const chunk_period = std::chrono::nanoseconds(
@@ -121,9 +118,7 @@ void IqPlaybackSource::thread_main() {
 
     size_t got = read_samples(frame.data(), m_chunk_size);
     if (got < m_chunk_size) {
-      // EOF: rewind and top the chunk up from the file start, so playback
-      // loops seamlessly. (A file shorter than one chunk simply emits a
-      // partial frame; the accumulator in the callback path reassembles.)
+      // EOF: rewind and top the chunk up, so the loop is seamless.
       std::fseek(m_file, 0, SEEK_SET);
       ++m_loop_count;
       if (m_loop_count == 1) {
@@ -136,12 +131,8 @@ void IqPlaybackSource::thread_main() {
       }
     }
 
-    // Untrusted-input guard: a corrupt or truncated .iq can hold NaN/Inf
-    // samples. Left unscreened they flow through the FFT into the dB spectrum
-    // and poison autoscale + the waterfall's uint8 quantization — a single NaN
-    // freezes the whole display. Live device data is trusted; the file is the
-    // trust boundary, so screen it here. complex<float> is layout-compatible
-    // with float[2], so scan as floats and zero any non-finite component.
+    // The file is the trust boundary: one NaN would poison autoscale and the
+    // waterfall quantization and freeze the display. Zero non-finite values.
     auto *as_floats = reinterpret_cast<float *>(frame.data());
     for (size_t i = 0; i < got * 2; ++i) {
       if (!std::isfinite(as_floats[i])) {
@@ -155,8 +146,7 @@ void IqPlaybackSource::thread_main() {
 
     std::this_thread::sleep_until(next_deadline);
     next_deadline += chunk_period;
-    // Stall guard: after a long scheduler stall don't death-spiral trying to
-    // catch up; resynchronize the deadline to now.
+    // After a long stall, resynchronize instead of catching up.
     auto const now = clock::now();
     if (now > next_deadline + std::chrono::milliseconds(200)) {
       next_deadline = now + chunk_period;
@@ -166,8 +156,7 @@ void IqPlaybackSource::thread_main() {
 
 auto IqPlaybackSource::read_meta_sidecar(const std::string &iq_path,
                                          IqCaptureMeta &meta) -> bool {
-  // capture_X.iq -> capture_X.meta.json (IqLogger naming); anything else gets
-  // .meta.json appended.
+  // capture_X.iq -> capture_X.meta.json; anything else gets it appended.
   std::string meta_path = iq_path;
   constexpr const char *kExt = ".iq";
   if (meta_path.size() > 3 && meta_path.ends_with(kExt)) {
@@ -183,7 +172,7 @@ auto IqPlaybackSource::read_meta_sidecar(const std::string &iq_path,
   std::fseek(f, 0, SEEK_END);
   long const bytes = std::ftell(f);
   std::fseek(f, 0, SEEK_SET);
-  if (bytes <= 0 || bytes > 65536) { // metadata is ~1 KB; sanity bound
+  if (bytes <= 0 || bytes > 65536) { // sanity bound
     std::fclose(f);
     return false;
   }
@@ -192,10 +181,8 @@ auto IqPlaybackSource::read_meta_sidecar(const std::string &iq_path,
   std::fclose(f);
   text.resize(got);
 
-  // Minimal scrape — the sidecar is machine-generated flat JSON, a parser
-  // dependency is not warranted for two integer fields. strtoull, not
-  // strtoul: unsigned long is 32 bits on Windows and a centre frequency above
-  // 4.29 GHz does not fit.
+  // Scrape, not parse: the sidecar is flat machine-written JSON. strtoull, not
+  // strtoul: unsigned long is 32 bits on Windows.
   auto scrape = [&text](const char *key, uint64_t &out) -> bool {
     size_t pos = text.find(key);
     if (pos == std::string::npos) {

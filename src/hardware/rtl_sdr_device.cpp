@@ -11,12 +11,9 @@
 
 namespace openspectrum {
 
-// Convert interleaved unsigned-8-bit IQ to float in [-1, 1): out = x/127.5 - 1.
-// Both I and Q take the same transform, so it's a flat uint8->float run (n =
-// 2 * sample count). A free function with __restrict params so the compiler
-// emits full-width AVX2 with no alias-versioning — the inline form versioned
-// through the pooled-buffer pointer's provenance. This is the program's
-// highest-volume loop (full sample rate, on the producer thread).
+// Interleaved uint8 IQ to float in [-1, 1): x/127.5 - 1, n = 2 * samples.
+// A free function with __restrict so the compiler emits full-width AVX2 with
+// no alias versioning. The highest-volume loop in the program.
 static void convert_iq_u8_to_f32(const unsigned char *__restrict src,
                                  float *__restrict dst, size_t n) {
   for (size_t k = 0; k < n; ++k) {
@@ -24,22 +21,12 @@ static void convert_iq_u8_to_f32(const unsigned char *__restrict src,
   }
 }
 
-// Pre-allocated frames in the device pool. Each frame lives for exactly one
-// synchronous process_callback_with_pool -> m_frame_callback call (the handle
-// is moved in and released when that returns), and librtlsdr delivers async
-// callbacks serially, so at most one device frame is in flight. A handful of
-// spares covers the resize/realloc edge; 4 is ample.
+// One frame is in flight at a time (librtlsdr delivers callbacks serially and
+// the handle is released when m_frame_callback returns); the rest are spares.
 static constexpr size_t kDeviceFramePoolFrames = 4;
 
-// USB DMA ring depth for rtlsdr_read_async (buf_len = 65536 B each, see
-// start()) -> 32 buffers = 2 MB in flight. Windows WinUSB has no usbfs cap;
-// Linux usbfs defaults to 16 MB, so 2 MB sits comfortably under it on both —
-// no per-platform split needed. This is a latency/robustness knob, not a
-// memory one: each 64 KB buffer is ~16 ms of samples at 2.048 Msps, so 32
-// buffers give ~0.5 s of slack to absorb callback-thread scheduling jitter
-// before libusb runs out of submitted transfers and drops samples. Kept
-// generous (vs librtlsdr's 15 default) for slow/high-latency consumers —
-// notably WSL2 usbipd. Shrinking it saves <1 MB while narrowing that window.
+// USB buffers in flight for rtlsdr_read_async: 32 x 64 KB is ~0.5 s at
+// 2.048 MS/s, slack for slow consumers (WSL2 usbipd). librtlsdr defaults to 15.
 static constexpr uint32_t kStreamBuffers = 32;
 
 RtlSdrDevice::RtlSdrDevice(uint32_t index, size_t pool_capacity)
@@ -57,7 +44,7 @@ auto RtlSdrDevice::open() -> bool {
     return false;
   }
 
-  // Recommended init order for librtlsdr
+  // librtlsdr's init order
   rtlsdr_set_sample_rate(m_dev, m_sample_rate);
   rtlsdr_set_center_freq(m_dev, m_center_freq);
   rtlsdr_set_tuner_gain_mode(m_dev, 0); // 0 = auto gain (safer default)
@@ -72,7 +59,7 @@ void RtlSdrDevice::close() {
 }
 
 RtlSdrDevice::~RtlSdrDevice() {
-  stop(); // Stop async thread before closing device
+  stop();
   close();
 }
 
@@ -97,14 +84,14 @@ void RtlSdrDevice::set_frequency(uint64_t freq_hz) {
 void RtlSdrDevice::set_sample_rate(uint32_t rate_hz) {
   m_sample_rate = rate_hz;
   if (m_dev != nullptr) {
-    rtlsdr_set_sample_rate(m_dev, rate_hz); // calls the C library, not itself
+    rtlsdr_set_sample_rate(m_dev, rate_hz);
   }
 }
 
 void RtlSdrDevice::set_gain(float gain_db) {
   m_gain = gain_db;
   if (m_dev != nullptr) {
-    rtlsdr_set_tuner_gain_mode(m_dev, 1); // switch to manual
+    rtlsdr_set_tuner_gain_mode(m_dev, 1); // manual
     rtlsdr_set_tuner_gain(m_dev, static_cast<int>(gain_db * 10));
   }
 }
@@ -151,9 +138,6 @@ auto RtlSdrDevice::set_direct_sampling(int mode) -> bool {
   return true;
 }
 
-// Async streaming control
-// NOTE: rtlsdr_read_async() BLOCKS the calling thread until canceled.
-// We must run it in a separate thread to avoid freezing the main thread.
 void RtlSdrDevice::start(size_t chunk_size) {
   if (m_dev == nullptr || m_streaming) {
     return;
@@ -164,30 +148,20 @@ void RtlSdrDevice::start(size_t chunk_size) {
         std::make_shared<FramePool>(m_fft_size, kDeviceFramePoolFrames);
   }
 
-  // Reset buffer before starting
   rtlsdr_reset_buffer(m_dev);
 
-  // Start async reading in a separate thread
-  // rtlsdr_read_async BLOCKS until canceled, so we can't call it from main
-  // thread
+  // rtlsdr_read_async blocks until cancelled, hence the thread.
   m_thread_running = true;
   m_async_thread = std::thread([this]() {
-    // Smaller USB transfer buffer than the librtlsdr default (262144 B). At
-    // 2.048 Msps the default delivers one callback every ~64 ms, which capped
-    // the waterfall line rate at ~15.6 lines/s (one displayed line per buffer,
-    // drain-to-newest). 65536 B = 32768 complex samples => a callback every
-    // ~16 ms => ~62 lines/s, matching a ~60 Hz display. Must stay a multiple of
-    // 512 (USB packet size); going much smaller mainly invites overruns on
-    // high-latency paths (e.g. WSL2 usbipd) for no visible gain.
+    // Smaller than librtlsdr's 262144 B: at 2.048 MS/s that is a callback
+    // every ~64 ms, which capped the waterfall at ~15 lines/s. 64 KB gives
+    // ~16 ms. A multiple of 512 (USB packet size).
     uint32_t buf_len = 65536;
     LOG_INFO("Starting RTL-SDR async thread...");
     int ret = rtlsdr_read_async(m_dev, static_callback, this, kStreamBuffers,
                                 buf_len);
-    // A negative return is normal on shutdown: stop() clears
-    // m_thread_running and then calls rtlsdr_cancel_async(), which makes this
-    // blocking call return with a libusb error (typically -5 NOT_FOUND) as the
-    // in-flight transfers are torn down. Only flag a genuine error if we did
-    // NOT initiate the stop.
+    // A negative return is the expected shutdown: stop() clears
+    // m_thread_running, then cancels.
     if (ret < 0) {
       if (m_thread_running) {
         LOG_ERROR("Async streaming error: " + std::to_string(ret));
@@ -211,10 +185,7 @@ void RtlSdrDevice::stop() {
   LOG_INFO("Stopping RTL-SDR async streaming...");
   m_thread_running = false;
 
-  // Cancel async mode - this will cause rtlsdr_read_async to return
   rtlsdr_cancel_async(m_dev);
-
-  // Wait for the async thread to finish
   if (m_async_thread.joinable()) {
     m_async_thread.join();
   }
@@ -222,7 +193,6 @@ void RtlSdrDevice::stop() {
   LOG_INFO("RTL-SDR async streaming stopped.");
 }
 
-// Callback signature must match rtlsdr_read_async_cb_t
 void RtlSdrDevice::static_callback(unsigned char *buf, uint32_t len,
                                    void *ctx) {
   static_cast<RtlSdrDevice *>(ctx)->process_callback_with_pool(buf, len);
@@ -236,13 +206,9 @@ void RtlSdrDevice::process_callback_with_pool(unsigned char *buf,
 
   size_t const count = len / 2; // interleaved 8-bit IQ -> complex samples
 
-  // Forward the ENTIRE USB transfer. A 64 KB buffer is 32768 complex samples,
-  // but pool frames hold capacity() (= FFT size, e.g. 4096), so emit the buffer
-  // as a run of capacity-sized frames. The async callback's accumulator
-  // reassembles them into FFT-sized chunks for the display, and the IQ capture
-  // tap sees the full-rate stream. Do not cut this to one frame per transfer:
-  // the display would not notice (it shows the newest frame per render), but
-  // captures would keep only ~1/8 of the samples.
+  // A transfer is larger than a pool frame (FFT size): emit it as a run of
+  // frames. One frame per transfer would look fine on screen but keep only a
+  // fraction of a capture.
   size_t offset = 0;
   while (offset < count) {
     FrameHandle frame_handle = m_frame_pool->acquire();
@@ -258,13 +224,11 @@ void RtlSdrDevice::process_callback_with_pool(unsigned char *buf,
     size_t const chunk = std::min(count - offset, frame_handle.capacity());
     frame_handle.resize(chunk);
 
-    // complex<float> is layout-compatible with float[2]; convert the whole
-    // chunk as one contiguous uint8->float run (see convert_iq_u8_to_f32).
+    // complex<float> is layout-compatible with float[2].
     convert_iq_u8_to_f32(buf + offset * 2,
                          reinterpret_cast<float *>(frame_handle.data()),
                          chunk * 2);
 
-    // Pass to callback - handle returns to pool automatically when consumed.
     m_frame_callback(std::move(frame_handle));
     offset += chunk;
   }
