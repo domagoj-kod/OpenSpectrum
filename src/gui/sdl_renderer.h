@@ -127,8 +127,8 @@ public:
   void set_timing_overlay(double fps, double cpu_ms, double render_build_ms,
                           double present_ms) noexcept;
 
-  // Mouse cursor readout over the spectrum pane. main() computes the values (it
-  // owns the spectrum data + frequency mapping); the renderer captures the raw
+  // Mouse cursor readout over the spectrum pane. CursorTracker
+  // (plot_overlays.h) computes the values; the renderer captures the raw
   // pointer position in poll_events and draws the marker/dot/box every frame.
   struct CursorReadout {
     enum class Pane { None, Spectrum, Waterfall };
@@ -150,9 +150,10 @@ public:
   [[nodiscard]] float cursor_y() const noexcept { return m_cursor_y; }
 
   // Persistent frequency markers (vertical reference lines through both panes).
-  // main() owns the marker list (they're frequencies); each frame it sends the
-  // on-screen positions + live levels here for drawing. The clicks that
-  // create/remove them are captured in poll_events and drained by main().
+  // Markers (plot_overlays.h) owns the list (they're frequencies); each frame
+  // main() sends the on-screen positions + live levels here for drawing. The
+  // clicks that create/remove them are captured in poll_events and drained by
+  // main().
   struct Marker {
     int index = 0;          // 1-based, for the "Mn" tag
     float x = 0.0F;         // render-space x (valid when on_screen)
@@ -194,9 +195,10 @@ public:
     return std::exchange(m_clear_markers, false);
   }
 
-  // Amplitude trigger. main() owns the armed/threshold/frozen state and the
-  // dB<->y mapping; the renderer captures Shift+left-drag/click in the spectrum
-  // pane as a threshold-set request and draws the line + frozen indicator.
+  // Amplitude trigger. Trigger (plot_overlays.h) owns the armed/threshold/
+  // frozen state and the dB<->y mapping; the renderer captures
+  // Shift+left-drag/click in the spectrum pane as a threshold-set request and
+  // draws the line + frozen indicator.
   //
   // Drain a Shift+left threshold-set request (render-space y); nullopt if none
   // happened since the last call.

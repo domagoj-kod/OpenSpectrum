@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "fft/fft_analyzer.h"
+#include "gui/plot_overlays.h"
 #include "gui/sdl_renderer.h"
 #include "hardware/iq_playback.h"
 #include "hardware/rtl_sdr_device.h"
@@ -397,23 +398,14 @@ auto main(int argc, char *argv[]) -> int {
     std::vector<SDL_Vertex> spec_verts;
     std::vector<int> spec_idx;
 
-    // Persistent frequency markers (Hz). Anchored to absolute frequency, so
-    // they slide with retuning and hide when tuned out of the current span.
-    // Left-click drops, right-click removes nearest, Delete clears all.
-    constexpr size_t kMaxMarkers = 14; // fits the panel list in every state
-    std::vector<double> markers;
+    // Overlays over the two panes (see plot_overlays.h).
+    Markers markers;
+    CursorTracker cursor;
+    Trigger trigger;
 
     // Track peak amplitude for display
     float peak_db = -140.0F;
 
-    // Amplitude trigger (#5). Shift+left-drag in the spectrum pane sets a dB
-    // threshold and arms it; a bin peak crossing the threshold freezes the
-    // display until Space resumes + re-arms. The threshold is stored as a dB
-    // value; the line's screen y is recomputed each frame from the spectrum's
-    // current (autoscaled) dB range so it tracks the view.
-    float trig_threshold_db = -40.0F;
-    bool trig_armed = false;
-    bool frozen = false;
     // Waterfall "seconds-ago" axis value held at the moment of freezing. The
     // axis is computed live (now - oldest-line stamp); without holding it, a
     // frozen snapshot's labels keep inflating as wall-clock advances even
@@ -655,7 +647,7 @@ auto main(int argc, char *argv[]) -> int {
       // time axis stays hidden until there is something to label).
       {
         double wf_top_seconds = frozen_wf_top_seconds;
-        if (!frozen) {
+        if (!trigger.frozen) {
           // Live: age of the oldest visible row (0 while history is too short
           // → the time axis stays hidden until there is something to label).
           WaterfallDisplay::CursorTime oldest;
@@ -669,156 +661,29 @@ auto main(int argc, char *argv[]) -> int {
                                spectrum_display.max_db(), wf_top_seconds);
       }
 
-      // === Frequency markers (persistent vertical reference lines) ===
+      // === Overlays: markers, cursor readout, amplitude trigger ===
       {
-        const double rate = static_cast<double>(effective_rate);
-        const double center =
-            static_cast<double>(control_state.get_frequency());
-        const double left_hz = center - rate / 2.0;
-        const float region_w = static_cast<float>(spectrum_display.width());
-        const float total_h = static_cast<float>(spectrum_display.height() +
-                                                 waterfall_display.height());
-
-        if (renderer.take_clear_markers()) {
-          markers.clear();
-        }
-        for (const auto &click : renderer.take_clicks()) {
-          if (click.x < 0.0F || click.x >= region_w || click.y < 0.0F ||
-              click.y >= total_h) {
-            continue;
-          }
-          if (click.right) {
-            // Remove the nearest on-screen marker within a small pixel radius.
-            double best = 12.0;
-            int best_i = -1;
-            for (size_t i = 0; i < markers.size(); ++i) {
-              const double mx = ((markers[i] - left_hz) / rate) *
-                                static_cast<double>(region_w);
-              if (mx < 0.0 || mx >= static_cast<double>(region_w)) {
-                continue;
-              }
-              const double d = std::abs(mx - static_cast<double>(click.x));
-              if (d < best) {
-                best = d;
-                best_i = static_cast<int>(i);
-              }
-            }
-            if (best_i >= 0) {
-              markers.erase(markers.begin() + best_i);
-            }
-          } else if (markers.size() < kMaxMarkers) {
-            markers.push_back(left_hz + (static_cast<double>(click.x) /
-                                         static_cast<double>(region_w)) *
-                                            rate);
-          }
-        }
-
-        const float spec_h = static_cast<float>(spectrum_display.height());
-        std::vector<SdlRenderer::Marker> draw_markers;
-        draw_markers.reserve(markers.size());
-        int idx = 1;
-        for (const double f : markers) {
-          SdlRenderer::Marker m;
-          m.index = idx++;
-          m.freq_hz = f;
-          const double xrel = (f - left_hz) / rate;
-          m.on_screen = (xrel >= 0.0 && xrel < 1.0);
-          m.x = static_cast<float>(xrel * static_cast<double>(region_w));
-          if (m.on_screen) {
-            SpectrumDisplay::CursorSample s;
-            if (spectrum_display.sample_at_x(m.x, region_w, spec_h, s)) {
-              m.db = s.db;
-            }
-          }
-          draw_markers.push_back(m);
-        }
-        renderer.set_markers(std::move(draw_markers));
-      }
-
-      // === Cursor readout (mouse hover over the spectrum pane) ===
-      // Marker style: cursor X -> frequency; amplitude = the trace's dB at that
-      // frequency, with the dot snapped onto the drawn curve (mouse Y ignored).
-      // Computed every frame so it tracks the pointer on both the sample and
-      // no-sample present paths; uses the spectrum's current data.
-      {
-        // Smoothed amplitude: the raw spectrum is noisy, so the displayed dB is
-        // EMA'd to stop the digits churning. Snap (reset) when the cursor moves
-        // to a new bin or re-enters, so it stays responsive rather than
-        // lagging.
-        static double s_db_ema = 0.0;
-        static size_t s_db_bin = 0;
-        static bool s_db_valid = false;
-
-        SdlRenderer::CursorReadout readout;
-        const float spec_h = static_cast<float>(spectrum_display.height());
-        const float wf_h = static_cast<float>(waterfall_display.height());
-        const float region_w = static_cast<float>(spectrum_display.width());
-        const float cx = renderer.cursor_x();
-        const float cy = renderer.cursor_y();
-        const double rate = static_cast<double>(effective_rate);
-        const double center =
-            static_cast<double>(control_state.get_frequency());
-        // Cursor X -> frequency: shared by both panes.
-        const double freq_hz =
-            center - rate / 2.0 +
-            (static_cast<double>(cx) / static_cast<double>(region_w)) * rate;
-
-        bool in_spectrum = false;
-        if (renderer.cursor_active() && cx >= 0.0F && cx < region_w) {
-          SpectrumDisplay::CursorSample sample;
-          if (cy >= 0.0F && cy < spec_h &&
-              spectrum_display.sample_at_x(cx, region_w, spec_h, sample)) {
-            in_spectrum = true;
-            if (!s_db_valid || sample.bin != s_db_bin) {
-              s_db_ema = sample.db; // snap on new bin / re-entry
-            } else {
-              s_db_ema += 0.2 * (static_cast<double>(sample.db) - s_db_ema);
-            }
-            s_db_bin = sample.bin;
-            s_db_valid = true;
-
-            readout.pane = SdlRenderer::CursorReadout::Pane::Spectrum;
-            readout.x = cx;
-            readout.dot_y = sample.dot_y;
-            readout.freq_hz = freq_hz;
-            readout.db = static_cast<float>(s_db_ema);
-          } else if (cy >= spec_h && cy < spec_h + wf_h) {
-            WaterfallDisplay::CursorTime when;
-            if (waterfall_display.sample_at_y(cy - spec_h, when)) {
-              readout.pane = SdlRenderer::CursorReadout::Pane::Waterfall;
-              readout.x = cx;
-              readout.dot_y = cy; // render-space row for the horizontal marker
-              readout.freq_hz = freq_hz;
-              readout.seconds_ago = when.seconds_ago;
-            }
-          }
-        }
-        if (!in_spectrum) {
-          s_db_valid = false; // left the spectrum pane; next entry snaps
-        }
-        renderer.set_cursor_readout(readout);
-      }
-
-      // === Amplitude trigger: input + freeze state machine (#5) ===
-      {
-        const float spec_h = static_cast<float>(spectrum_display.height());
-        const float db_max = spectrum_display.max_db();
+        const PlotSpan span{static_cast<double>(control_state.get_frequency()),
+                            static_cast<double>(effective_rate),
+                            static_cast<float>(spectrum_display.width())};
+        const auto spec_h = static_cast<float>(spectrum_display.height());
         const float db_min = spectrum_display.min_db();
+        const float db_max = spectrum_display.max_db();
 
-        // Shift+left-drag sets the threshold from the pointer's y in the
-        // spectrum pane; dragging onto the bottom edge disarms (hides the
-        // line).
+        markers.apply(renderer.take_clicks(), renderer.take_clear_markers(),
+                      span,
+                      spec_h + static_cast<float>(waterfall_display.height()));
+        renderer.set_markers(markers.draw_list(span, spectrum_display));
+
+        // Every frame, so it tracks the pointer on both the sample and
+        // no-sample paths.
+        renderer.set_cursor_readout(cursor.update(
+            renderer.cursor_active(), renderer.cursor_x(), renderer.cursor_y(),
+            span, spectrum_display, waterfall_display));
+
         if (auto set_y = renderer.take_trigger_set()) {
-          const float y = std::clamp(*set_y, 0.0F, spec_h);
-          if (y >= spec_h - 4.0F) {
-            trig_armed = false;
-          } else if (db_max > db_min) {
-            const float frac = y / spec_h; // 0 = top (max dB)
-            trig_threshold_db = db_max - frac * (db_max - db_min);
-            trig_armed = true;
-          }
+          trigger.set_from_y(*set_y, spec_h, db_min, db_max);
         }
-
         // Space resumes from a freeze and re-arms (threshold/armed persist),
         // and always repaints the status bar — this is what dismisses a sticky
         // transient message (TRIGGERED, "Exported: ...") back to FREQ|GAIN|...,
@@ -826,18 +691,12 @@ auto main(int argc, char *argv[]) -> int {
         // next control change.
         if (control_state.unfreeze_requested()) {
           control_state.clear_unfreeze();
-          frozen = false;
+          trigger.frozen = false;
           control_state.mark_status_dirty();
         }
-
-        // Feed the renderer this frame's line position + state. Recompute the y
-        // from the (possibly autoscaled) range so the line tracks the view.
-        float line_y = 0.0F;
-        if (db_max > db_min) {
-          const float frac = (db_max - trig_threshold_db) / (db_max - db_min);
-          line_y = std::clamp(frac, 0.0F, 1.0F) * spec_h;
-        }
-        renderer.set_trigger(trig_armed, line_y, trig_threshold_db, frozen);
+        renderer.set_trigger(trigger.armed,
+                             trigger.line_y(spec_h, db_min, db_max),
+                             trigger.threshold_db, trigger.frozen);
       }
 
       // While frozen, hold the last composited frame: skip dequeue/processing
@@ -845,7 +704,7 @@ auto main(int argc, char *argv[]) -> int {
       // overlays (trigger line, FROZEN banner, cursor readout) stay live and
       // input keeps flowing. The producer keeps filling the (bounded) queue;
       // the drain-to-newest throttle catches up on resume.
-      if (frozen) {
+      if (trigger.frozen) {
         renderer.present_frame();
         continue;
       }
@@ -890,13 +749,9 @@ auto main(int argc, char *argv[]) -> int {
       peak_db = fft_analyzer.get_max_db();
 
       // === 4.2. Amplitude trigger: fire on a threshold crossing ===
-      // Freezing halts the stream, so a level test is enough — no rising-edge
-      // tracking needed (the next armed frame after resume re-evaluates fresh).
       // This frame still renders below, so the triggering frame is the one
-      // held.
-      if (trig_armed && peak_db >= trig_threshold_db) {
-        frozen = true; // the panel shows the trigger row while frozen
-      }
+      // held; the panel shows the trigger row while frozen.
+      trigger.check(peak_db);
 
       // === 5. Get spectral data ===
       const auto &db_spectrum = fft_analyzer.get_db_spectrum();
