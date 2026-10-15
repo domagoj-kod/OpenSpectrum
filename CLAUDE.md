@@ -88,6 +88,24 @@ at whatever clock the governor chose, so compare it only at the same FFT size.
 not comparable across backends. Keep the default renderer (OpenGL / D3D11);
 Vulkan on old Intel iGPUs is several times slower.
 
+## Changes and commits
+
+- A request with two readings: ask, or name the one you took. Say so when a
+  simpler way exists.
+- Touch only what the task needs; remove what your change leaves unused. An
+  unrelated problem is reported, not fixed in the same commit.
+- Done means checked: `make release`, `make check`, `./lint.sh` (it lints the
+  staged lines). A bug fix starts from a check that fails: a test in `tests/`
+  or a stated reproduction. UI and device changes need a run on Windows (and
+  the device); say what was and was not run.
+- One verified change per commit; commits are not squashed.
+- Conventional Commits: `type(scope): summary`, types `feat fix perf refactor
+  docs test build ci chore style`. Subject at most 72 characters, imperative,
+  lowercase, no full stop. Body wrapped at 76: what changed, why, how it was
+  checked. No AI attribution trailers.
+- Nothing is pushed, tagged or force-pushed without the maintainer's word, and
+  nothing reaches the remote before it has run on the target.
+
 ## Windows and releases
 
 - The unsigned `.exe` trips Defender's ML heuristic (a false positive); the fix

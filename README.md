@@ -184,6 +184,8 @@ Contributions welcome:
 4. **Update docs** for significant changes.
 
 Workflow: fork → feature branch (`git checkout -b feature/x`) → commit → PR.
+Commit messages follow Conventional Commits; the rules are in
+[CLAUDE.md](CLAUDE.md), "Changes and commits".
 
 ## Acknowledgments
 
