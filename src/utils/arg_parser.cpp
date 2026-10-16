@@ -163,6 +163,13 @@ auto parse_arguments(int argc, char *argv[]) -> AppConfig {
         print_usage(argv[0]);
         std::exit(1);
       }
+#ifndef OPENSPECTRUM_UHD
+      if (dev == "uhd") {
+        std::cerr << "Error: --device uhd needs a build with UHD support "
+                     "(the -uhd download, or make UHD=1)\n";
+        std::exit(1);
+      }
+#endif
       config.use_uhd = dev == "uhd";
       ++i;
     } else if (arg == "--ppm") {

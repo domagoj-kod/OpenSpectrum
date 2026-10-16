@@ -192,8 +192,8 @@ auto main(int argc, char *argv[]) -> int {
         LOG_ERROR("Failed to open IQ playback file");
         return 1;
       }
-    } else if (config.use_uhd) {
 #ifdef OPENSPECTRUM_UHD
+    } else if (config.use_uhd) {
       LOG_INFO("Initializing USRP (UHD)...");
       auto usrp = std::make_unique<UhdDevice>();
       if (!usrp->open()) {
@@ -201,9 +201,6 @@ auto main(int argc, char *argv[]) -> int {
         return 1;
       }
       source = std::move(usrp);
-#else
-      LOG_ERROR("--device uhd needs a build with UHD support (make UHD=1)");
-      return 1;
 #endif
     } else {
       LOG_INFO("Initializing RTL-SDR device...");
