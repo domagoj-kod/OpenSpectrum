@@ -236,6 +236,7 @@ auto main(int argc, char *argv[]) -> int {
       constraints.max_frequency_hz = tuning.max_frequency_hz;
       constraints.min_gain_db = tuning.min_gain_db;
       constraints.max_gain_db = tuning.max_gain_db;
+      constraints.span_hz = effective_rate;
       if (!source->tunable()) {
         // Playback keeps the capture's tuning; these label any export.
         constraints.min_frequency_hz = constraints.max_frequency_hz =

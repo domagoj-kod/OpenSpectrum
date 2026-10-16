@@ -19,6 +19,9 @@ struct DeviceConstraints {
   uint64_t max_frequency_hz = 1700000000; // 1.7 GHz
   float min_gain_db = 0.0f;
   float max_gain_db = 49.6f; // RTL2832U max
+  // The displayed span (the sample rate): one frequency key press moves one
+  // span, so stepping across a band leaves no gap and no overlap.
+  uint64_t span_hz = 2048000;
   // 32768/65536 are for narrow-signal work, not the default view: the extra
   // bins are finer than the pane shows and cost power, not frame rate
   // (docs/MEASUREMENTS.md). 131072 is absent: it needs 4 device callbacks per

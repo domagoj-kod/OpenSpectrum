@@ -132,8 +132,10 @@ Options:
 ./openspectrum --play data/capture_20260610.iq   # no hardware needed
 ```
 
-Tuning steps default to **1 MHz / 1 dB**; hold **Shift** for fine
-(**0.1 MHz / 0.1 dB**) or **Ctrl** for coarse (**10 MHz / 10 dB**).
+A frequency key moves **one span** (the sample rate: 2.048 MHz at the
+default), so stepping across a band leaves no gap; gain moves **1 dB**. Hold
+**Shift** for fine (**0.1 MHz / 0.1 dB**) or **Ctrl** for coarse (**10 spans /
+10 dB**).
 
 The scene renders at a fixed **1280×720** internal resolution and the GPU
 scales it to fill the window — resize or maximize freely, on any display from
@@ -146,7 +148,7 @@ scales it to fill the window — resize or maximize freely, on any display from
 | `+/=` · `-/_` | Increase / decrease center frequency |
 | `r` · `f` | Increase / decrease gain |
 | `1`–`7` | Set FFT size (1024, 2048, 4096, 8192, 16384, 32768, 65536) |
-| `Ctrl` · `Shift` | Coarse (10 MHz/dB) · fine (0.1 MHz/dB) modifier |
+| `Ctrl` · `Shift` | Coarse (10 spans / 10 dB) · fine (0.1 MHz / 0.1 dB) modifier |
 | `UP` / `DOWN` | Cycle window functions forward / backward |
 | `c` / `Shift+C` | Cycle color palette (JET, VIRIDIS, HOT, GRAY, BLU-RED) |
 | `m` · `a` · `x` | Max-hold trace · video averaging · reset traces |

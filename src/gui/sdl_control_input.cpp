@@ -17,19 +17,19 @@ namespace openspectrum {
 
 auto handle_control_key(ControlState &state, SDL_Keycode key, bool shift_held,
                         bool ctrl_held) -> bool {
-  uint64_t current_freq_step = 1000000;
+  auto const &constraints = state.get_constraints();
+  uint64_t current_freq_step = constraints.span_hz;
   float current_gain_step = 1.0F;
 
   if (shift_held) {
     current_freq_step = 100000; // 0.1 MHz
     current_gain_step = 0.1F;   // 0.1 dB
   } else if (ctrl_held) {
-    current_freq_step = 10000000; // 10 MHz
-    current_gain_step = 10.0F;    // 10 dB
+    current_freq_step = 10 * constraints.span_hz;
+    current_gain_step = 10.0F; // 10 dB
   }
 
   bool changed = false;
-  auto const &constraints = state.get_constraints();
 
   switch (key) {
   case SDLK_PLUS:
@@ -50,7 +50,7 @@ auto handle_control_key(ControlState &state, SDL_Keycode key, bool shift_held,
   case SDLK_MINUS:
   case SDLK_UNDERSCORE: {
     // Guarded subtraction: unsigned wrap below the step sent a tune-down
-    // from under 1 MHz to the top of the range.
+    // near the bottom to the top of the range.
     uint64_t const prev = state.get_frequency();
     uint64_t const new_freq =
         prev > constraints.min_frequency_hz + current_freq_step
