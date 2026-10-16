@@ -94,7 +94,13 @@ jobs:
       # message as the body (matches this project's release-notes convention).
       - name: Extract tag message for release body
         if: startsWith(github.ref, 'refs/tags/')
-        run: git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > RELEASE_BODY.md
+        # actions/checkout leaves the pushed tag lightweight, which reads back
+        # as the commit message: fetch the annotated one. %(contents) would
+        # also carry the signature block.
+        run: |
+          git fetch --force --tags origin
+          git tag -l --format='%(contents:subject)%0a%0a%(contents:body)' \
+            "$GITHUB_REF_NAME" > RELEASE_BODY.md
 
       - name: Publish to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
