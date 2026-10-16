@@ -37,7 +37,7 @@
 #include <thread>
 #include <vector>
 
-// SDL3 wants SDL_main.h in the file that defines main().
+// Required in the file that defines main().
 #include <SDL3/SDL_main.h>
 
 #if defined(__SSE__) || defined(_M_X64) || defined(_M_IX86_FP)
@@ -59,8 +59,7 @@ static inline void enable_ftz_daz() noexcept {
 }
 
 static void signal_handler(int signum) {
-  // Async-signal-safe only: a lock-free atomic is, LOG and joining a thread are
-  // not. The main loop polls g_running and shuts down in order.
+  // Async-signal-safe only (no LOG): the main loop polls g_running.
   if (signum == SIGINT || signum == SIGTERM) {
     g_running = false;
   }
@@ -75,8 +74,6 @@ static void async_sample_callback(SampleQueue &queue, IqLogger &iq_logger,
     ftz_initialized = true;
   }
 
-  // The capture taps the full stream here, before the render loop drops the
-  // backlog. It only copies into the logger's ring.
   if (samples_frame) {
     iq_logger.write_samples(samples_frame.data(), samples_frame.size());
   }
@@ -127,8 +124,6 @@ auto main(int argc, char *argv[]) -> int {
   const size_t WATERFALL_LINES = DISPLAY_HEIGHT / 2;
 
   try {
-    // 1. The renderer first, before the hardware. Vsync on: without it ~62 fps
-    // into a 60 Hz panel tears and beats at ~2 Hz (a waterfall "blink").
     SdlRenderer renderer(DISPLAY_WIDTH, DISPLAY_HEIGHT, "OpenSpectrum SDR");
     if (!renderer.is_valid()) {
       LOG_ERROR("Failed to initialize SDL3 renderer");
@@ -136,7 +131,7 @@ auto main(int argc, char *argv[]) -> int {
     }
     LOG_INFO("SDL3 renderer initialized");
 
-    // 1.5 Runtime controls. Frequency and gain wait for the source's limits.
+    // Frequency and gain wait for the source's limits.
     ControlState control_state;
     control_state.set_fft_size(config.fft_size);
     // A non-default --fft-size sets the changed flag, but the setup below
@@ -145,7 +140,7 @@ auto main(int argc, char *argv[]) -> int {
     control_state.set_window(config.window_function);
     LOG_INFO("Runtime controls initialized");
 
-    // 1.55 --play: the sidecar overrides centre frequency and sample rate;
+    // --play: the sidecar overrides centre frequency and sample rate;
     // effective_rate is what everything downstream uses.
     const bool playback_mode = !config.play_file.empty();
     uint32_t effective_rate = static_cast<uint32_t>(config.sample_rate_hz);
@@ -165,7 +160,6 @@ auto main(int argc, char *argv[]) -> int {
       }
     }
 
-    // 1.6 IQ logger
     IqLoggerConfig iq_logger_config;
     if (!config.iq_output_file.empty()) {
       iq_logger_config.filename_prefix = config.iq_output_file;
@@ -179,14 +173,10 @@ auto main(int argc, char *argv[]) -> int {
       LOG_INFO("IQ capture complete: " + filename + " (" + meta_filename + ")");
     });
 
-    // 1.7 Spectrogram exporter
     SpectrogramExporter spectrogram_exporter;
     LOG_INFO("Spectrogram exporter initialized");
 
-    // 2. The queue from the producer thread, with its frame pool
     SampleQueue sample_queue(FFT_SIZE);
-
-    // 2. The sample source.
     auto frame_callback = [&sample_queue,
                            &iq_logger](FrameHandle samples_frame) {
       async_sample_callback(sample_queue, iq_logger, std::move(samples_frame));
@@ -295,16 +285,13 @@ auto main(int argc, char *argv[]) -> int {
              ControlState::format_gain(control_state.get_gain()) +
              ", FFT size: " + std::to_string(FFT_SIZE));
 
-    // 3. Signal processor
     SignalProcessor signal_processor(FFT_SIZE);
     signal_processor.set_window(config.window_function);
 
-    // 4. FFT analyzer
     FftAnalyzer fft_analyzer(FFT_SIZE);
     fft_analyzer.set_window_coherent_gain(
         SignalProcessor::get_coherent_gain(config.window_function));
 
-    // 5. Displays: spectrum on top, waterfall below, over the plot region only.
     SpectrumDisplay spectrum_display(renderer.plot_width(), DISPLAY_HEIGHT / 2);
     WaterfallDisplay waterfall_display(renderer.plot_width(),
                                        DISPLAY_HEIGHT / 2, WATERFALL_LINES);
@@ -312,7 +299,7 @@ auto main(int argc, char *argv[]) -> int {
     spectrum_display.set_db_range(-120.0F, 0.0F);
     waterfall_display.set_db_range(-120.0F, 0.0F);
 
-    // Index order MUST match ControlState::palette_name and PALETTE_COUNT.
+    // Index order MUST match ControlState::palette_name and PALETTE_COUNT!
     static constexpr SpectrumPalette::ColorMap kPaletteMap[] = {
         SpectrumPalette::ColorMap::JET, SpectrumPalette::ColorMap::VIRIDIS,
         SpectrumPalette::ColorMap::HOT, SpectrumPalette::ColorMap::GRAYSCALE,
@@ -389,7 +376,6 @@ auto main(int argc, char *argv[]) -> int {
         }
       }
 
-      // === 1.0. Drain a completed export capture (armed a prior frame) ===
       if (pending_export.armed &&
           renderer.take_capture(capture_buf, capture_w, capture_h)) {
         pending_export.armed = false;
@@ -411,13 +397,11 @@ auto main(int argc, char *argv[]) -> int {
         }
       }
 
-      // === 1. Process SDL3 events (must be first in loop) ===
       if (!renderer.poll_events(&control_state)) {
         g_running = false;
         break;
       }
 
-      // === 1.1. Check for window function change ===
       if (control_state.window_changed()) {
         signal_processor.set_window(control_state.get_window());
         fft_analyzer.set_window_coherent_gain(
@@ -428,7 +412,6 @@ auto main(int argc, char *argv[]) -> int {
                      control_state.get_window())));
       }
 
-      // === 1.1b. Check for color palette change ('c' / Shift+C) ===
       if (control_state.palette_changed()) {
         const auto map = kPaletteMap[control_state.get_palette_index()];
         spectrum_display.set_color_map(map);
@@ -436,7 +419,6 @@ auto main(int argc, char *argv[]) -> int {
         control_state.clear_palette_change_flag();
       }
 
-      // === 1.1c. Trace modes ('m' max-hold, 'a' averaging, 'x' reset) ===
       // The display resets only on a transition, so this is free every frame.
       spectrum_display.set_max_hold(control_state.max_hold_enabled());
       spectrum_display.set_averaging(control_state.averaging_enabled());
@@ -445,7 +427,6 @@ auto main(int argc, char *argv[]) -> int {
         spectrum_display.reset_traces();
       }
 
-      // === 1.2. Check for FFT size change and reinitialize if needed ===
       if (control_state.fft_size_changed()) {
         size_t const new_fft_size = control_state.get_fft_size();
         control_state.clear_fft_change_flag();
@@ -470,7 +451,6 @@ auto main(int argc, char *argv[]) -> int {
         waterfall_display.reset();
       }
 
-      // === 1.2.5. Check for IQ logging toggle request ===
       if (control_state.iq_logging_toggle_requested()) {
         control_state.clear_iq_logging_toggle();
         if (iq_logger.is_capturing()) {
@@ -481,7 +461,6 @@ auto main(int argc, char *argv[]) -> int {
         }
       }
 
-      // === 1.2.7. Check for spectrogram export request ===
       // The renderer reads back the next composited frame; the drain at the
       // loop top writes the PNG. The metadata is stashed now so it matches the
       // frame even if a control changes before the readback.
@@ -505,7 +484,6 @@ auto main(int argc, char *argv[]) -> int {
         renderer.request_capture();
       }
 
-      // === 1.3. Apply control state changes to device (batch update) ===
       // Playback has no tuner: the keys only move the labels.
       if (source->tunable()) {
         static uint64_t s_last_freq = 0;
@@ -569,7 +547,7 @@ auto main(int argc, char *argv[]) -> int {
                                spectrum_display.max_db(), wf_top_seconds);
       }
 
-      // === Overlays: markers, cursor readout, amplitude trigger ===
+      // Markers, cursor readout and amplitude trigger
       {
         const PlotSpan span{static_cast<double>(control_state.get_frequency()),
                             static_cast<double>(effective_rate),
@@ -592,7 +570,7 @@ auto main(int argc, char *argv[]) -> int {
           trigger.set_from_y(*set_y, spec_h, db_min, db_max);
         }
         // Space resumes and re-arms. It always repaints the status bar: that
-        // dismisses a transient message, which bypasses the dirty flag.
+        // dismisses a transient message, bypassing the dirty flag.
         if (control_state.unfreeze_requested()) {
           control_state.clear_unfreeze();
           trigger.frozen = false;
@@ -603,20 +581,17 @@ auto main(int argc, char *argv[]) -> int {
                              trigger.threshold_db, trigger.frozen);
       }
 
-      // Frozen: skip dequeue and processing, keep presenting so the overlays
+      // If frozen, skip dequeue and processing, keep presenting so the overlays
       // and input stay live. The bounded queue catches up on resume.
       if (trigger.frozen) {
         renderer.present_frame();
         continue;
       }
 
-      // === 2. Read samples from async queue (non-blocking) ===
-      // 8 ms timeout; only the newest frame comes back.
       FrameHandle async_samples_frame =
           sample_queue.pop_newest(std::chrono::milliseconds(8));
       bool const got_samples = static_cast<bool>(async_samples_frame);
 
-      // === 2.1. Update displays and render even if no new samples ===
       // Overlays are part of the render call: without it keys would show
       // nothing while no samples arrive.
       if (!got_samples) {
@@ -624,36 +599,23 @@ auto main(int argc, char *argv[]) -> int {
         continue;
       }
 
-      // The frame is exactly current_fft_size, processed in place and released
-      // to the pool at the end of the iteration.
       std::span<std::complex<float>> samples(async_samples_frame.data(),
                                              current_fft_size);
 
-      // === 3. Signal processing ===
       auto t_cpu_start = timing_clock::now();
       openspectrum::SignalProcessor::remove_dc(samples);
       signal_processor.apply_window(samples);
 
-      // === 4. FFT execution ===
       fft_analyzer.execute(samples);
-
-      // === 4.1. Get peak amplitude for status display ===
       peak_db = fft_analyzer.get_max_db();
-
-      // === 4.2. Amplitude trigger: fire on a threshold crossing ===
-      // This frame still renders below, so it is the one held.
       trigger.check(peak_db);
 
-      // === 5. Get spectral data ===
       const auto &db_spectrum = fft_analyzer.get_db_spectrum();
-
-      // === 6. Update displays ===
       spectrum_display.update_spectrum(db_spectrum);
-
       waterfall_display.add_spectrum_line(db_spectrum);
+
       auto t_cpu_end = timing_clock::now();
 
-      // === 7. Render: spectrum as GPU geometry, waterfall via texture ===
       spectrum_display.build_vertices(
           static_cast<float>(renderer.plot_width()),
           static_cast<float>(spectrum_display.height()), spec_verts, spec_idx);
@@ -681,12 +643,10 @@ auto main(int argc, char *argv[]) -> int {
       }
       auto t_render_end = timing_clock::now();
 
-      // === 8. Frame timing (logged once a second) ===
       frame_timing.add(FrameTiming::ms(t_cpu_start, t_cpu_end),
                        FrameTiming::ms(t_render_start, t_render_end),
                        renderer.last_present_ms());
 
-      // === 9. Check for IQ capture duration expiry ===
       if (iq_logger.is_capturing() && config.iq_capture_duration > 0.0) {
         double const elapsed =
             std::chrono::duration<double>(std::chrono::steady_clock::now() -

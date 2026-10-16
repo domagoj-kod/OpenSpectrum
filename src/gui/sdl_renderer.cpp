@@ -112,7 +112,8 @@ SdlRenderer::SdlRenderer(size_t width, size_t height, const std::string &title)
     throw std::runtime_error("SDL_CreateRenderer failed: " +
                              std::string(SDL_GetError()));
   }
-  // Vsync is always on.
+  // Vsync always on: ~62 fps into a 60 Hz panel tears and beats at ~2 Hz (a
+  // waterfall "blink").
   SDL_SetRenderVSync(m_renderer, 1);
 
   const char *renderer_name = SDL_GetRendererName(m_renderer);
