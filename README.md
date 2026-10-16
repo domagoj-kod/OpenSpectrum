@@ -59,6 +59,10 @@ and several times smaller.
 > freshly-built C/C++ tools — the source is open for inspection. Restore the
 > file from quarantine (or submit the false positive to Microsoft). Signed
 > releases are planned.
+>
+> Unblock the downloaded zip **before** extracting it (Properties → Unblock,
+> or `Unblock-File` in PowerShell). Otherwise every extracted file keeps the
+> download mark and each start waits about 30 s on a scan.
 
 **Windows driver:** on Windows 10+, install the RTL2832U WinUSB driver with
 [Zadig](https://www.rtl-sdr.com/rtl-sdr-quick-start-guide/) before first run. If
