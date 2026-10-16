@@ -1,8 +1,9 @@
 name: Release
 
-# Runs ONLY when you push a version tag (or trigger manually). It never runs on
-# ordinary commits/PRs, so it costs ~25-30 billed minutes per release — a tiny
-# slice of the 2,000 free private-repo minutes/month. (Windows minutes bill x2.)
+# Runs ONLY when you push a version tag (or trigger manually), never on
+# ordinary commits/PRs. Each OS builds two flavours: rtl (RTL-SDR, small) and
+# uhd (adds USRP support, carries libuhd + Boost), so neither user downloads
+# the other's libraries.
 on:
   push:
     tags: ['v*']
@@ -12,14 +13,6 @@ on:
         description: "Label for a manual test build (e.g. v2.4.1-test). Builds artifacts but does NOT publish a Release."
         required: false
         default: "dev"
-      uhd:
-        description: "Build with USRP support (make UHD=1). Manual test builds only; tagged releases stay without it."
-        type: boolean
-        default: false
-
-# Both packaging scripts call make, which reads UHD from the environment.
-env:
-  UHD: ${{ inputs.uhd && '1' || '' }}
 
 # Allow the built-in token to create the Release and upload assets.
 permissions:
@@ -32,7 +25,14 @@ concurrency:
 
 jobs:
   linux:
-    name: Linux AppImage
+    name: Linux AppImage (${{ matrix.flavor }})
+    strategy:
+      fail-fast: false
+      matrix:
+        flavor: [rtl, uhd]
+    # Both packaging scripts call make, which reads UHD from the environment.
+    env:
+      UHD: ${{ matrix.flavor == 'uhd' && '1' || '' }}
     # Pinned, not ubuntu-latest: the AppImage runs only on distros whose glibc
     # is at least the build host's, so a runner upgrade would silently drop the
     # older ones.
@@ -54,7 +54,7 @@ jobs:
             file desktop-file-utils zsync curl
 
       - name: Install UHD
-        if: inputs.uhd
+        if: matrix.flavor == 'uhd'
         run: sudo apt-get install -y --no-install-recommends libuhd-dev libboost-dev
 
       # Ubuntu 24.04 has no libsdl3-dev package — SDL3 first
@@ -87,7 +87,7 @@ jobs:
       - name: Upload workflow artifact (always)
         uses: actions/upload-artifact@v7
         with:
-          name: linux-appimage
+          name: linux-appimage-${{ matrix.flavor }}
           path: dist/*.AppImage
 
       # On a real tag push, create/update the Release using the annotated tag
@@ -105,7 +105,13 @@ jobs:
           fail_on_unmatched_files: true
 
   windows:
-    name: Windows zip (MSYS2)
+    name: Windows zip (${{ matrix.flavor }})
+    strategy:
+      fail-fast: false
+      matrix:
+        flavor: [rtl, uhd]
+    env:
+      UHD: ${{ matrix.flavor == 'uhd' && '1' || '' }}
     runs-on: windows-latest
     defaults:
       run:
@@ -130,7 +136,7 @@ jobs:
             zip
 
       - name: Install UHD
-        if: inputs.uhd
+        if: matrix.flavor == 'uhd'
         run: pacman -S --noconfirm --needed mingw-w64-ucrt-x86_64-libuhd mingw-w64-ucrt-x86_64-boost
 
       - name: Build & bundle zip
@@ -145,7 +151,7 @@ jobs:
       - name: Upload workflow artifact (always)
         uses: actions/upload-artifact@v7
         with:
-          name: windows-zip
+          name: windows-zip-${{ matrix.flavor }}
           # Upload the unzipped staging dir, not the .zip: upload-artifact always
           # re-zips its input, so handing it the .zip yields a confusing zip-in-zip
           # on download. The real Release below attaches the .zip directly.

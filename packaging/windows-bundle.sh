@@ -20,7 +20,10 @@ make clean
 # version and handed it to us as $1.
 make release VERSION="$VERSION"
 
-NAME="OpenSpectrum-${VERSION}-windows-x86_64"
+# A UHD=1 build is a separate download, so RTL users don't carry libuhd.
+FLAVOR=""
+if [ "${UHD:-}" = 1 ]; then FLAVOR="-uhd"; fi
+NAME="OpenSpectrum-${VERSION}${FLAVOR}-windows-x86_64"
 STAGE="dist/${NAME}"
 rm -rf "$STAGE"
 mkdir -p "$STAGE"
@@ -28,7 +31,7 @@ mkdir -p "$STAGE"
 cp openspectrum.exe "$STAGE/"
 [ -f README.md ] && cp README.md "$STAGE/"
 [ -f LICENSE ]   && cp LICENSE   "$STAGE/"
-# Measurement scripts, for the test builds only (those are UHD=1).
+# The USRP measurement scripts (rate sweep, playback bench).
 if [ "${UHD:-}" = 1 ]; then
   cp packaging/uhd-sweep.ps1 packaging/play-bench.ps1 "$STAGE/"
 fi

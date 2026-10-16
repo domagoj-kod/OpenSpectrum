@@ -17,20 +17,26 @@ git tag -s v2.5.0 -F /path/to/notes.txt     # or: git tag -s v2.5.0   (opens edi
 git push origin v2.5.0
 ```
 
-Within a few minutes a GitHub Release `v2.5.0` appears with two assets attached:
+Within a few minutes a GitHub Release `v2.5.0` appears with four assets
+attached, two per OS:
 
 - `OpenSpectrum-v2.5.0-x86_64.AppImage` — self-contained Linux build (bundles
   SDL3/librtlsdr/libusb; runs on any modern x86-64 distro).
 - `OpenSpectrum-v2.5.0-windows-x86_64.zip` — the `.exe` **plus all required MinGW
   DLLs** (SDL3, librtlsdr, libusb, libwinpthread, …).
+- `OpenSpectrum-v2.5.0-uhd-x86_64.AppImage` and
+  `OpenSpectrum-v2.5.0-uhd-windows-x86_64.zip` — the same with USRP support
+  (`UHD=1`), which adds libuhd and Boost: several times the size, so it is a
+  separate download.
 
 The Release body is taken from the annotated tag's message.
 
 ## Test the pipeline without publishing
 
 Use the **Run workflow** button (Actions tab → Release → Run workflow). It builds
-both platforms and uploads them as **workflow artifacts** (downloadable from the
-run page) but does **not** create a public Release. Good for a dry run.
+both platforms in both flavours and uploads them as **workflow artifacts**
+(downloadable from the run page) but does **not** create a public Release. Good
+for a dry run.
 
 ## Build a bundle locally (same scripts CI uses)
 

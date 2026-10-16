@@ -48,7 +48,9 @@ https://github.com/user-attachments/assets/f758865f-75fa-4cd9-9109-d0f49247ab4c
 ### Prebuilt binaries (recommended)
 
 Grab the latest Windows or Linux build from the
-[Releases](https://github.com/domagoj-kod/OpenSpectrum/releases) page.
+[Releases](https://github.com/domagoj-kod/OpenSpectrum/releases) page. For a
+USRP (`--device uhd`), take the `-uhd` build; the plain one is RTL-SDR only
+and several times smaller.
 
 > [!NOTE]
 > The Windows `.exe` is currently **unsigned**, so Windows Defender's ML

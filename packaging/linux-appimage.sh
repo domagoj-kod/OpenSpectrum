@@ -72,7 +72,10 @@ fi
 
 # GitHub runners usually lack FUSE; run the AppImage tools by self-extracting.
 export APPIMAGE_EXTRACT_AND_RUN=1
-export OUTPUT="OpenSpectrum-${VERSION}-x86_64.AppImage"
+# A UHD=1 build is a separate download, so RTL users don't carry libuhd.
+FLAVOR=""
+if [ "${UHD:-}" = 1 ]; then FLAVOR="-uhd"; fi
+export OUTPUT="OpenSpectrum-${VERSION}${FLAVOR}-x86_64.AppImage"
 
 echo ">> Bundling dependencies + building AppImage…"
 "$LD" --appdir "$APPDIR" \
