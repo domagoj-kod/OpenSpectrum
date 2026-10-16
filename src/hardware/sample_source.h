@@ -42,6 +42,9 @@ public:
   virtual void start(size_t chunk_size) = 0;
   virtual void stop() = 0; // joins the producer thread
 
+  // After open(), before start(). False if the source cannot produce exactly
+  // this rate: a capture labelled with a rate it was not sampled at is wrong.
+  virtual bool set_sample_rate(uint32_t rate_hz) = 0;
   virtual void set_frequency(uint64_t /*freq_hz*/) {}
   virtual void set_gain(float /*gain_db*/) {}
 

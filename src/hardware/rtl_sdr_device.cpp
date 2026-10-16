@@ -81,11 +81,21 @@ void RtlSdrDevice::set_frequency(uint64_t freq_hz) {
   }
 }
 
-void RtlSdrDevice::set_sample_rate(uint32_t rate_hz) {
-  m_sample_rate = rate_hz;
-  if (m_dev != nullptr) {
-    rtlsdr_set_sample_rate(m_dev, rate_hz);
+// librtlsdr rejects rates outside 225-300 kS/s and 0.9-3.2 MS/s, and rounds
+// the resampler ratio; get_sample_rate() reports what it set.
+auto RtlSdrDevice::set_sample_rate(uint32_t rate_hz) -> bool {
+  if (m_dev == nullptr || rtlsdr_set_sample_rate(m_dev, rate_hz) != 0) {
+    LOG_ERROR("RTL-SDR: cannot run at " + std::to_string(rate_hz) + " S/s");
+    return false;
   }
+  uint32_t const actual = rtlsdr_get_sample_rate(m_dev);
+  if (actual != rate_hz) {
+    LOG_ERROR("RTL-SDR: asked for " + std::to_string(rate_hz) +
+              " S/s, the device gives " + std::to_string(actual));
+    return false;
+  }
+  m_sample_rate = rate_hz;
+  return true;
 }
 
 void RtlSdrDevice::set_gain(float gain_db) {

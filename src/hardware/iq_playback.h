@@ -41,6 +41,10 @@ public:
   // No tuner: main() pins the range to the capture's own tuning.
   TuningLimits limits() const noexcept override { return {}; }
   bool tunable() const noexcept override { return false; }
+  // The rate is the capture's, from the constructor.
+  bool set_sample_rate(uint32_t rate_hz) override {
+    return rate_hz == m_sample_rate;
+  }
 
   // Opens the file; false if missing or empty.
   OS_COLD bool open() override;

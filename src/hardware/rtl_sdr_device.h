@@ -24,7 +24,7 @@ public:
   void close();
 
   void set_frequency(uint64_t freq_hz) override;
-  void set_sample_rate(uint32_t rate_hz);
+  bool set_sample_rate(uint32_t rate_hz) override;
   void set_gain(float gain_db) override; // 0-49.6 dB
 
   // One-shot device options, applied after open() and before streaming.

@@ -27,8 +27,8 @@ live in `docs/MEASUREMENTS.md`.
   linear over the capture; a one-hour soak; USB pulled mid-capture
   (`--iq-duration` is checked only while frames arrive); native Linux;
   `--antenna`, other USRP families, the second channel.
-- [ ] **Sample rate in `SampleSource`, and tuning steps.** The rate is still a
-  setter of each concrete class; the 1/0.1/10 MHz steps are slow across GHz.
+- [ ] **Span-relative tuning steps.** The 1/0.1/10 MHz steps are slow across
+  GHz: one press = one span, Shift = 0.1 MHz, Ctrl = 10 spans.
 - [ ] **click-to-tune + persisted config** (largest, most-wanted). Click the
   spectrum to retune; persist last freq/gain/FFT/window/palette across runs.
 - [ ] **Clang/LLVM 21 as a second compiler** (ThinLTO, vectorization remarks).

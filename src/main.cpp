@@ -196,8 +196,8 @@ auto main(int argc, char *argv[]) -> int {
 #ifdef OPENSPECTRUM_UHD
       LOG_INFO("Initializing USRP (UHD)...");
       auto usrp = std::make_unique<UhdDevice>();
-      if (!usrp->open() || !usrp->set_sample_rate(effective_rate)) {
-        LOG_ERROR("Failed to open a USRP at the requested sample rate");
+      if (!usrp->open()) {
+        LOG_ERROR("Failed to open a USRP");
         return 1;
       }
       source = std::move(usrp);
@@ -222,8 +222,11 @@ auto main(int argc, char *argv[]) -> int {
       if (config.direct_sampling) {
         rtl->set_direct_sampling(2);
       }
-      rtl->set_sample_rate(effective_rate);
       source = std::move(rtl);
+    }
+
+    if (!source->set_sample_rate(effective_rate)) {
+      return 1;
     }
 
     {

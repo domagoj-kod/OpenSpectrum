@@ -29,9 +29,7 @@ public:
 
   void set_frequency(uint64_t freq_hz) override;
   void set_gain(float gain_db) override;
-  // After open(), before start(). False if the device cannot produce exactly
-  // this rate: a capture labelled with a rate it was not sampled at is wrong.
-  bool set_sample_rate(uint32_t rate_hz);
+  bool set_sample_rate(uint32_t rate_hz) override;
 
   uint64_t dropped_samples() const noexcept override {
     return m_dropped.load(std::memory_order_relaxed);
