@@ -198,6 +198,7 @@ public:
     void start(size_t chunk_size) override; // spawn the producer thread
     void stop() override;                   // join it
 
+    bool set_sample_rate(uint32_t rate_hz) override;
     void set_frequency(uint64_t freq_hz) override;
     void set_gain(float gain_db) override;
     uint64_t dropped_samples() const noexcept override;
@@ -213,8 +214,11 @@ What the pipeline expects of it:
 - **Frequency is 64-bit** end to end (CLI, `ControlState`, sidecar, scale).
   32 bits end at 4.29 GHz, below the 5.8 GHz band.
 - **`limits()`** is read once after `open()` and clamps the tuning and gain
-  keys. Sample rate is still a constructor/setter matter of the concrete
-  class, as are one-shot options such as the RTL bias tee.
+  keys. One-shot options such as the RTL bias tee stay setters of the
+  concrete class.
+- **`set_sample_rate()`** is called once, after `open()` and before
+  `start()`. It fails if the device answers with a different rate than
+  asked, because the sidecar records the asked one.
 - **`dropped_samples()`** counts what the receiver's API reports as lost
   (overflow flags, sequence gaps). It is sampled at capture start and stop and
   written to the sidecar. `RtlSdrDevice` can only count its own allocation
@@ -240,8 +244,6 @@ the USRP's rate and the three RTL-only options are ignored.
 - **B200 series only.** The device is opened as `type=b200`. An empty address
   also searches the network for X-series devices, and on a WSL2 host with
   nothing attached that search never returned.
-- **The rate must be exact.** `set_sample_rate` fails if the device answers
-  with a different rate than asked, because the sidecar records the asked one.
 - **Samples are scaled by 1/32768 here.** They are taken from UHD as `sc16`
   and converted in `convert_iq_s16_to_f32`, so a `cs16` capture (which
   multiplies by 32768 and rounds) holds the receiver's own integers. `open()`
