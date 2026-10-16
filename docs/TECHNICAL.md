@@ -234,7 +234,8 @@ place a receiver is chosen"), apply any one-shot options, and move it into
 
 `UhdDevice` (`src/hardware/uhd_device.*`) is compiled only by `make UHD=1`
 (`libuhd-dev`; objects go to `build/<config>-uhd/`). The stock build and the
-plain release bundles carry no UHD or Boost; the `-uhd` bundles do. Run it with `--device uhd`; `-r` is then
+plain release bundles carry no UHD or Boost; the `-uhd` bundles do. A `UHD=1`
+build opens the USRP by default (`--device rtl` for an RTL-SDR); `-r` is then
 the USRP's rate and the three RTL-only options are ignored.
 
 - **UHD directly, not SoapySDR.** For a USRP, SoapySDR is a wrapper around UHD,

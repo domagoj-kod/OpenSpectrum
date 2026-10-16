@@ -113,7 +113,8 @@ Options:
                       (default: blackman-harris)
   --max-fps N         Cap render rate to N fps (default: 30; 0 = uncapped)
   --ppm N             Crystal frequency correction in ppm (default: 0)
-  --device NAME       Receiver: rtl (default) or uhd (a USRP; needs a build with UHD=1)
+  --device NAME       Receiver: rtl or uhd (a USRP; needs a build with
+                      UHD=1, where it is the default).
   --bias-t            Power the antenna port (4.5 V bias tee)
   --direct-sampling   Q-branch direct sampling for HF (tunes 0-14.4 MHz)
   --iq-log            Enable IQ data logging to file
