@@ -56,7 +56,8 @@ void print_usage(const char *argv0) {
       << "                      (default: 30; 0 = uncapped, vsync-limited)\n"
       << "  --device NAME       Receiver: rtl or uhd (a USRP; needs a build "
          "with\n"
-      << "                      UHD=1, where it is the default).\n"
+      << "                      UHD=1, where it is the default). Not with "
+         "--play.\n"
       << "                      The three options below are RTL-only\n"
       << "  --ppm N             Crystal frequency correction in ppm "
          "(default: 0)\n"
@@ -86,6 +87,7 @@ void print_usage(const char *argv0) {
 
 auto parse_arguments(int argc, char *argv[]) -> AppConfig {
   AppConfig config;
+  bool device_given = false;
 
   for (int i = 1; i < argc; ++i) {
     std::string_view const arg = argv[i];
@@ -171,6 +173,7 @@ auto parse_arguments(int argc, char *argv[]) -> AppConfig {
       }
 #endif
       config.use_uhd = dev == "uhd";
+      device_given = true;
       ++i;
     } else if (arg == "--ppm") {
       if (i + 1 >= argc || !parse_num(argv[i + 1], config.ppm_correction)) {
@@ -229,6 +232,12 @@ auto parse_arguments(int argc, char *argv[]) -> AppConfig {
       print_usage(argv[0]);
       std::exit(1);
     }
+  }
+
+  // A playback has no receiver; a silent choice would hide a wrong command.
+  if (device_given && !config.play_file.empty()) {
+    std::cerr << "Error: --play and --device are exclusive\n";
+    std::exit(1);
   }
 
   return config;
