@@ -116,7 +116,7 @@ Vulkan on old Intel iGPUs is several times slower.
   is Authenticode signing. Do not add AV-suspicious Win32 APIs (`AttachConsole`
   was reverted for this). The `.exe` is a console program: the Makefile drops
   SDL's `-mwindows`.
-- Release: `git tag -s vX --cleanup=verbatim -F notes.txt && git push origin
+- Release: `git tag -s vX --cleanup=whitespace -F notes.txt && git push origin
   vX`; CI runs the same `packaging/` scripts as `make dist` (`RELEASING.md`).
   `UHD=1` bundles also carry `uhd-sweep.ps1` and `play-bench.ps1`.
 - Icon: `packaging/openspectrum.svg`; the `.png` and `.ico` are committed, so

@@ -11,7 +11,7 @@ binaries (and forgetting their libraries).
 git checkout main && git pull
 
 # 2. Create a signed, annotated tag whose message IS the release notes.
-git tag -s v2.5.0 --cleanup=verbatim -F /path/to/notes.txt
+git tag -s v2.5.0 --cleanup=whitespace -F /path/to/notes.txt
 
 # 3. Push the tag. This is what triggers the pipeline.
 git push origin v2.5.0
@@ -31,8 +31,9 @@ attached, two per OS:
 
 The Release body is taken from the annotated tag's message, unchanged: write the
 notes as Markdown (a `#` title on one line, one line per paragraph), since
-GitHub keeps hard-wrapped line breaks. `--cleanup=verbatim` keeps the `#` lines
-that `git tag` would otherwise strip as comments.
+GitHub keeps hard-wrapped line breaks. `--cleanup=whitespace` keeps the `#`
+lines that `git tag` would otherwise strip as comments, and still ends the
+message with a newline, so the signature is not glued to the last line.
 
 ## Test the pipeline without publishing
 
