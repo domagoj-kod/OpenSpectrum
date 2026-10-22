@@ -81,6 +81,32 @@ Median over 3 × 36 windows; logs in `data/phase1/bench/` (not in git).
 | 4096 | 30.0 (29.6) | 0.23 | 0.23 / 0.23 / 0.23 | 1.58 | 0.67 |
 | 65536 | 30.0 (29.5) | 3.19 | 3.05 / 3.22 / 3.34 | 1.18 | 0.48 |
 
+## 2026-10-22 · B210 losses, direct port vs hub · second laptop
+
+Reported by the RF team, not reproduced here. A different laptop from the
+12700H (CPU, OS, UHD version and tool not stated), the same USB A to B cable
+as every B210 run in this file, larger buffers, 10 s per test, two channels
+unless noted. "Through hub" is two Realtek SuperSpeed hubs (probably a dock)
+on a different Intel USB controller than the direct port.
+
+| Rate | Bus load, `sc16` | Direct to laptop port | Through hub |
+|---|---|---|---|
+| 2 × 10 MS/s | 80 MB/s | 1.2 % dropped | 0.2 % |
+| 2 × 15 MS/s | 120 MB/s | ~45 % | 0.5 % |
+| 2 × 20 MS/s | 160 MB/s | ~93 % | 1.0 % |
+| 1 × 20 MS/s | 80 MB/s | 6 % | 0.1 % |
+| 2 × 30.72 MS/s | 246 MB/s | — | 88 % |
+| 1 × 61.44 MS/s (`benchmark_rate`) | 246 MB/s | 95 % | 90 % |
+
+Bus load assumes `sc16` on the wire (4 bytes per sample per channel); the
+report does not name the wire format. A hub adds no bandwidth, so the gain
+is the controller's: the port the device hangs off decides the ceiling as
+much as the machine does. The two 246 MB/s rows fail alike whatever the
+channel count, so the limit is bytes per second, between 160 and 246 MB/s
+on the hub's controller. No row is loss-free, and 10 s is too short to show
+the rare single bursts seen on the 12700H below. Not yet tried: the 12700H's
+other USB controllers, and `sc8` on the wire (half the bytes, 8-bit range).
+
 ## 2026-10-13/14 · B210 capture losses · 12700H
 
 `UhdDevice`, `cs16` captures at 2.44 GHz, USB 3.

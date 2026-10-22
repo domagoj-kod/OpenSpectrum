@@ -260,7 +260,10 @@ the USRP's rate and the three RTL-only options are ignored.
 Measured capture losses on a B210, through WSL2 usbipd and on native
 Windows: [MEASUREMENTS.md](MEASUREMENTS.md). The host, not the program,
 sets the ceiling (about 5.6 MS/s through usbipd, 20 to 24 MS/s on the
-Windows host measured).
+Windows host measured). On a second laptop the USB controller mattered as
+much as the machine: the same device lost 93 % at 2 × 20 MS/s on one port
+and 1 % on another controller, so try every controller before calling a
+host's ceiling.
 
 ## Capture files
 
