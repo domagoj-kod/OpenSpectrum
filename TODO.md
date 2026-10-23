@@ -20,15 +20,15 @@ live in `docs/MEASUREMENTS.md`.
 - [ ] **Run the RTL-SDR on the source interface.** `SampleSource` and 64-bit
   tuning were merged without a live RTL run (the dongle was away): a 30 s
   `--iq-log` capture, then `dropped_samples`, size and measured rate in the
-  sidecar.
+  sidecar. Also Ctrl+click tuning, the frozen hold and the saved settings,
+  so far run on the B210 only: the RTL's freq and gain (`rtl.`, and `rtl-hf.`
+  with `--direct-sampling`) are restored and kept apart from `uhd.`.
 - [ ] **Rest of the USRP hardware tests.** Done: native Windows sweep up to
   the host ceiling (20 to 24 MS/s), `benchmark_rate`, the Windows UHD build.
   Left: a CW tone by cable (at least 30 dB of attenuation) whose phase stays
   linear over the capture; a one-hour soak; USB pulled mid-capture
   (`--iq-duration` is checked only while frames arrive); native Linux;
   `--antenna`, other USRP families, the second channel.
-- [ ] **click-to-tune + persisted config** (largest, most-wanted). Click the
-  spectrum to retune; persist last freq/gain/FFT/window/palette across runs.
 - [ ] **Clang/LLVM 21 as a second compiler** (ThinLTO, vectorization remarks).
   Port cost is `-flto=thin`/`lld`; keep GCC primary. Not a sanitizer play — GCC
   already has `-fsanitize=address,undefined`; add a `sanitize:` target instead.
