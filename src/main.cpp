@@ -410,6 +410,7 @@ auto main(int argc, char *argv[]) -> int {
         }
       }
 
+      control_state.hold_controls(trigger.frozen);
       if (!renderer.poll_events(&control_state)) {
         g_running = false;
         break;

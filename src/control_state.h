@@ -52,6 +52,11 @@ public:
   void set_gain(float db);
   void set_fft_size(size_t size);
   void set_window(WindowFunction w);
+  // While a trigger freeze holds the frame, the keys for frequency, gain, FFT
+  // size, window and palette do nothing: the panel and an export must keep
+  // describing the held frame. main() sets it each frame.
+  void hold_controls(bool held) noexcept { m_controls_held = held; }
+  bool controls_held() const noexcept { return m_controls_held; }
 
   void set_constraints(const DeviceConstraints &new_constraints);
   const DeviceConstraints &get_constraints() const noexcept {
@@ -155,6 +160,7 @@ private:
   // panel's TRACE field shows it.
   bool m_averaging = true;
   bool m_trace_reset = false;
+  bool m_controls_held = false;
 
   // Set when a panel field changes; main re-reads get_status_fields().
   mutable bool m_status_dirty = true;

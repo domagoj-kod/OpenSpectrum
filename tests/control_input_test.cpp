@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Pins the span-relative tuning steps: one span, Shift 0.1 MHz, Ctrl 10 spans.
+// Pins the span-relative tuning steps: one span, Shift 0.1 MHz, Ctrl 10 spans;
+// no capture setting changes while a frozen frame is held.
 
 #undef NDEBUG // these are asserts; they must not compile out
 #include "control_state.h"
 #include "gui/sdl_control_input.h"
 
 #include <cassert>
+#include <cstddef>
 
 using openspectrum::ControlState;
 using openspectrum::DeviceConstraints;
@@ -34,4 +36,28 @@ auto main() -> int {
   state.set_frequency(5'990'000'000);
   handle_control_key(state, SDLK_PLUS, false, false);
   assert(state.get_frequency() == 6'000'000'000); // clamped at the top
+
+  // Frozen: nothing the held frame was captured, shown or exported with
+  // moves; trace keys still work, and all of it returns on resume.
+  state.hold_controls(true);
+  state.set_frequency(1'000'000'000);
+  float const gain = state.get_gain();
+  size_t const fft = state.get_fft_size();
+  auto const window = state.get_window();
+  size_t const palette = state.get_palette_index();
+  for (SDL_Keycode const key : {SDLK_PLUS, SDLK_MINUS, SDLK_R, SDLK_F, SDLK_1,
+                                SDLK_7, SDLK_UP, SDLK_DOWN, SDLK_C}) {
+    assert(!handle_control_key(state, key, false, false));
+    assert(state.get_frequency() == 1'000'000'000 && state.get_gain() == gain);
+    assert(state.get_fft_size() == fft && !state.fft_size_changed());
+    assert(state.get_window() == window &&
+           state.get_palette_index() == palette);
+  }
+  handle_control_key(state, SDLK_M, false, false);
+  assert(state.max_hold_enabled());
+  state.hold_controls(false);
+  handle_control_key(state, SDLK_PLUS, false, false);
+  assert(state.get_frequency() == 1'020'000'000);
+  handle_control_key(state, SDLK_R, false, false);
+  assert(state.get_gain() == gain + 1.0F);
 }

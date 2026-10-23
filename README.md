@@ -191,6 +191,9 @@ scales it to fill the window — resize or maximize freely, on any display from
   `PEAK`), which sits a few dB above the averaged trace: set the threshold
   with max-hold (**`m`**) on, which draws that peak, and press **`x`** before
   arming so the held peak starts below the line.
+  While frozen, the keys for frequency, gain, FFT size, window and palette,
+  and Ctrl+click, do nothing: the panel and an export (**`e`**) keep
+  describing the held frame.
 
 ## License
 
