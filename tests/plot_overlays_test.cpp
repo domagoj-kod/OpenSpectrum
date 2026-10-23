@@ -16,6 +16,10 @@ auto main() -> int {
   const PlotSpan span{100e6, 2e6, 1000.0F};
   assert(span.freq_at(0.0F) == 99e6 && span.freq_at(500.0F) == 100e6);
   assert(span.xrel(span.freq_at(250.0F)) == 0.25);
+  // Tuning rounds to 1 kHz and stops at 0 Hz.
+  assert(span.tune_at(500.0F) == 100000000U);
+  assert(span.tune_at(100.3F) == 99201000U); // 99 200 600 Hz
+  assert((PlotSpan{500e3, 2e6, 1000.0F}.tune_at(0.0F) == 0U));
 
   Markers markers;
   const float plot_h = 600.0F;

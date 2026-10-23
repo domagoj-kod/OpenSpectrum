@@ -5,7 +5,10 @@
 #include "visualization/spectrum_display.h"
 #include "visualization/waterfall_display.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <vector>
 
 namespace openspectrum {
@@ -27,6 +30,11 @@ struct PlotSpan {
   // 0 at the left edge, 1 at the right; outside [0, 1) is off screen.
   [[nodiscard]] double xrel(double hz) const {
     return (hz - left_hz()) / rate_hz;
+  }
+  // Ctrl+left-click target: to 1 kHz (a pixel is wider), never below 0 Hz.
+  [[nodiscard]] uint64_t tune_at(float x) const {
+    return static_cast<uint64_t>(std::max(0.0, std::round(freq_at(x) / 1e3))) *
+           1000U;
   }
 };
 

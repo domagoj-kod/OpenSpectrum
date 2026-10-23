@@ -485,6 +485,27 @@ auto main(int argc, char *argv[]) -> int {
         renderer.request_capture();
       }
 
+      // Ctrl+left-click on either pane recentres there. Ignored while frozen,
+      // which would relabel the held frame; playback's pinned range makes it
+      // a no-op.
+      if (auto click = renderer.take_tune(); click && !trigger.frozen) {
+        const PlotSpan span{static_cast<double>(control_state.get_frequency()),
+                            static_cast<double>(effective_rate),
+                            static_cast<float>(spectrum_display.width())};
+        const auto plot_h = static_cast<float>(spectrum_display.height() +
+                                               waterfall_display.height());
+        if (click->x >= 0.0F && click->x < span.width && click->y >= 0.0F &&
+            click->y < plot_h) {
+          uint64_t const prev = control_state.get_frequency();
+          control_state.set_frequency(span.tune_at(click->x));
+          if (control_state.get_frequency() != prev) {
+            LOG_INFO("[TUNE] " + format_frequency(prev) + " -> " +
+                     format_frequency(control_state.get_frequency()));
+            control_state.mark_status_dirty();
+          }
+        }
+      }
+
       // Playback has no tuner: the keys only move the labels.
       if (source->tunable()) {
         static uint64_t s_last_freq = 0;

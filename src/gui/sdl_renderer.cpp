@@ -871,13 +871,16 @@ auto SdlRenderer::poll_events(ControlState *state) -> bool {
 
     case SDL_EVENT_MOUSE_BUTTON_DOWN:
       // Left drops a marker, right removes the nearest (main() owns the list,
-      // via take_clicks()). Shift+left sets the trigger instead.
+      // via take_clicks()). Ctrl+left tunes, Shift+left sets the trigger.
       SDL_ConvertEventToRenderCoordinates(m_renderer, &event);
       m_cursor_x = event.button.x;
       m_cursor_y = event.button.y;
       m_cursor_active = true;
-      if ((SDL_GetModState() & SDL_KMOD_SHIFT) != 0 &&
+      if ((SDL_GetModState() & SDL_KMOD_CTRL) != 0 &&
           event.button.button == SDL_BUTTON_LEFT) {
+        m_tune_click = SDL_FPoint{event.button.x, event.button.y};
+      } else if ((SDL_GetModState() & SDL_KMOD_SHIFT) != 0 &&
+                 event.button.button == SDL_BUTTON_LEFT) {
         m_trigger_set_y = event.button.y;
         m_trigger_set_pending = true;
       } else {

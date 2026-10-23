@@ -170,6 +170,9 @@ scales it to fill the window — resize or maximize freely, on any display from
 - **Left-click** drops a persistent frequency marker (up to 14, listed in the
   panel) through both panes; it tracks frequency as you retune. **Right-click**
   removes the nearest; **Delete** clears all.
+- **Ctrl + left-click** either pane tunes there: that frequency, to the
+  nearest kHz, becomes the centre. Ignored while the trigger holds a frozen
+  frame, and in playback.
 - **Shift + left-drag** in the spectrum pane sets the **amplitude trigger** — a
   dB threshold line. When a bin peak crosses it, the display **freezes** on the
   triggering frame; press **`Space`** to resume. Drag the line to the pane's

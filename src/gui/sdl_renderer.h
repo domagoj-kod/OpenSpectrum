@@ -157,6 +157,10 @@ public:
   [[nodiscard]] std::vector<ClickEvent> take_clicks() {
     return std::exchange(m_clicks, {});
   }
+  // The last Ctrl+left-click since the last call (render space), to tune to.
+  [[nodiscard]] std::optional<SDL_FPoint> take_tune() noexcept {
+    return std::exchange(m_tune_click, std::nullopt);
+  }
   // True once if Delete was pressed since the last call.
   [[nodiscard]] bool take_clear_markers() noexcept {
     return std::exchange(m_clear_markers, false);
@@ -305,6 +309,7 @@ private:
   std::vector<Marker> m_markers;
   std::vector<ClickEvent> m_clicks;
   bool m_clear_markers = false;
+  std::optional<SDL_FPoint> m_tune_click;
 
   bool m_axes_enabled = false;
   float m_axis_db_min = -120.0F;
