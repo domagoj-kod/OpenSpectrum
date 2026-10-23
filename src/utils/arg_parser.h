@@ -5,6 +5,7 @@
 #include "utils/attributes.h"
 #include "utils/iq_logger.h"
 
+#include <optional>
 #include <string>
 
 namespace openspectrum {
@@ -16,6 +17,8 @@ struct AppConfig {
   double sample_rate_hz = 2048000.0;  // 2.048 MS/s
   float gain_db = 10.0f;              // 10 dB
   WindowFunction window_function = WindowFunction::BLACKMAN_HARRIS;
+  // No flag: only the saved settings set it (ControlState::palette_name).
+  size_t palette_index = 0;
 
   // Frame-rate cap; 30 halves render power for long runs. 0 = uncapped (vsync
   // still paces).
@@ -42,7 +45,13 @@ struct AppConfig {
   std::string play_file;
 };
 
-OS_COLD AppConfig parse_arguments(int argc, char *argv[]);
+// The command line over config: main() passes the saved settings in.
+OS_COLD AppConfig parse_arguments(int argc, char *argv[],
+                                  AppConfig config = {});
+
+// The --window names, also the saved setting's values. Any case; '_' for '-'.
+OS_COLD std::optional<WindowFunction> parse_window_name(std::string name);
+OS_COLD const char *window_name(WindowFunction window);
 
 OS_COLD void print_usage(const char *argv0);
 

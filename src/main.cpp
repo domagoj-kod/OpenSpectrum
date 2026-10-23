@@ -18,6 +18,7 @@
 #include "utils/iq_logger.h"
 #include "utils/logger.h"
 #include "utils/sample_queue.h"
+#include "utils/settings.h"
 #include "utils/spectrogram_exporter.h"
 #include "visualization/spectrum_display.h"
 #include "visualization/waterfall_display.h"
@@ -31,6 +32,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <filesystem>
 #include <memory>
 #include <span>
 #include <string>
@@ -84,7 +86,16 @@ static void async_sample_callback(SampleQueue &queue, IqLogger &iq_logger,
 auto main(int argc, char *argv[]) -> int {
   enable_ftz_daz();
 
-  AppConfig const config = parse_arguments(argc, argv);
+  // The command line over the saved settings over the defaults. The first
+  // parse only tells apply_settings the receiver; the second re-applies the
+  // flags on top.
+  std::filesystem::path const settings_file = settings_path();
+  Settings settings = load_settings(settings_file);
+  AppConfig const config = [&] {
+    AppConfig saved = parse_arguments(argc, argv);
+    apply_settings(settings, saved);
+    return parse_arguments(argc, argv, saved);
+  }();
 
   // --fft-size must be in the list the 1-7 keys and the README use, so the
   // three cannot drift.
@@ -138,6 +149,7 @@ auto main(int argc, char *argv[]) -> int {
     // already builds for it: clear it so only real key changes reinitialize.
     control_state.clear_fft_change_flag();
     control_state.set_window(config.window_function);
+    control_state.set_palette(config.palette_index);
     LOG_INFO("Runtime controls initialized");
 
     // --play: the sidecar overrides centre frequency and sample rate;
@@ -687,6 +699,13 @@ auto main(int argc, char *argv[]) -> int {
     // The producer is stopped, so no callback races this.
     if (iq_logger.is_capturing()) {
       stop_capture();
+    }
+
+    // Only on a clean exit (Esc, window close, Ctrl+C): a failed start or a
+    // crash keeps the last good file.
+    store_settings(settings, control_state, config);
+    if (!save_settings(settings_file, settings)) {
+      LOG_WARNING("Settings could not be saved");
     }
 
     LOG_INFO("Main loop exited cleanly");

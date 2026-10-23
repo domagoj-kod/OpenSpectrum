@@ -129,6 +129,10 @@ Options:
                       or cs16 (int16 pairs, half the size)
   --play FILE.iq      Replay a recorded IQ capture instead of opening hardware
   --help              Show this help message
+
+Frequency, gain, FFT size, window and palette start where the last
+run left them (frequency and gain per receiver); an option above
+overrides the saved value.
 ```
 
 ```bash
@@ -143,6 +147,13 @@ A frequency key moves **one span** (the sample rate: 2.048 MHz at the
 default), so stepping across a band leaves no gap; gain moves **1 dB**. Hold
 **Shift** for fine (**0.1 MHz / 0.1 dB**) or **Ctrl** for coarse (**10 spans /
 10 dB**).
+
+The last settings are saved on exit (Esc, closing the window or Ctrl+C) to
+`%APPDATA%\OpenSpectrum\settings.ini` on Windows, or
+`~/.config/openspectrum/settings.ini` (`$XDG_CONFIG_HOME`) on Linux: plain
+`key=value` lines. The RTL, the RTL in direct sampling and the USRP each keep
+their own frequency and gain; playback leaves them alone. Delete the file to
+start from the defaults.
 
 The scene renders at a fixed **1280×720** internal resolution and the GPU
 scales it to fill the window — resize or maximize freely, on any display from

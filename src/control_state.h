@@ -70,6 +70,7 @@ public:
   static constexpr size_t PALETTE_COUNT = 5;
   size_t get_palette_index() const noexcept { return palette_index; }
   void cycle_palette(int direction); // +1 or -1; wraps
+  void set_palette(size_t index);    // ignored past PALETTE_COUNT
   bool palette_changed() const noexcept { return palette_changed_flag; }
   void clear_palette_change_flag() noexcept { palette_changed_flag = false; }
   static const char *palette_name(size_t index) noexcept;

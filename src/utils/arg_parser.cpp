@@ -10,6 +10,7 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <utility>
 
 namespace openspectrum {
 
@@ -33,7 +34,36 @@ template <typename T> auto parse_num(const char *str, T &value) -> bool {
   }
 }
 
+constexpr std::pair<std::string_view, WindowFunction> kWindowNames[] = {
+    {"rectangle", WindowFunction::RECTANGLE},
+    {"hann", WindowFunction::HANN},
+    {"hamming", WindowFunction::HAMMING},
+    {"blackman", WindowFunction::BLACKMAN},
+    {"blackman-harris", WindowFunction::BLACKMAN_HARRIS},
+    {"flat-top", WindowFunction::FLAT_TOP}};
+
 } // namespace
+
+auto parse_window_name(std::string name) -> std::optional<WindowFunction> {
+  std::ranges::transform(name, name.begin(), [](unsigned char c) {
+    return c == '_' ? '-' : static_cast<char>(std::tolower(c));
+  });
+  for (const auto &[n, w] : kWindowNames) {
+    if (n == name) {
+      return w;
+    }
+  }
+  return std::nullopt;
+}
+
+auto window_name(WindowFunction window) -> const char * {
+  for (const auto &[n, w] : kWindowNames) {
+    if (w == window) {
+      return n.data();
+    }
+  }
+  return "blackman-harris";
+}
 
 void print_usage(const char *argv0) {
   std::cout
@@ -77,6 +107,10 @@ void print_usage(const char *argv0) {
       << "                      .meta.json sidecar when present)\n"
       << "  --help              Show this help message\n"
       << "\n"
+      << "Frequency, gain, FFT size, window and palette start where the last\n"
+      << "run left them (frequency and gain per receiver); an option above\n"
+      << "overrides the saved value.\n"
+      << "\n"
       << "Examples:\n"
       << "  " << argv0 << " -f 100000000 -g 20\n"
       << "  " << argv0 << " --freq 144500000 --gain 15 --fft-size 8192\n"
@@ -85,8 +119,7 @@ void print_usage(const char *argv0) {
       << std::flush;
 }
 
-auto parse_arguments(int argc, char *argv[]) -> AppConfig {
-  AppConfig config;
+auto parse_arguments(int argc, char *argv[], AppConfig config) -> AppConfig {
   bool device_given = false;
 
   for (int i = 1; i < argc; ++i) {
@@ -128,27 +161,13 @@ auto parse_arguments(int argc, char *argv[]) -> AppConfig {
         print_usage(argv[0]);
         std::exit(1);
       }
-      std::string window_name = argv[++i];
-      std::ranges::transform(window_name, window_name.begin(),
-                             [](unsigned char c) { return std::tolower(c); });
-      if (window_name == "rectangle") {
-        config.window_function = WindowFunction::RECTANGLE;
-      } else if (window_name == "hann") {
-        config.window_function = WindowFunction::HANN;
-      } else if (window_name == "hamming") {
-        config.window_function = WindowFunction::HAMMING;
-      } else if (window_name == "blackman") {
-        config.window_function = WindowFunction::BLACKMAN;
-      } else if (window_name == "blackman-harris" ||
-                 window_name == "blackman_harris") {
-        config.window_function = WindowFunction::BLACKMAN_HARRIS;
-      } else if (window_name == "flat-top" || window_name == "flat_top") {
-        config.window_function = WindowFunction::FLAT_TOP;
-      } else {
-        std::cerr << "Error: Unknown window function: " << window_name << "\n";
+      auto window = parse_window_name(argv[++i]);
+      if (!window) {
+        std::cerr << "Error: Unknown window function: " << argv[i] << "\n";
         print_usage(argv[0]);
         std::exit(1);
       }
+      config.window_function = *window;
     } else if (arg == "--max-fps") {
       if (i + 1 >= argc || !parse_num(argv[i + 1], config.max_fps) ||
           config.max_fps < 0 || config.max_fps > 240) {

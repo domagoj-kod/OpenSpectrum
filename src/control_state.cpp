@@ -99,6 +99,14 @@ void ControlState::cycle_palette(int direction) {
   mark_status_dirty();
 }
 
+void ControlState::set_palette(size_t index) {
+  if (index < PALETTE_COUNT && index != palette_index) {
+    palette_index = index;
+    palette_changed_flag = true;
+    mark_status_dirty();
+  }
+}
+
 // Order MUST match SpectrumPalette::ColorMap { JET, VIRIDIS, HOT, GRAYSCALE,
 // BLUE_RED }.
 auto ControlState::palette_name(size_t index) noexcept -> const char * {
