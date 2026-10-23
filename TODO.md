@@ -29,9 +29,10 @@ live in `docs/MEASUREMENTS.md`.
   linear over the capture; a one-hour soak; USB pulled mid-capture
   (`--iq-duration` is checked only while frames arrive); native Linux;
   `--antenna`, other USRP families, the second channel.
-- [ ] **Clang/LLVM 21 as a second compiler** (ThinLTO, vectorization remarks).
-  Port cost is `-flto=thin`/`lld`; keep GCC primary. Not a sanitizer play — GCC
-  already has `-fsanitize=address,undefined`; add a `sanitize:` target instead.
+- [ ] **Clang/LLVM as a second compiler** (ThinLTO, vectorization remarks),
+  the same LLVM as lint.sh's clang-tidy. Port cost is `-flto=thin`/`lld`; keep
+  GCC primary. Not a sanitizer play — GCC already has
+  `-fsanitize=address,undefined`; add a `sanitize:` target instead.
 ## Declined / out of scope — don't re-tread
 
 - **Re-render at native resolution on maximize** — **declined; fixed 720p
