@@ -9,8 +9,10 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <limits>
 #include <string>
+#include <system_error>
 #include <utility>
 
 namespace openspectrum {
@@ -41,10 +43,10 @@ auto IqPlaybackSource::open() -> bool {
     LOG_ERROR("Cannot open IQ file: " + m_path);
     return false;
   }
-  std::fseek(m_file, 0, SEEK_END);
-  long const bytes = std::ftell(m_file);
-  std::fseek(m_file, 0, SEEK_SET);
-  if (bytes < static_cast<long>(sample_bytes(m_format))) {
+  // Not ftell: its long is 32 bits on Windows, and captures pass 2 GiB.
+  std::error_code ec;
+  auto const bytes = std::filesystem::file_size(m_path, ec);
+  if (ec || bytes < sample_bytes(m_format)) {
     LOG_ERROR("IQ file is empty: " + m_path);
     std::fclose(m_file);
     m_file = nullptr;
