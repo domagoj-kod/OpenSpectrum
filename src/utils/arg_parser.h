@@ -5,10 +5,21 @@
 #include "utils/attributes.h"
 #include "utils/iq_logger.h"
 
+#include <charconv>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <system_error>
 
 namespace openspectrum {
+
+// The whole text must be the number: "433M" is rejected, not read as 433, and
+// so is a minus for an unsigned type. The command line and the saved settings.
+template <typename T> auto parse_full(std::string_view text, T &value) -> bool {
+  const char *end = text.data() + text.size();
+  auto [ptr, ec] = std::from_chars(text.data(), end, value);
+  return ec == std::errc{} && ptr == end;
+}
 
 struct AppConfig {
   size_t fft_size = 4096;

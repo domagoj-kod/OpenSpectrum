@@ -9,30 +9,11 @@
 #include <iostream>
 #include <string>
 #include <string_view>
-#include <type_traits>
 #include <utility>
 
 namespace openspectrum {
 
 namespace {
-
-// One numeric parser for every option type; stoX throws on garbage.
-template <typename T> auto parse_num(const char *str, T &value) -> bool {
-  try {
-    if constexpr (std::is_same_v<T, float>) {
-      value = std::stof(str);
-    } else if constexpr (std::is_same_v<T, double>) {
-      value = std::stod(str);
-    } else if constexpr (std::is_same_v<T, int>) {
-      value = std::stoi(str);
-    } else {
-      value = static_cast<T>(std::stoul(str));
-    }
-    return true;
-  } catch (...) {
-    return false;
-  }
-}
 
 constexpr std::pair<std::string_view, WindowFunction> kWindowNames[] = {
     {"rectangle", WindowFunction::RECTANGLE},
@@ -126,7 +107,7 @@ auto parse_arguments(int argc, char *argv[], AppConfig config) -> AppConfig {
     std::string_view const arg = argv[i];
 
     if (arg == "-f" || arg == "--freq") {
-      if (i + 1 >= argc || !parse_num(argv[i + 1], config.center_freq_hz) ||
+      if (i + 1 >= argc || !parse_full(argv[i + 1], config.center_freq_hz) ||
           config.center_freq_hz < 0.0 || config.center_freq_hz > 1e12) {
         std::cerr << "Error: Invalid frequency value\n";
         print_usage(argv[0]);
@@ -134,7 +115,7 @@ auto parse_arguments(int argc, char *argv[], AppConfig config) -> AppConfig {
       }
       ++i;
     } else if (arg == "-r" || arg == "--rate") {
-      if (i + 1 >= argc || !parse_num(argv[i + 1], config.sample_rate_hz) ||
+      if (i + 1 >= argc || !parse_full(argv[i + 1], config.sample_rate_hz) ||
           config.sample_rate_hz < 1.0 || config.sample_rate_hz > 4e9) {
         std::cerr << "Error: Invalid sample rate value\n";
         print_usage(argv[0]);
@@ -142,14 +123,14 @@ auto parse_arguments(int argc, char *argv[], AppConfig config) -> AppConfig {
       }
       ++i;
     } else if (arg == "-g" || arg == "--gain") {
-      if (i + 1 >= argc || !parse_num(argv[i + 1], config.gain_db)) {
+      if (i + 1 >= argc || !parse_full(argv[i + 1], config.gain_db)) {
         std::cerr << "Error: Invalid gain value\n";
         print_usage(argv[0]);
         std::exit(1);
       }
       ++i;
     } else if (arg == "-s" || arg == "--fft-size") {
-      if (i + 1 >= argc || !parse_num(argv[i + 1], config.fft_size)) {
+      if (i + 1 >= argc || !parse_full(argv[i + 1], config.fft_size)) {
         std::cerr << "Error: Invalid FFT size value\n";
         print_usage(argv[0]);
         std::exit(1);
@@ -169,7 +150,7 @@ auto parse_arguments(int argc, char *argv[], AppConfig config) -> AppConfig {
       }
       config.window_function = *window;
     } else if (arg == "--max-fps") {
-      if (i + 1 >= argc || !parse_num(argv[i + 1], config.max_fps) ||
+      if (i + 1 >= argc || !parse_full(argv[i + 1], config.max_fps) ||
           config.max_fps < 0 || config.max_fps > 240) {
         std::cerr << "Error: --max-fps must be an integer in [0, 240] "
                      "(0 = uncapped)\n";
@@ -195,7 +176,7 @@ auto parse_arguments(int argc, char *argv[], AppConfig config) -> AppConfig {
       device_given = true;
       ++i;
     } else if (arg == "--ppm") {
-      if (i + 1 >= argc || !parse_num(argv[i + 1], config.ppm_correction)) {
+      if (i + 1 >= argc || !parse_full(argv[i + 1], config.ppm_correction)) {
         std::cerr << "Error: Invalid ppm value\n";
         print_usage(argv[0]);
         std::exit(1);
@@ -209,7 +190,8 @@ auto parse_arguments(int argc, char *argv[], AppConfig config) -> AppConfig {
       config.iq_logging_enabled = true;
     } else if (arg == "--iq-duration") {
       if (i + 1 >= argc ||
-          !parse_num(argv[i + 1], config.iq_capture_duration)) {
+          !parse_full(argv[i + 1], config.iq_capture_duration) ||
+          config.iq_capture_duration < 0.0) {
         std::cerr << "Error: Invalid IQ capture duration value\n";
         print_usage(argv[0]);
         std::exit(1);

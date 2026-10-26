@@ -18,14 +18,6 @@ namespace fs = std::filesystem;
 
 namespace {
 
-// The whole string must be the number.
-template <typename T>
-auto parse_full(const std::string &str, T &value) -> bool {
-  const char *end = str.data() + str.size();
-  auto [ptr, ec] = std::from_chars(str.data(), end, value);
-  return ec == std::errc{} && ptr == end;
-}
-
 // Shortest text that reads back to the same value.
 template <typename T> auto to_text(T value) -> std::string {
   char buf[32];
