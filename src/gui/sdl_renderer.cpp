@@ -741,7 +741,8 @@ void SdlRenderer::capture_backbuffer() {
   const auto *src = static_cast<const uint8_t *>(rgba->pixels);
   for (int y = 0; y < rgba->h; ++y) {
     memcpy(m_capture_buf.data() + static_cast<size_t>(y) * row_bytes,
-           src + static_cast<size_t>(y) * rgba->pitch, row_bytes);
+           src + static_cast<size_t>(y) * static_cast<size_t>(rgba->pitch),
+           row_bytes);
   }
   SDL_DestroySurface(rgba);
   m_capture_ready = true;
@@ -790,7 +791,8 @@ auto SdlRenderer::render_displays(const std::vector<SDL_Vertex> &spec_verts,
     for (int y = y0; y < y1; ++y) {
       memcpy(tex + (y + static_cast<int>(spectrum_height)) * texture_pitch +
                  x0 * 4,
-             waterfall_data + y * src_pitch + x0 * 4, copy_bytes);
+             waterfall_data + static_cast<size_t>(y) * src_pitch + x0 * 4,
+             copy_bytes);
     }
   }
 
@@ -969,7 +971,7 @@ bool SdlRenderer::render_displays_scroll(
     if (SDL_LockTexture(m_wf_line_tex, nullptr, &lp, &lpitch)) {
       const size_t src_row = m_plot_width * 4;
       for (size_t y = 0; y < line_height; ++y) {
-        memcpy(static_cast<uint8_t *>(lp) + y * lpitch,
+        memcpy(static_cast<uint8_t *>(lp) + y * static_cast<size_t>(lpitch),
                new_wf_line_rgba + y * src_row, src_row);
       }
       SDL_UnlockTexture(m_wf_line_tex);

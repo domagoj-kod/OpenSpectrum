@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Pins the span-relative tuning steps: one span, Shift 0.1 MHz, Ctrl 10 spans;
-// no capture setting changes while a frozen frame is held.
+// no capture setting changes while a frozen frame is held; the FFT-size keys
+// and the window wrap.
 
 #undef NDEBUG // these are asserts; they must not compile out
 #include "control_state.h"
@@ -60,4 +61,17 @@ auto main() -> int {
   assert(state.get_frequency() == 1'020'000'000);
   handle_control_key(state, SDLK_R, false, false);
   assert(state.get_gain() == gain + 1.0F);
+
+  // Keys 1-7 index the FFT sizes; a key past the list changes nothing.
+  handle_control_key(state, SDLK_1, false, false);
+  assert(state.get_fft_size() == c.supported_fft_sizes[0]);
+  c.supported_fft_sizes = {1024, 2048};
+  state.set_constraints(c);
+  assert(!handle_control_key(state, SDLK_3, false, false));
+  assert(state.get_fft_size() == 1024);
+
+  // Down from the first window wraps to the last.
+  state.set_window(c.supported_window_functions.front());
+  handle_control_key(state, SDLK_DOWN, false, false);
+  assert(state.get_window() == c.supported_window_functions.back());
 }

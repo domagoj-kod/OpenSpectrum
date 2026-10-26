@@ -126,8 +126,8 @@ auto handle_control_key(ControlState &state, SDL_Keycode key, bool shift_held,
   case SDLK_5:
   case SDLK_6:
   case SDLK_7: {
-    int const index = key - SDLK_1;
-    if (index < static_cast<int>(constraints.supported_fft_sizes.size())) {
+    size_t const index = key - SDLK_1;
+    if (index < constraints.supported_fft_sizes.size()) {
       size_t const new_size = constraints.supported_fft_sizes[index];
       size_t const old_size = state.get_fft_size();
       if (new_size != old_size) {
@@ -174,7 +174,7 @@ auto handle_control_key(ControlState &state, SDL_Keycode key, bool shift_held,
     }
 
     if (new_index >= 0 && new_index < static_cast<int>(windows.size())) {
-      WindowFunction const new_window = windows[new_index];
+      WindowFunction const new_window = windows[static_cast<size_t>(new_index)];
       if (new_window != current) {
         state.set_window(new_window);
         LOG_INFO(
