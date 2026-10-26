@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # OpenSpectrum Makefile - Secure Cross-Platform Compilation
 
-CC := gcc
 CXX := g++
 
 # Stamped into capture metadata and used by `make dist`. A bare token,
@@ -18,7 +17,6 @@ ifeq ($(OS),Windows_NT)
     # Windows (MinGW/MSYS2)
     TARGET := openspectrum.exe
 
-    BASE_CFLAGS := -g -D_FORTIFY_SOURCE=2 -fstack-protector-strong
     BASE_CXXFLAGS := -std=c++20 -g -Wall -Wextra -Wpedantic \
                     -Wshadow -Wconversion \
                     -Wformat=2 \
@@ -35,7 +33,6 @@ ifeq ($(OS),Windows_NT)
 else
     TARGET := openspectrum
 
-    BASE_CFLAGS := -g -D_FORTIFY_SOURCE=2 -fstack-protector-strong -fPIE
     BASE_CXXFLAGS := -std=c++20 -g -Wall -Wextra -Wpedantic \
                     -Wshadow -Wconversion \
                     -Wformat=2 \
@@ -73,7 +70,6 @@ else
 endif
 
 .DEFAULT_GOAL := all
-CFLAGS   := $(BASE_CFLAGS) -O0 -DOPENSPECTRUM_DEBUG
 CXXFLAGS := $(BASE_CXXFLAGS) -O0 -DOPENSPECTRUM_DEBUG
 LDFLAGS  := $(BASE_LDFLAGS)
 
@@ -87,14 +83,12 @@ TRIM_LDFLAGS := -Wl,--gc-sections
 
 release:
 	$(MAKE) CONFIG=release \
-	       CFLAGS="$(BASE_CFLAGS) -O3 -DNDEBUG $(LTO) -march=haswell $(TRIM_CFLAGS)" \
 	       CXXFLAGS="$(BASE_CXXFLAGS) -O3 -DNDEBUG $(LTO) -march=haswell $(TRIM_CFLAGS)" \
 	       LDFLAGS="$(BASE_LDFLAGS) -s $(LTO) -march=haswell $(TRIM_CFLAGS) $(TRIM_LDFLAGS)" \
 	       all
 
 profile:
 	$(MAKE) CONFIG=profile \
-	       CFLAGS="$(BASE_CFLAGS) -O2 -pg" \
 	       CXXFLAGS="$(BASE_CXXFLAGS) -O2 -pg" \
 	       LDFLAGS="$(BASE_LDFLAGS) -pg" \
 	       all
