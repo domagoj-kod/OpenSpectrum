@@ -17,6 +17,7 @@ make                 # debug: -O0, asserts on
 make release         # -O3, LTO, -march=haswell, stripped
 make profile         # -O2 -pg
 make check           # build and run tests/
+make sanitize        # tests/ under ASan + UBSan (Linux)
 make dist            # bundle for this platform -> dist/
 make release UHD=1   # any target; adds the USRP source
 make check CLANG=1   # any target; clang++, ThinLTO, lld (GCC stays primary)

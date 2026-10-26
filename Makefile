@@ -99,6 +99,15 @@ profile:
 	       LDFLAGS="$(BASE_LDFLAGS) -pg" \
 	       all
 
+# ASan + UBSan over tests/; a UB report fails the test. Linux: MinGW GCC has
+# no libasan. FORTIFY's __memcpy_chk hides an overflow from ASan's report.
+SAN := -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer
+sanitize:
+	$(MAKE) CONFIG=sanitize \
+	       CXXFLAGS="$(filter-out -D_FORTIFY_SOURCE=2,$(BASE_CXXFLAGS)) -O1 -g -DOPENSPECTRUM_DEBUG $(SAN)" \
+	       LDFLAGS="$(BASE_LDFLAGS) $(SAN)" \
+	       check
+
 debug:
 	$(MAKE) all
 
@@ -218,4 +227,4 @@ endif
 clean:
 	rm -rf build $(TARGET)
 
-.PHONY: all check clean dist release profile debug
+.PHONY: all check clean dist release profile sanitize debug

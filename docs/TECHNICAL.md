@@ -308,8 +308,10 @@ Sidecar fields a consumer should check before trusting a file:
 
 `make check` builds and runs `tests/`: the logic that can be checked without a
 device or a window (sample queue, capture writer, formatting, plot overlays).
-Everything else is verified by running the program against live hardware or a
-recorded capture (`--play`). Confirm the device is seen first:
+`make sanitize` runs them under ASan and UBSan, where any report fails the
+test (Linux only: MinGW GCC ships no libasan). Everything else is verified by
+running the program against live hardware or a recorded capture (`--play`).
+Confirm the device is seen first:
 
 ```bash
 rtl_test -t       # list available RTL-SDR devices
