@@ -19,7 +19,7 @@ struct ExportResult {
   bool success = false;
   std::string filename;
   std::string metadata_filename;
-  std::string error_message;
+  std::string error_message; // with success: the PNG, but not its sidecar
 };
 
 // Writes a PNG of the display and a JSON metadata sidecar.
@@ -53,7 +53,7 @@ private:
   static std::string metadata_filename_for(const std::string &png_filename);
   ExportResult write_png(const std::string &filename, const uint8_t *data,
                          int width, int height, int stride_bytes);
-  void write_metadata(const std::string &filename, int image_width,
+  bool write_metadata(const std::string &filename, int image_width,
                       int image_height, const std::string &image_type,
                       uint64_t center_freq_hz, uint32_t sample_rate_hz,
                       float gain_db, size_t fft_size,

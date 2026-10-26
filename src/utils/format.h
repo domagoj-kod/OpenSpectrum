@@ -78,4 +78,15 @@ inline std::string escape_json_string(const std::string &str) {
   return result;
 }
 
+// A metadata sidecar, whole, or false: open, write and close are all checked,
+// as a full disk can surface at any of them. Text mode, as the sidecars were.
+inline bool write_text_file(const std::string &path, const std::string &text) {
+  std::FILE *f = std::fopen(path.c_str(), "w");
+  if (f == nullptr) {
+    return false;
+  }
+  bool const wrote = std::fwrite(text.data(), 1, text.size(), f) == text.size();
+  return std::fclose(f) == 0 && wrote;
+}
+
 } // namespace openspectrum

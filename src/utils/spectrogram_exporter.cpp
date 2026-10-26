@@ -88,7 +88,7 @@ ExportResult SpectrogramExporter::write_png(const std::string &filename,
   return result;
 }
 
-void SpectrogramExporter::write_metadata(
+bool SpectrogramExporter::write_metadata(
     const std::string &filename, int image_width, int image_height,
     const std::string &image_type, uint64_t center_freq_hz,
     uint32_t sample_rate_hz, float gain_db, size_t fft_size,
@@ -143,12 +143,7 @@ void SpectrogramExporter::write_metadata(
 
   ss << "}";
 
-  std::string json = ss.str();
-  FILE *f = std::fopen(filename.c_str(), "w");
-  if (f != nullptr) {
-    std::fwrite(json.c_str(), 1, json.size(), f);
-    std::fclose(f);
-  }
+  return write_text_file(filename, ss.str());
 }
 
 ExportResult SpectrogramExporter::export_framebuffer(
@@ -182,11 +177,15 @@ ExportResult SpectrogramExporter::export_framebuffer(
 
   if (result.success && m_config.include_metadata) {
     std::string meta_filename = metadata_filename_for(png_filename);
-    write_metadata(meta_filename, static_cast<int>(width),
-                   static_cast<int>(height), "combined_axes", center_freq_hz,
-                   sample_rate_hz, gain_db, fft_size, window_function,
-                   color_map, notes, iso_ts);
-    result.metadata_filename = meta_filename;
+    if (write_metadata(meta_filename, static_cast<int>(width),
+                       static_cast<int>(height), "combined_axes",
+                       center_freq_hz, sample_rate_hz, gain_db, fft_size,
+                       window_function, color_map, notes, iso_ts)) {
+      result.metadata_filename = meta_filename;
+    } else {
+      // The PNG stands; only its sidecar is missing.
+      result.error_message = "Cannot write metadata: " + meta_filename;
+    }
   }
 
   m_export_count++;

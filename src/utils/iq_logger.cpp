@@ -410,12 +410,10 @@ std::string IqLogger::generate_metadata_json() const {
 }
 
 void IqLogger::write_metadata() {
-  std::string json = generate_metadata_json();
-
-  FILE *meta_file = std::fopen(m_metadata_filename.c_str(), "w");
-  if (meta_file != nullptr) {
-    std::fwrite(json.c_str(), 1, json.size(), meta_file);
-    std::fclose(meta_file);
+  // At stop a failure leaves the start's sidecar, which says 0 samples.
+  if (!write_text_file(m_metadata_filename, generate_metadata_json())) {
+    LOG_ERROR("Cannot write " + m_metadata_filename + ": " +
+              std::strerror(errno));
   }
 }
 

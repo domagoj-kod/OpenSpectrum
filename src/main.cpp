@@ -402,6 +402,8 @@ auto main(int argc, char *argv[]) -> int {
           LOG_INFO("Spectrogram exported: " + result.filename);
           if (!result.metadata_filename.empty()) {
             LOG_INFO("Metadata written: " + result.metadata_filename);
+          } else if (!result.error_message.empty()) {
+            LOG_ERROR(result.error_message);
           }
           renderer.render_status_bar("Exported: " + result.filename);
         } else {
