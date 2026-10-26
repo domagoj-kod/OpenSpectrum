@@ -411,6 +411,7 @@ auto main(int argc, char *argv[]) -> int {
       }
 
       control_state.hold_controls(trigger.frozen);
+      control_state.hold_receiver(iq_logger.is_capturing());
       if (!renderer.poll_events(&control_state)) {
         g_running = false;
         break;
@@ -499,9 +500,10 @@ auto main(int argc, char *argv[]) -> int {
       }
 
       // Ctrl+left-click on either pane recentres there. Ignored while frozen,
-      // which would relabel the held frame; playback's pinned range makes it
-      // a no-op.
-      if (auto click = renderer.take_tune(); click && !trigger.frozen) {
+      // which would relabel the held frame, and while capturing, as the keys
+      // are; playback's pinned range makes it a no-op.
+      if (auto click = renderer.take_tune();
+          click && !trigger.frozen && !iq_logger.is_capturing()) {
         const PlotSpan span{static_cast<double>(control_state.get_frequency()),
                             static_cast<double>(effective_rate),
                             static_cast<float>(spectrum_display.width())};

@@ -57,6 +57,12 @@ public:
   // describing the held frame. main() sets it each frame.
   void hold_controls(bool held) noexcept { m_controls_held = held; }
   bool controls_held() const noexcept { return m_controls_held; }
+  // While a capture runs, the keys for frequency, gain and FFT size do
+  // nothing: the sidecar states one of each for the whole file, and an FFT
+  // change restarts the stream. Window and palette stay free. main() sets it
+  // each frame.
+  void hold_receiver(bool held) noexcept { m_receiver_held = held; }
+  bool receiver_held() const noexcept { return m_receiver_held; }
 
   void set_constraints(const DeviceConstraints &new_constraints);
   const DeviceConstraints &get_constraints() const noexcept {
@@ -161,6 +167,7 @@ private:
   bool m_averaging = true;
   bool m_trace_reset = false;
   bool m_controls_held = false;
+  bool m_receiver_held = false;
 
   // Set when a panel field changes; main re-reads get_status_fields().
   mutable bool m_status_dirty = true;

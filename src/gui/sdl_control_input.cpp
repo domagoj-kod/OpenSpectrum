@@ -30,28 +30,34 @@ auto handle_control_key(ControlState &state, SDL_Keycode key, bool shift_held,
   }
 
   // Frozen: the panel and an export must keep describing the held frame.
-  if (state.controls_held()) {
-    switch (key) {
-    case SDLK_PLUS:
-    case SDLK_EQUALS:
-    case SDLK_MINUS:
-    case SDLK_UNDERSCORE:
-    case SDLK_R:
-    case SDLK_F:
-    case SDLK_1:
-    case SDLK_2:
-    case SDLK_3:
-    case SDLK_4:
-    case SDLK_5:
-    case SDLK_6:
-    case SDLK_7:
-    case SDLK_C:
-    case SDLK_UP:
-    case SDLK_DOWN:
+  // Capturing: the file must keep matching its sidecar.
+  switch (key) {
+  case SDLK_PLUS:
+  case SDLK_EQUALS:
+  case SDLK_MINUS:
+  case SDLK_UNDERSCORE:
+  case SDLK_R:
+  case SDLK_F:
+  case SDLK_1:
+  case SDLK_2:
+  case SDLK_3:
+  case SDLK_4:
+  case SDLK_5:
+  case SDLK_6:
+  case SDLK_7:
+    if (state.controls_held() || state.receiver_held()) {
       return false;
-    default:
-      break;
     }
+    break;
+  case SDLK_C:
+  case SDLK_UP:
+  case SDLK_DOWN:
+    if (state.controls_held()) {
+      return false;
+    }
+    break;
+  default:
+    break;
   }
 
   bool changed = false;

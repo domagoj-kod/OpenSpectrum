@@ -194,6 +194,9 @@ scales it to fill the window — resize or maximize freely, on any display from
   While frozen, the keys for frequency, gain, FFT size, window and palette,
   and Ctrl+click, do nothing: the panel and an export (**`e`**) keep
   describing the held frame.
+- While an IQ capture runs (`REC` in the panel), frequency, gain, FFT size and
+  Ctrl+click do nothing, so the file matches its sidecar throughout. Window
+  and palette still change the display.
 
 ## License
 

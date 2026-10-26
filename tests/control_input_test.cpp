@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Pins the span-relative tuning steps: one span, Shift 0.1 MHz, Ctrl 10 spans;
 // no capture setting changes while a frozen frame is held; the FFT-size keys
-// and the window wrap.
+// and the window wrap; frequency, gain and FFT size hold during a capture.
 
 #undef NDEBUG // these are asserts; they must not compile out
 #include "control_state.h"
@@ -9,6 +9,7 @@
 
 #include <cassert>
 #include <cstddef>
+#include <cstdint>
 
 using openspectrum::ControlState;
 using openspectrum::DeviceConstraints;
@@ -74,4 +75,25 @@ auto main() -> int {
   state.set_window(c.supported_window_functions.front());
   handle_control_key(state, SDLK_DOWN, false, false);
   assert(state.get_window() == c.supported_window_functions.back());
+
+  // Capturing: what the sidecar states stays put; window and palette do not.
+  state.hold_receiver(true);
+  state.clear_fft_change_flag(); // left set by the FFT-size keys above
+  uint64_t const freq = state.get_frequency();
+  float const gain_now = state.get_gain();
+  size_t const fft_now = state.get_fft_size();
+  for (SDL_Keycode const key :
+       {SDLK_PLUS, SDLK_MINUS, SDLK_R, SDLK_F, SDLK_1, SDLK_2, SDLK_7}) {
+    assert(!handle_control_key(state, key, false, false));
+    assert(state.get_frequency() == freq && state.get_gain() == gain_now);
+    assert(state.get_fft_size() == fft_now && !state.fft_size_changed());
+  }
+  size_t const palette_now = state.get_palette_index();
+  assert(handle_control_key(state, SDLK_C, false, false));
+  assert(state.get_palette_index() != palette_now);
+  assert(handle_control_key(state, SDLK_UP, false, false));
+  assert(state.get_window() == c.supported_window_functions.front());
+  state.hold_receiver(false);
+  handle_control_key(state, SDLK_PLUS, false, false);
+  assert(state.get_frequency() > freq);
 }
