@@ -197,6 +197,14 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp | $(BUILD_DIR)
 $(MAIN_OBJ): $(MAIN_SRC) | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(DEPFLAGS) -c $< -o $@
 
+# The objects that stamp VERSION into metadata rebuild when it changes: make
+# tracks timestamps, not flags. The stamp is rewritten only on a change.
+VERSION_SRCS := $(shell grep -l OPENSPECTRUM_VERSION $(ALL_SRCS))
+$(addprefix $(BUILD_DIR)/,$(notdir $(VERSION_SRCS:.cpp=.o))): $(BUILD_DIR)/version
+$(BUILD_DIR)/version: FORCE | $(BUILD_DIR)
+	@[ "$$(cat $@ 2>/dev/null)" = '$(VERSION)' ] || echo '$(VERSION)' > $@
+FORCE:
+
 $(BUILD_DIR)/$(TARGET): $(ALL_OBJS) $(RES_OBJ)
 	$(CXX) $^ -o $@ $(LDFLAGS)
 
