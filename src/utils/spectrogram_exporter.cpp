@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <iomanip>
+#include <mutex>
 #include <sstream>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -152,7 +153,6 @@ ExportResult SpectrogramExporter::export_framebuffer(
     const std::string &window_function, const std::string &color_map,
     const std::string &notes) {
 
-  std::lock_guard<std::mutex> lock(m_mutex);
   ExportResult result;
 
   if (rgba == nullptr || width == 0 || height == 0) {

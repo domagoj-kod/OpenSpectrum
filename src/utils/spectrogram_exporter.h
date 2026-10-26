@@ -3,7 +3,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <mutex>
 #include <string>
 
 namespace openspectrum {
@@ -62,7 +61,6 @@ private:
                       const std::string &iso8601_timestamp);
 
   SpectrogramExportConfig m_config;
-  mutable std::mutex m_mutex;
   uint32_t m_export_count = 0;
 };
 
