@@ -63,6 +63,15 @@ ifeq ($(UHD),1)
     BASE_LDFLAGS := $(filter-out $(STATIC_RUNTIME),$(BASE_LDFLAGS))
 endif
 
+# Clang as a second compiler, opt-in; GCC stays primary.
+ifeq ($(CLANG),1)
+    CXX := clang++
+    LTO := -flto=thin
+    BASE_LDFLAGS += -fuse-ld=lld
+else
+    LTO := -flto=auto
+endif
+
 .DEFAULT_GOAL := all
 CFLAGS   := $(BASE_CFLAGS) -O0 -DOPENSPECTRUM_DEBUG
 CXXFLAGS := $(BASE_CXXFLAGS) -O0 -DOPENSPECTRUM_DEBUG
@@ -78,9 +87,9 @@ TRIM_LDFLAGS := -Wl,--gc-sections
 
 release:
 	$(MAKE) CONFIG=release \
-	       CFLAGS="$(BASE_CFLAGS) -O3 -DNDEBUG -flto=auto -march=haswell $(TRIM_CFLAGS)" \
-	       CXXFLAGS="$(BASE_CXXFLAGS) -O3 -DNDEBUG -flto=auto -march=haswell $(TRIM_CFLAGS)" \
-	       LDFLAGS="$(BASE_LDFLAGS) -s -flto=auto -march=haswell $(TRIM_CFLAGS) $(TRIM_LDFLAGS)" \
+	       CFLAGS="$(BASE_CFLAGS) -O3 -DNDEBUG $(LTO) -march=haswell $(TRIM_CFLAGS)" \
+	       CXXFLAGS="$(BASE_CXXFLAGS) -O3 -DNDEBUG $(LTO) -march=haswell $(TRIM_CFLAGS)" \
+	       LDFLAGS="$(BASE_LDFLAGS) -s $(LTO) -march=haswell $(TRIM_CFLAGS) $(TRIM_LDFLAGS)" \
 	       all
 
 profile:
@@ -96,10 +105,10 @@ debug:
 SRC_DIR := src
 THIRD_PARTY := third_party
 THIRD_PARTY_STB := third_party/stb
-# One object dir per config and per UHD=1: make tracks timestamps, not flags,
-# so a shared dir relinks the other config's objects.
+# One object dir per config, UHD=1 and CLANG=1: make tracks timestamps, not
+# flags, so a shared dir relinks the other config's objects.
 CONFIG ?= debug
-BUILD_DIR := build/$(CONFIG)$(if $(filter 1,$(UHD)),-uhd)
+BUILD_DIR := build/$(CONFIG)$(if $(filter 1,$(UHD)),-uhd)$(if $(filter 1,$(CLANG)),-clang)
 HARDWARE_DIR := $(SRC_DIR)/hardware
 SIGNAL_DIR := $(SRC_DIR)/signal
 FFT_DIR := $(SRC_DIR)/fft

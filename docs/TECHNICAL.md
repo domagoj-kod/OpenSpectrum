@@ -171,6 +171,13 @@ any `cpu` number. What follows from the design:
   string and evicts what was not drawn last frame; glyph textures are
   `STATIC`. A texture created and destroyed per frame is invisible in fps
   under vsync and shows only in `render_build` and instruction counts.
+- **Clang is the second compiler** (`CLANG=1`): `clang++` from the same LLVM
+  as `lint.sh`'s clang-tidy, ThinLTO, lld. Under ThinLTO the loop vectorizer
+  runs at link time, so compile-time remarks come out empty; read them from
+  one file built without LTO, e.g. `make CLANG=1 CONFIG=remarks
+  CXXFLAGS="-std=c++20 -O3 -march=haswell -Rpass=loop-vectorize
+  -Rpass-missed=loop-vectorize" build/remarks-clang/fft_analyzer.o`. Most
+  misses there are PocketFFT's, from its header.
 
 ## Adding a new SDR device
 

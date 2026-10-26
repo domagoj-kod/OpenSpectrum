@@ -19,6 +19,7 @@ make profile         # -O2 -pg
 make check           # build and run tests/
 make dist            # bundle for this platform -> dist/
 make release UHD=1   # any target; adds the USRP source
+make check CLANG=1   # any target; clang++, ThinLTO, lld (GCC stays primary)
 ./lint.sh [--check]  # clang-format + clang-tidy over src/ and tests/ (UHD=1 adds uhd_device.cpp)
 ./bench.sh <bin> <tag>
 ```
