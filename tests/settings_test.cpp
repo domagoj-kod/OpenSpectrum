@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Saved settings: a round trip through the file, junk skipped, receivers kept
-// apart.
+// apart, a NaN gain dropped.
 
 #undef NDEBUG // these are asserts; they must not compile out
 #include "control_state.h"
@@ -80,6 +80,21 @@ auto main() -> int {
          junk.window_function == WindowFunction::BLACKMAN_HARRIS);
   assert(junk.palette_index == 0 && junk.center_freq_hz == 92600000.0);
   assert(junk.gain_db == 33.5F);
+
+  // from_chars reads "nan", and NaN passes std::clamp: set_gain, where every
+  // gain lands, drops it, so it neither reaches the receiver nor comes back.
+  {
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    out << "rtl.gain=nan\n";
+  }
+  AppConfig nan_gain;
+  apply_settings(load_settings(path), nan_gain);
+  ControlState held;
+  held.set_gain(nan_gain.gain_db);
+  assert(held.get_gain() == 20.0F); // ControlState's default
+  Settings resaved;
+  store_settings(resaved, held, nan_gain);
+  assert(resaved.at("rtl.gain") == "20");
 
   // The --window names, any case, '_' for '-'.
   assert(parse_window_name("Flat_Top") == WindowFunction::FLAT_TOP);

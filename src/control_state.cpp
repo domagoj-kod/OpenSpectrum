@@ -6,6 +6,7 @@
 #include "utils/format.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -39,6 +40,11 @@ void ControlState::set_frequency(uint64_t hz) {
 }
 
 void ControlState::set_gain(float db) {
+  // NaN passes std::clamp, and the command line and the settings file read
+  // "nan": keep the gain there is.
+  if (std::isnan(db)) {
+    return;
+  }
   gain_db = std::clamp(db, constraints.min_gain_db, constraints.max_gain_db);
 }
 
