@@ -545,6 +545,19 @@ auto main(int argc, char *argv[]) -> int {
         iq_capture_failed = true;
         LOG_ERROR("IQ capture ended early on a write error");
       }
+      // Here, not after the frame work: a frozen display or a stalled source
+      // skips that, and the capture would run on past its duration.
+      if (iq_logger.is_capturing() && config.iq_capture_duration > 0.0) {
+        double const elapsed =
+            std::chrono::duration<double>(std::chrono::steady_clock::now() -
+                                          iq_capture_start)
+                .count();
+        if (elapsed >= config.iq_capture_duration) {
+          stop_capture();
+          LOG_INFO("IQ capture stopped after duration: " +
+                   std::to_string(config.iq_capture_duration) + " seconds");
+        }
+      }
       if (iq_logger.is_capturing()) {
         auto const seconds = std::chrono::duration_cast<std::chrono::seconds>(
             std::chrono::steady_clock::now() - iq_capture_start);
@@ -681,18 +694,6 @@ auto main(int argc, char *argv[]) -> int {
       frame_timing.add(FrameTiming::ms(t_cpu_start, t_cpu_end),
                        FrameTiming::ms(t_render_start, t_render_end),
                        renderer.last_present_ms());
-
-      if (iq_logger.is_capturing() && config.iq_capture_duration > 0.0) {
-        double const elapsed =
-            std::chrono::duration<double>(std::chrono::steady_clock::now() -
-                                          iq_capture_start)
-                .count();
-        if (elapsed >= config.iq_capture_duration) {
-          stop_capture();
-          LOG_INFO("IQ capture stopped after duration: " +
-                   std::to_string(config.iq_capture_duration) + " seconds");
-        }
-      }
     }
 
     source->stop();

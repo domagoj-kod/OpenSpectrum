@@ -27,8 +27,8 @@ live in `docs/MEASUREMENTS.md`.
   the host ceiling (20 to 24 MS/s), `benchmark_rate`, the Windows UHD build.
   Left: a CW tone by cable (at least 30 dB of attenuation) whose phase stays
   linear over the capture; a one-hour soak; USB pulled mid-capture
-  (`--iq-duration` is checked only while frames arrive); native Linux;
-  `--antenna`, other USRP families, the second channel.
+  (`--iq-duration` should still end it on time; check the sidecar); native
+  Linux; `--antenna`, other USRP families, the second channel.
 ## Declined / out of scope — don't re-tread
 
 - **Re-render at native resolution on maximize** — **declined; fixed 720p
