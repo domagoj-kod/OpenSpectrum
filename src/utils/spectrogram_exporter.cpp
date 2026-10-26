@@ -8,7 +8,6 @@
 #include <cstdio>
 #include <filesystem>
 #include <iomanip>
-#include <mutex>
 #include <sstream>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -64,20 +63,13 @@ ExportResult SpectrogramExporter::write_png(const std::string &filename,
     return result;
   }
 
-  // stbi_write_png_compression_level is a process-wide global, so the set and
-  // restore are serialised across exporters here.
-  static std::mutex s_stbi_compression_mutex;
-  int success = 0;
-  {
-    std::lock_guard<std::mutex> lock(s_stbi_compression_mutex);
-    int previous_compression = stbi_write_png_compression_level;
-    stbi_write_png_compression_level = m_config.png_compression_level;
-
-    success =
-        stbi_write_png(filename.c_str(), width, height, 4, data, stride_bytes);
-
-    stbi_write_png_compression_level = previous_compression;
-  }
+  // stbi_write_png_compression_level is process-wide: lock this set/restore if
+  // an export ever runs off the main thread.
+  int const previous_compression = stbi_write_png_compression_level;
+  stbi_write_png_compression_level = m_config.png_compression_level;
+  int const success =
+      stbi_write_png(filename.c_str(), width, height, 4, data, stride_bytes);
+  stbi_write_png_compression_level = previous_compression;
 
   if (success) {
     result.success = true;
