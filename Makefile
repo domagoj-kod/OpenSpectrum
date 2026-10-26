@@ -19,7 +19,7 @@ ifeq ($(OS),Windows_NT)
     TARGET := openspectrum.exe
 
     BASE_CFLAGS := -g -D_FORTIFY_SOURCE=2 -fstack-protector-strong
-    BASE_CXXFLAGS := -std=c++20 -Wall -Wextra -Wpedantic \
+    BASE_CXXFLAGS := -std=c++20 -g -Wall -Wextra -Wpedantic \
                     -Wshadow -Wconversion \
                     -Wformat=2 \
                     -D_FORTIFY_SOURCE=2 \
@@ -36,7 +36,7 @@ else
     TARGET := openspectrum
 
     BASE_CFLAGS := -g -D_FORTIFY_SOURCE=2 -fstack-protector-strong -fPIE
-    BASE_CXXFLAGS := -std=c++20 -Wall -Wextra -Wpedantic \
+    BASE_CXXFLAGS := -std=c++20 -g -Wall -Wextra -Wpedantic \
                     -Wshadow -Wconversion \
                     -Wformat=2 \
                     -D_FORTIFY_SOURCE=2 \
@@ -104,7 +104,7 @@ profile:
 SAN := -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer
 sanitize:
 	$(MAKE) CONFIG=sanitize \
-	       CXXFLAGS="$(filter-out -D_FORTIFY_SOURCE=2,$(BASE_CXXFLAGS)) -O1 -g -DOPENSPECTRUM_DEBUG $(SAN)" \
+	       CXXFLAGS="$(filter-out -D_FORTIFY_SOURCE=2,$(BASE_CXXFLAGS)) -O1 -DOPENSPECTRUM_DEBUG $(SAN)" \
 	       LDFLAGS="$(BASE_LDFLAGS) $(SAN)" \
 	       check
 
