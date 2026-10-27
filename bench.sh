@@ -109,7 +109,7 @@ for rep in $(seq 1 "$REPS"); do
     cpu=$(grep -o 'cpu avg=[0-9.]*' "$base.log" | tail -n +4 | sed 's/.*=//' \
           | sort -n | awk '{a[NR]=$1} END{if(NR)printf "%.2f", a[int(NR/2)+1]; else print "?"}')
     win=$(grep -c FRAME-TIMING "$base.log")
-    mux=$( ((PERF)) && grep -c '(\([0-9.]\+%\))' "$base-perf.log" || echo 0)
+    mux=$( ((PERF)) && grep -c '(\([0-9.]\+%\))' "$base-perf.log" || true)
     printf 'cpu=%-6s windows=%-3s%s\n' "$cpu" "$win" \
       "$( (( mux > 0 )) && echo "  !! $mux events MULTIPLEXED" )"
     sleep "$SETTLE"
