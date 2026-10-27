@@ -6,13 +6,15 @@ conditions; a figure without them does not belong here. Newest first.
 
 **Summary.** At 2.048 MS/s and the default `--max-fps 30`, every FFT size from
 1024 to 65536 holds 30.0 fps on a 15 W i5-7300U. CPU is not the limit at any
-size; FFT size above 16384 is a power cost, not a frame-rate one.
+size, and FFT size barely moves power: the app adds ~0.7 W of package power
+at every size, 65536 only ~0.07 W more than 4096.
 
 ## Machines
 
 | Name | CPU | Renderer | OS | Notes |
 |---|---|---|---|---|
 | T470 | i5-7300U, 15 W, 2.6 GHz base / 3.5 GHz turbo | Intel HD 620, OpenGL | Ubuntu | `powersave` / `intel_pstate`; SMT off unless noted |
+| T470 (Arch) | the same box | Intel HD 620, OpenGL, native Wayland (KWin) | Arch, kernel 7.2.11, KDE Plasma | `powersave` / `intel_pstate`, EPP `balance_power`, on battery; SMT `notsupported` |
 | 12700H | i7-12700H | Direct3D 11 (Windows 11); OpenGL through WSLg (WSL2) | Windows 11, WSL2 | SMT on (BIOS locked); no `perf` under WSL2 |
 
 ## How to measure
@@ -22,6 +24,9 @@ size; FFT size above 16384 is a power cost, not a frame-rate one.
   another (two cases below: the plan cache and fast-math).
 - Linux: `./bench.sh <binary> <tag>` sweeps the FFT sizes over a `--play`
   capture and logs `FRAME-TIMING` plus `perf` counters and the run conditions.
+  Where Intel RAPL exists it also logs package energy, with an idle stretch per
+  rep to subtract. Run it as yourself: it calls `sudo` for the counter, and
+  `sudo ./bench.sh` drops `WAYLAND_DISPLAY`, so SDL silently falls back to X11.
   Windows: `packaging/play-bench.ps1`. USRP losses: `packaging/uhd-sweep.ps1`.
 - Prefer counters (instructions, cycles) over a fixed workload to wall clock.
   The panel-text entry below is the one to copy.
@@ -53,6 +58,45 @@ So:
 5. A number from another machine is not a wrong number: `cpu` at 65536 is
    ~3.3 ms on the 12700H and ~7 ms on the T470. Retract only on evidence from
    the same box.
+
+## 2026-10-27 · FFT sweep with package energy · v3.12.0 · T470 (Arch)
+
+Release `UHD=1` AppImage, `bench.sh` over a new 30 s capture (92.6 MHz,
+2.048 MS/s), `--max-fps 30`, vsync, 3 × 40 s per size, `perf` exact (nothing
+multiplexed), on battery, `SDL_VIDEO_DRIVER=wayland`. `cpu` pools the
+3 × 36 windows bench.sh keeps. Package power is RAPL `intel-rapl:0` (cores,
+iGPU, uncore; not DRAM, panel or the rest of the board) over each whole
+40 s run. Idle is the same counter over a 40 s `sleep` at the start of each
+rep: 0.67 / 0.62 / 0.63 W. Logs in `data/logs/` (not in git).
+
+| FFT | fps (min) | `cpu` ms | `cpu` median per run | `render_build` ms | `present` ms | package W per run | app W over idle |
+|---|---|---|---|---|---|---|---|
+| 1024 | 30.0 (30.0) | 0.10 | 0.10 / 0.10 / 0.10 | 1.26 | 1.39 | 1.41 / 1.40 / 1.38 | 0.76 |
+| 2048 | 30.0 (30.0) | 0.19 | 0.18 / 0.19 / 0.19 | 1.23 | 1.38 | 1.26 / 1.34 / 1.28 | 0.65 |
+| **4096** | 30.0 (30.0) | **0.46** | 0.46 / 0.48 / 0.41 | 1.49 | 1.46 | 1.37 / 1.31 / 1.29 | **0.68** |
+| 8192 | 30.0 (29.9) | 0.98 | 0.97 / 0.96 / 1.13 | 1.46 | 1.43 | 1.29 / 1.30 / 1.31 | 0.66 |
+| 16384 | 30.0 (29.6) | 2.20 | 2.24 / 2.15 / 2.00 | 1.47 | 1.21 | 1.27 / 1.30 / 1.25 | 0.63 |
+| 32768 | 30.0 (30.0) | 3.77 | 3.71 / 3.88 / 3.90 | 1.05 | 0.91 | 1.31 / 1.34 / 1.35 | 0.69 |
+| 65536 | 30.0 (29.9) | 7.50 | 7.74 / 7.55 / 6.86 | 0.97 | 0.96 | 1.38 / 1.42 / 1.37 | 0.75 |
+
+- **Power is flat in FFT size.** The app roughly doubles package power
+  (+0.63–0.76 W) at every size. Only the ends rise, by ~0.1 W over 16384, with
+  runs that do not overlap it. At 1024 the cost is wakeups: 2000 frames/s
+  through the queue, 84k context switches per run against 24k at 4096. At 65536
+  it is cycles: 11.6 G against 5.1 G at 4096 (+125%), yet only ~0.07 W more.
+  The cycle count overstated FFT size as a power cost; the likely reason, not
+  separated here, is that cycles at low clocks are cheap next to the iGPU and
+  compositing that every size pays alike.
+- **`cpu` matches v3.9.1 on Ubuntu** (2026-07-15): within 0.03 ms of it up to
+  8192 and inside its two runs above. Whole-process cycles are higher than
+  July's: 4096 3.16 → 5.15 G, 65536 9.13 → 11.57 G. The DSP time is unchanged, so the extra cycles lie outside
+  it; the canvas (1050×576 then), KWin and EPP were not separated.
+- **The first ~12 s of every run cost more**: `cpu` climbs ~0.2 ms per
+  second, then drops to the steady value. Until the waterfall history is
+  full, `WaterfallDisplay::render()` repaints every line each frame. That adds
+  up to ~2.5 ms at any size, far under the 33 ms frame, but it is in every
+  figure above. v3.9.1 has the same code path; its energy share was not
+  separated.
 
 ## 2026-10-14 · Baseline matrix · `b389cba` · 12700H
 

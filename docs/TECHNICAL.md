@@ -156,9 +156,10 @@ any `cpu` number. What follows from the design:
   above the 30 fps cap. At that size raising `--max-fps` above 31 does nothing,
   and any dip in supply drops a frame. 131072 would need four RTL callbacks per
   frame (~15.6 lines/s) and is not offered.
-- **`--max-fps` is the power control.** FFT size is a second-order one up to
-  16384; 32768 and 65536 nearly triple the cycles of the 4096 default and pull
-  the clock up with them. They are for narrow-signal work, not the default.
+- **`--max-fps` is the power control.** FFT size is a second-order one at
+  every size: 65536 runs more than twice the cycles of the 4096 default, yet
+  adds only ~0.07 W of package power on the T470. The large sizes are for
+  narrow-signal work, not the default.
 - **The transform is the DSP.** PocketFFT is ~70% of the per-frame work at
   65536; everything around it is AVX2 and already negligible.
 - **Memory is bounded**: the frame pool is 12 frames × `fft_size` × 8 B, the
