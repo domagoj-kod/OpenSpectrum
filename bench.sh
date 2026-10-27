@@ -67,6 +67,32 @@ if ((PERF)); then
   fi
 fi
 
+# --- package energy (RAPL) -------------------------------------------------
+# Intel's package counter (cores + iGPU) covers the whole box, not this process,
+# so each rep also meters an idle stretch of the same length to subtract.
+# energy_uj is root-only since CVE-2020-8694, hence sudo.
+RAPL=/sys/class/powercap/intel-rapl:0
+ENERGY=0
+if E_MAX=$(cat "$RAPL/max_energy_range_uj" 2>/dev/null) && sudo cat "$RAPL/energy_uj" >/dev/null; then
+  ENERGY=1
+else
+  echo "!! no RAPL counter -- logging without energy" >&2
+fi
+# Runs "$@"; appends "label joules seconds watts" to the energy log, sets POW.
+POW=""
+metered() {
+  local label=$1 e0 t0 e1 t1
+  shift
+  ((ENERGY)) || { "$@"; return; }
+  e0=$(sudo cat "$RAPL/energy_uj"); t0=$(date +%s%N)
+  "$@"
+  t1=$(date +%s%N); e1=$(sudo cat "$RAPL/energy_uj")
+  # The counter wraps at max_energy_range_uj.
+  awk -v l="$label" -v e=$(( (e1 - e0 + E_MAX) % E_MAX )) -v t=$(( t1 - t0 )) \
+    'BEGIN{printf "%s %.1f %.2f %.2f\n", l, e/1e6, t/1e9, e*1e3/t}' >> "$OUT/$TAG-energy.txt"
+  POW="  $(tail -n1 "$OUT/$TAG-energy.txt" | cut -d' ' -f4) W"
+}
+
 # --- provenance ------------------------------------------------------------
 HDR="$OUT/$TAG-conditions.txt"
 {
@@ -80,7 +106,13 @@ HDR="$OUT/$TAG-conditions.txt"
   echo "smt:        $(cat /sys/devices/system/cpu/smt/control 2>/dev/null || echo unknown)"
   echo "governor:   $(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null || echo unknown)"
   echo "driver:     $(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_driver 2>/dev/null || echo unknown)"
+  echo "epp:        $(cat /sys/devices/system/cpu/cpu0/cpufreq/energy_performance_preference 2>/dev/null || echo unknown)"
+  echo "profile:    $(cat /sys/firmware/acpi/platform_profile 2>/dev/null || echo unknown)"
+  echo "on AC:      $(cat /sys/class/power_supply/A*/online 2>/dev/null || echo unknown)"
+  echo "kernel:     $(uname -r)"
+  echo "session:    ${XDG_SESSION_TYPE:-unknown}"
   echo "perf:       $( ((PERF)) && echo yes || echo no )"
+  echo "energy:     $( ((ENERGY)) && echo "RAPL package, $TAG-energy.txt" || echo no )"
   echo "events:     $EVENTS"
   echo "sweep:      sizes=[$SIZES] reps=$REPS dur=${DUR}s settle=${SETTLE}s"
 } | tee "$HDR"
@@ -94,15 +126,21 @@ cat "$CAP" > /dev/null
 # Reps are the OUTER loop: each rep sweeps every size, so thermal drift spreads
 # across all sizes instead of landing on whichever ran last.
 for rep in $(seq 1 "$REPS"); do
+  if ((ENERGY)); then
+    printf '==> %-10s idle        rep=%s ... ' "$TAG" "$rep"
+    metered "idle-r$rep" sleep "$DUR"
+    echo "${POW#  }"
+    sleep "$SETTLE"
+  fi
   for n in $SIZES; do
     base="$OUT/$TAG-$n-r$rep"
     printf '==> %-10s fft=%-6s rep=%s ... ' "$TAG" "$n" "$rep"
     if ((PERF)); then
-      perf stat -e "$EVENTS" -o "$base-perf.log" \
+      metered "$n-r$rep" perf stat -e "$EVENTS" -o "$base-perf.log" \
         -- timeout -s INT "$DUR" "$BIN" --play "$CAP" --fft-size "$n" \
         > "$base.log" 2>&1
     else
-      timeout -s INT "$DUR" "$BIN" --play "$CAP" --fft-size "$n" > "$base.log" 2>&1
+      metered "$n-r$rep" timeout -s INT "$DUR" "$BIN" --play "$CAP" --fft-size "$n" > "$base.log" 2>&1
     fi
     # SIGINT so the app shuts down cleanly and flushes its log; SIGKILL truncates
     # it. timeout exits 124 on the kill -- that is success here, not a failure.
@@ -110,7 +148,7 @@ for rep in $(seq 1 "$REPS"); do
           | sort -n | awk '{a[NR]=$1} END{if(NR)printf "%.2f", a[int(NR/2)+1]; else print "?"}')
     win=$(grep -c FRAME-TIMING "$base.log")
     mux=$( ((PERF)) && grep -c '(\([0-9.]\+%\))' "$base-perf.log" || true)
-    printf 'cpu=%-6s windows=%-3s%s\n' "$cpu" "$win" \
+    printf 'cpu=%-6s windows=%-3s%s%s\n' "$cpu" "$win" "$POW" \
       "$( (( mux > 0 )) && echo "  !! $mux events MULTIPLEXED" )"
     sleep "$SETTLE"
   done
